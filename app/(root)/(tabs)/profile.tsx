@@ -1,0 +1,699 @@
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import {
+  StyleSheet,
+  Text,
+  View,
+  Image,
+  TouchableOpacity,
+  ScrollView,
+  RefreshControl,
+  FlatList,
+  Dimensions,
+  ActivityIndicator,
+  Share,
+  Alert,
+} from "react-native";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { router, useFocusEffect } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
+import { Video } from "expo-av";
+import { supabase } from "@/lib/supabase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
+
+const Profile = () => {
+  const [userId, setUserId] = useState<string | null>(null);
+  const [posts, setPosts] = useState<any[]>([]);
+  const [bookmarks, setBookmarks] = useState<any[]>([]);
+  const [reels, setReels] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState("posts");
+  const [refreshing, setRefreshing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [userInfo, setUserInfo] = useState({
+    username: "Username",
+    bio: "Bio goes here",
+    followers: 0,
+    following: 0,
+    avatar: "https://via.placeholder.com/150",
+    accountType: "PERSONAL",
+    gender: "",
+  });
+
+  const { fetchUserProfile, fetchPosts, fetchBookmarks, fetchReels, loading } =
+    useSupabaseFetch();
+
+  // Ref to store video refs for controlling playback
+  const videoRefs = useRef<Map<string, any>>(new Map());
+
+  // Pause all videos
+  const pauseAllVideos = useCallback(() => {
+    videoRefs.current.forEach((videoRef) => {
+      videoRef.current?.pauseAsync().catch((err) => {
+        console.warn("Error pausing video:", err);
+      });
+    });
+  }, []);
+
+  // Handle screen focus/unfocus
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        pauseAllVideos();
+      };
+    }, [pauseAllVideos])
+  );
+
+  const fetchUserData = async () => {
+    try {
+      if (!userId) return;
+      const userProfile = await fetchUserProfile(userId);
+      setUserInfo({
+        username: userProfile.username || "Username",
+        bio: userProfile.bio || "Bio goes here",
+        followers: userProfile.followersCount || 0,
+        following: userProfile.followingCount || 0,
+        avatar: userProfile.avatar_url || "https://via.placeholder.com/150",
+        accountType: userProfile.account_type || "PERSONAL",
+        gender: userProfile.gender || "",
+      });
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+    }
+  };
+
+  const fetchUserPosts = async () => {
+    try {
+      if (!userId) return;
+      const userPosts = await fetchPosts(userId);
+      setPosts(userPosts || []);
+    } catch (error) {
+      console.error("Error fetching posts:", error);
+    }
+  };
+
+  const fetchUserBookmarks = async () => {
+    try {
+      if (!userId) return;
+      const userBookmarks = await fetchBookmarks(userId);
+      setBookmarks(userBookmarks || []);
+    } catch (error) {
+      console.error("Error fetching bookmarks:", error);
+    }
+  };
+
+  const fetchUserReels = async () => {
+    try {
+      if (!userId) return;
+      const userReels = await fetchReels(userId);
+      setReels(userReels || []);
+    } catch (error) {
+      console.error("Error fetching reels:", error);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        fetchUserData(),
+        fetchUserPosts(),
+        fetchUserBookmarks(),
+        fetchUserReels(),
+      ]);
+    } catch (error) {
+      console.error("Error refreshing data:", error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleShare = async () => {
+    try {
+      await Share.share({
+        message: `Check out ${userInfo.username}'s profile on KlickTape!`,
+      });
+    } catch (error) {
+      console.error("Error sharing profile:", error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      router.replace("/sign-in");
+    } catch (error) {
+      console.error("Error logging out:", error);
+    }
+  };
+
+  const handleDeletePost = async (postId: string) => {
+    Alert.alert(
+      "Delete Post",
+      "Are you sure you want to delete this post? This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { data: post, error: postError } = await supabase
+                .from("posts")
+                .select("image_urls")
+                .eq("id", postId)
+                .eq("user_id", userId)
+                .single();
+
+              if (postError || !post)
+                throw postError || new Error("Post not found");
+
+              if (post.image_urls && post.image_urls.length > 0) {
+                const filePaths = post.image_urls.map((url) =>
+                  url.split("/").slice(-2).join("/")
+                );
+                const { error: storageError } = await supabase.storage
+                  .from("media")
+                  .remove(filePaths);
+
+                if (storageError) throw storageError;
+              }
+
+              const { error: postDeleteError } = await supabase
+                .from("posts")
+                .delete()
+                .eq("id", postId)
+                .eq("user_id", userId);
+
+              if (postDeleteError) throw postDeleteError;
+
+              setPosts(posts.filter((post) => post.id !== postId));
+              Alert.alert("Success", "Post deleted successfully.");
+            } catch (error) {
+              console.error(
+                "Error deleting post:",
+                JSON.stringify(error, null, 2)
+              );
+              Alert.alert("Error", "Failed to delete post. Please try again.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteReel = async (reelId: string) => {
+    Alert.alert(
+      "Delete Reel",
+      "Are you sure you want to delete this reel? This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { data: reel, error: reelError } = await supabase
+                .from("reels")
+                .select("video_url")
+                .eq("id", reelId)
+                .eq("user_id", userId)
+                .single();
+
+              if (reelError || !reel)
+                throw reelError || new Error("Reel not found");
+
+              if (reel.video_url) {
+                const filePath = reel.video_url.split("/").slice(-2).join("/");
+                const { error: storageError } = await supabase.storage
+                  .from("media")
+                  .remove([filePath]);
+
+                if (storageError) throw storageError;
+              }
+
+              const { error: deleteError } = await supabase
+                .from("reels")
+                .delete()
+                .eq("id", reelId)
+                .eq("user_id", userId);
+
+              if (deleteError) throw deleteError;
+
+              setReels(reels.filter((reel) => reel.id !== reelId));
+              Alert.alert("Success", "Reel deleted successfully.");
+            } catch (error) {
+              console.error(
+                "Error deleting reel:",
+                JSON.stringify(error, null, 2)
+              );
+              Alert.alert("Error", "Failed to delete reel. Please try again.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  useEffect(() => {
+    const getUserFromStorage = async () => {
+      try {
+        const userData = await AsyncStorage.getItem("user");
+        if (userData) {
+          const user = JSON.parse(userData);
+          setUserId(user.id);
+        }
+      } catch (error) {
+        console.error("Error getting user from storage:", error);
+      }
+    };
+
+    getUserFromStorage();
+  }, []);
+
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoading(true);
+      try {
+        await Promise.all([
+          fetchUserData(),
+          fetchUserPosts(),
+          fetchUserBookmarks(),
+          fetchUserReels(),
+        ]);
+      } catch (error) {
+        console.error("Error loading data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (userId) {
+      loadData();
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    return () => {
+      pauseAllVideos();
+      videoRefs.current.clear();
+    };
+  }, [pauseAllVideos]);
+
+  const renderPost = ({ item }: { item: any }) => (
+    <View style={styles.postContainer}>
+      <TouchableOpacity
+        style={styles.postThumbnail}
+        onPress={() => router.push(`/post/${item.id}`)}
+      >
+        <Image
+          source={{ uri: item.image_urls[0] }}
+          style={styles.thumbnailImage}
+        />
+      </TouchableOpacity>
+      {activeTab === "posts" && item.user_id === userId && (
+        <TouchableOpacity
+          style={styles.deleteButton}
+          onPress={() => handleDeletePost(item.id)}
+        >
+          <Feather name="trash-2" size={16} color="#FFD700" />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
+  const ReelItem = React.memo(({ item }: { item: any }) => {
+    const videoRef = useRef<any>(null);
+
+    useEffect(() => {
+      videoRefs.current.set(item.id, videoRef);
+      return () => {
+        videoRefs.current.delete(item.id);
+      };
+    }, [item.id]);
+
+    return (
+      <View style={styles.postContainer}>
+        <TouchableOpacity
+          style={styles.postThumbnail}
+          onPress={() => {
+            pauseAllVideos();
+            router.push(`/reel/${item.id}`);
+          }}
+        >
+          <Video
+            ref={videoRef}
+            source={{ uri: item.video_url }}
+            style={styles.thumbnailImage}
+            shouldPlay={activeTab === "reels"}
+            isMuted={true}
+            useNativeControls={false}
+            isLooping={false}
+            resizeMode="cover"
+          />
+        </TouchableOpacity>
+        {activeTab === "reels" && (
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={() => handleDeleteReel(item.id)}
+          >
+            <Feather name="trash-2" size={16} color="#FFD700" />
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  });
+
+  return (
+    <LinearGradient
+      colors={["#000000", "#1a1a1a", "#2a2a2a"]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.container}
+    >
+      <View style={styles.header}>
+        <Text className="font-rubik-bold" style={styles.headerTitle}>
+          Profile
+        </Text>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity onPress={() => router.push("/create")}>
+            <Feather name="plus-square" size={24} color="#FFD700" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleShare}>
+            <Feather name="share-2" size={24} color="#FFD700" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleLogout}>
+            <Feather name="log-out" size={24} color="#FF6B6B" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#FFD700" />
+        </View>
+      ) : (
+        <ScrollView
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor="#FFD700"
+              colors={["#FFD700"]}
+            />
+          }
+          style={styles.scrollView}
+        >
+          <View style={styles.profileInfo}>
+            <Image
+              source={{ uri: userInfo.avatar }}
+              style={styles.profileImage}
+            />
+            <View style={styles.statsContainer}>
+              <View style={styles.stat}>
+                <Text className="font-rubik-bold" style={styles.statNumber}>
+                  {posts.length}
+                </Text>
+                <Text className="font-rubik-medium" style={styles.statLabel}>
+                  Posts
+                </Text>
+              </View>
+              <View style={styles.stat}>
+                <Text className="font-rubik-bold" style={styles.statNumber}>
+                  {userInfo.followers}
+                </Text>
+                <Text className="font-rubik-medium" style={styles.statLabel}>
+                  Followers
+                </Text>
+              </View>
+              <View style={styles.stat}>
+                <Text className="font-rubik-bold" style={styles.statNumber}>
+                  {userInfo.following}
+                </Text>
+                <Text className="font-rubik-medium" style={styles.statLabel}>
+                  Following
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.bioSection}>
+            <View style={styles.bioHeader}>
+              <View style={styles.bioTextContainer}>
+                <Text className="font-rubik-bold" style={styles.username}>
+                  {userInfo.username}
+                </Text>
+                <Text className="font-rubik-medium" style={styles.bio}>
+                  {userInfo.bio}
+                </Text>
+              </View>
+              <View style={styles.infoContainer}>
+                <Text className="font-rubik-medium" style={styles.infoText}>
+                  {userInfo.accountType.charAt(0).toUpperCase() +
+                    userInfo.accountType.slice(1).toLowerCase()}{" "}
+                  Account
+                </Text>
+                {userInfo.gender && (
+                  <Text className="font-rubik-medium" style={styles.infoText}>
+                    {userInfo.gender.charAt(0).toUpperCase() +
+                      userInfo.gender.slice(1).toLowerCase()}
+                  </Text>
+                )}
+              </View>
+            </View>
+            <TouchableOpacity
+              style={styles.editButton}
+              onPress={() => router.push("/edit-profile")}
+            >
+              <Text className="font-rubik-bold" style={styles.editButtonText}>
+                Edit Profile
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.tabsContainer}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "posts" && styles.activeTab]}
+              onPress={() => {
+                pauseAllVideos();
+                setActiveTab("posts");
+              }}
+            >
+              <MaterialCommunityIcons
+                name="grid"
+                size={24}
+                color={
+                  activeTab === "posts" ? "#FFD700" : "rgba(255, 215, 0, 0.7)"
+                }
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "saved" && styles.activeTab]}
+              onPress={() => {
+                pauseAllVideos();
+                setActiveTab("saved");
+              }}
+            >
+              <Feather
+                name="bookmark"
+                size={24}
+                color={
+                  activeTab === "saved" ? "#FFD700" : "rgba(255, 215, 0, 0.7)"
+                }
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "reels" && styles.activeTab]}
+              onPress={() => {
+                pauseAllVideos();
+                setActiveTab("reels");
+              }}
+            >
+              <Feather
+                name="video"
+                size={24}
+                color={
+                  activeTab === "reels" ? "#FFD700" : "rgba(255, 215, 0, 0.7)"
+                }
+              />
+            </TouchableOpacity>
+          </View>
+
+          <FlatList
+            data={
+              activeTab === "posts"
+                ? posts
+                : activeTab === "saved"
+                ? bookmarks
+                : reels
+            }
+            renderItem={({ item }) =>
+              activeTab === "reels" ? (
+                <ReelItem item={item} />
+              ) : (
+                renderPost({ item })
+              )
+            }
+            numColumns={3}
+            keyExtractor={(item) => item.id}
+            scrollEnabled={false}
+            contentContainerStyle={styles.postsContainer}
+          />
+        </ScrollView>
+      )}
+    </LinearGradient>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 215, 0, 0.2)",
+  },
+  headerTitle: {
+    fontSize: 20,
+    color: "#FFD700",
+  },
+  headerButtons: {
+    flexDirection: "row",
+    gap: 16,
+  },
+  profileInfo: {
+    flexDirection: "row",
+    padding: 16,
+    alignItems: "center",
+  },
+  profileImage: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    marginRight: 16,
+    borderWidth: 2,
+    borderColor: "rgba(255, 215, 0, 0.3)",
+  },
+  statsContainer: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "space-around",
+  },
+  stat: {
+    alignItems: "center",
+  },
+  statNumber: {
+    fontSize: 18,
+    color: "#ffffff",
+  },
+  statLabel: {
+    color: "#ffffff",
+    fontSize: 14,
+  },
+  username: {
+    fontSize: 16,
+    color: "#ffffff",
+  },
+  bio: {
+    marginTop: 6,
+    color: "#ffffff",
+    fontSize: 14,
+  },
+  bioSection: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  bioHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  bioTextContainer: {
+    flex: 1,
+  },
+  infoContainer: {
+    flexDirection: "column",
+    alignItems: "flex-end",
+    marginLeft: 16,
+  },
+  infoText: {
+    fontSize: 14,
+    color: "#ffffff",
+    opacity: 0.8,
+  },
+  editButton: {
+    marginTop: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255, 215, 0, 0.3)",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 215, 0, 0.1)",
+  },
+  editButtonText: {
+    color: "#ffffff",
+    fontSize: 14,
+  },
+  tabsContainer: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255, 215, 0, 0.2)",
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
+  },
+  tab: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+  },
+  activeTab: {
+    borderBottomColor: "#FFD700",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  postThumbnail: {
+    width: (Dimensions.get("window").width - 36) / 3,
+    height: (Dimensions.get("window").width - 36) / 3,
+    margin: 6,
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "rgba(255, 215, 0, 0.1)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  thumbnailImage: {
+    width: "100%",
+    height: "100%",
+  },
+  postContainer: {
+    position: "relative",
+  },
+  postsContainer: {
+    paddingHorizontal: 1,
+    paddingBottom: 16,
+  },
+  deleteButton: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    borderRadius: 12,
+    padding: 6,
+    zIndex: 1,
+  },
+});
+
+export default Profile;

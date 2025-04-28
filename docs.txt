@@ -1,0 +1,51 @@
+Anonymous Social Media Platform - Task Document
+
+1. User Features:
+
+User Feed: Implement a scrolling feed displaying posts from various users.
+
+Stories: Add a feature to allow users to post temporary updates.
+
+Videos (Reels): Create a section where users can upload and view short video clips.
+
+Anonymous Rooms: Enable users to join and participate in discussions anonymously.
+
+Chat System: Develop a secure messaging system for users.
+
+Search or Explore: Implement a search and explore feature to discover content and users.
+
+Notifications: Set up real-time notifications for user interactions.
+
+User Profile: Design customizable user profiles.
+
+Settings: Provide options for users to manage their account preferences.
+
+2. Admin Features:
+
+Dashboard: Create a centralized admin panel for monitoring the platform.
+
+User List Management: Enable admins to add, update, or delete users.
+
+Content Moderation: Implement tools for blocking or deleting inappropriate content.
+
+Settings: Provide configurations for managing platform rules and policies.
+
+3. Development Tasks:
+
+UI/UX Design: Design an intuitive and engaging interface.
+
+Database Setup: Configure a scalable database to store user data, content, and logs.
+
+Authentication System: Implement secure login and anonymous access options.
+
+Backend Development: Develop APIs and services for seamless platform functionality.
+
+Real-Time Features: Integrate WebSockets for instant messaging and notifications.
+
+Content Filtering: Apply AI-based moderation for user-generated content.
+
+Security Measures: Implement encryption, data protection, and anti-spam measures.
+
+Performance Optimization: Ensure smooth performance with load balancing and caching.
+
+Deployment & Maintenance: Set up cloud hosting and schedule regular updates.

@@ -1,0 +1,554 @@
+import React, { useEffect, useState, useRef } from 'react';
+import {
+  View,
+  StyleSheet,
+  ActivityIndicator,
+  Dimensions,
+  Text,
+  TouchableOpacity,
+  Image,
+  Pressable,
+} from 'react-native';
+import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Feather, AntDesign, Ionicons } from '@expo/vector-icons';
+import { Share } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { useEvent } from 'expo';
+import { supabase } from '@/lib/supabase';
+import { reelsAPI } from '@/lib/reelsApi';
+
+const { width, height } = Dimensions.get('window');
+
+const ReelDetail = () => {
+  const { id } = useLocalSearchParams();
+  const [reel, setReel] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isLiked, setIsLiked] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [showFullCaption, setShowFullCaption] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const isMounted = useRef(true);
+
+  // Initialize VideoPlayer with null source
+  const player = useVideoPlayer(null, player => {
+    player.loop = true;
+    player.muted = false;
+  });
+
+  // Animation values for action buttons
+  const scaleValues = {
+    like: useSharedValue(1),
+    comment: useSharedValue(1),
+    share: useSharedValue(1),
+    mute: useSharedValue(1),
+    playPause: useSharedValue(1),
+  };
+
+  // Listen to player status changes
+  const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing });
+  const { status, error: playerError } = useEvent(player, 'statusChange', {
+    status: player.status,
+    error: null,
+  });
+
+  useEffect(() => {
+    isMounted.current = true;
+
+    const fetchReel = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error('User not authenticated');
+
+        // Fetch reel data using Supabase
+        const { data, error } = await supabase
+          .from('reels')
+          .select(`
+            id,
+            user_id,
+            video_url,
+            thumbnail_url,
+            caption,
+            likes_count,
+            comments_count,
+            created_at,
+            user:users(username, avatar)
+          `)
+          .eq('id', id)
+          .single();
+
+        if (error || !data) throw new Error(`Failed to fetch reel: ${error?.message || 'No data'}`);
+
+        // Check if user has liked the reel
+        const { data: likeData } = await supabase
+          .from('reel_likes')
+          .select('id')
+          .eq('reel_id', id)
+          .eq('user_id', user.id)
+          .single();
+
+        const reelData = {
+          id: data.id,
+          userId: data.user_id,
+          videoUrl: data.video_url,
+          thumbnailUrl: data.thumbnail_url,
+          caption: data.caption || '',
+          likesCount: data.likes_count || 0,
+          commentsCount: data.comments_count || 0,
+          user: data.user || { username: 'Unknown User', avatar: 'https://via.placeholder.com/150' },
+          is_liked: !!likeData,
+        };
+
+        if (!isMounted.current) return;
+
+        setReel(reelData);
+        setIsLiked(reelData.is_liked);
+
+        // Load video source into player
+        try {
+          player.replace(reelData.videoUrl);
+          player.play();
+        } catch (err) {
+          console.error('Error loading video:', err);
+          throw new Error('Failed to load video');
+        }
+
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching reel:', error);
+        if (!isMounted.current) return;
+
+        if (retryCount < 3) {
+          setTimeout(() => setRetryCount(prev => prev + 1), 2000);
+        } else {
+          setError('Failed to load reel. Please try again.');
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchReel();
+
+    return () => {
+      isMounted.current = false;
+      try {
+        player.pause();
+      } catch (err) {
+        console.warn('Error pausing player on unmount:', err);
+      }
+    };
+  }, [id, retryCount, player]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (isMounted.current && reel) {
+        try {
+          player.play();
+        } catch (err) {
+          console.warn('Error playing video on focus:', err);
+        }
+      }
+      return () => {
+        if (isMounted.current) {
+          try {
+            player.pause();
+          } catch (err) {
+            console.warn('Error pausing video on blur:', err);
+          }
+        }
+      };
+    }, [player, reel])
+  );
+
+  useEffect(() => {
+    if (playerError && isMounted.current) {
+      console.error('Video player error:', playerError);
+      if (retryCount < 3) {
+        setTimeout(() => setRetryCount(prev => prev + 1), 2000);
+      } else {
+        setError('Video format not supported on this device. Please try another video.');
+      }
+    }
+  }, [playerError, retryCount]);
+
+  const handleLike = async () => {
+    try {
+      const { is_liked, likes_count } = await reelsAPI.toggleReelLike(reel.id, isLiked);
+      if (!isMounted.current) return;
+
+      setIsLiked(is_liked);
+      scaleValues.like.value = withSpring(1.2, {}, () => {
+        scaleValues.like.value = withSpring(1);
+      });
+      setReel(prev => ({
+        ...prev,
+        likesCount: likes_count,
+      }));
+    } catch (error) {
+      console.error('Error toggling like:', error);
+    }
+  };
+
+  const handleShare = async () => {
+    try {
+      await Share.share({
+        message: `Check out this reel: ${reel.caption}\n${reel.videoUrl}`,
+      });
+      if (!isMounted.current) return;
+
+      scaleValues.share.value = withSpring(1.2, {}, () => {
+        scaleValues.share.value = withSpring(1);
+      });
+    } catch (error) {
+      console.error('Error sharing reel:', error);
+    }
+  };
+
+  const handleComment = () => {
+    if (!isMounted.current) return;
+
+    scaleValues.comment.value = withSpring(1.2, {}, () => {
+      scaleValues.comment.value = withSpring(1);
+    });
+    try {
+      player.pause();
+    } catch (err) {
+      console.warn('Error pausing video before comment navigation:', err);
+    }
+    router.push(`/reels-comments?reelId=${reel.id}`);
+  };
+
+  const handleMute = () => {
+    if (!isMounted.current) return;
+
+    setIsMuted(!isMuted);
+    try {
+      player.muted = !isMuted;
+    } catch (err) {
+      console.warn('Error toggling mute:', err);
+    }
+    scaleValues.mute.value = withSpring(1.2, {}, () => {
+      scaleValues.mute.value = withSpring(1);
+    });
+  };
+
+  const handlePlayPause = () => {
+    if (!isMounted.current) return;
+
+    try {
+      if (isPlaying) {
+        player.pause();
+      } else {
+        player.play();
+      }
+    } catch (err) {
+      console.warn('Error toggling play/pause:', err);
+    }
+    scaleValues.playPause.value = withSpring(1.2, {}, () => {
+      scaleValues.playPause.value = withSpring(1);
+    });
+  };
+
+  const handleProfilePress = () => {
+    if (!isMounted.current) return;
+
+    console.log('Navigating to user profile with ID:', reel.userId);
+    try {
+      player.pause();
+    } catch (err) {
+      console.warn('Error pausing video before profile navigation:', err);
+    }
+    router.push(`/userProfile/${reel.userId}`);
+  };
+
+  const handleBack = () => {
+    if (!isMounted.current) return;
+
+    try {
+      player.pause();
+    } catch (err) {
+      console.warn('Error pausing video before back navigation:', err);
+    }
+    router.back();
+  };
+
+  const animatedStyles = {
+    like: useAnimatedStyle(() => ({ transform: [{ scale: scaleValues.like.value }] })),
+    comment: useAnimatedStyle(() => ({ transform: [{ scale: scaleValues.comment.value }] })),
+    share: useAnimatedStyle(() => ({ transform: [{ scale: scaleValues.share.value }] })),
+    mute: useAnimatedStyle(() => ({ transform: [{ scale: scaleValues.mute.value }] })),
+    playPause: useAnimatedStyle(() => ({ transform: [{ scale: scaleValues.playPause.value }] })),
+  };
+
+  if (loading) {
+    return (
+      <LinearGradient
+        colors={['#000000', '#1a1a1a', '#2a2a2a']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.loadingContainer}
+      >
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="large" color="#FFD700" />
+        </View>
+      </LinearGradient>
+    );
+  }
+
+  if (error) {
+    return (
+      <LinearGradient
+        colors={['#000000', '#1a1a1a', '#2a2a2a']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.errorContainer}
+      >
+        <Text className="font-rubik-regular" style={styles.errorText}>
+          {error}
+        </Text>
+        <TouchableOpacity onPress={handleBack}>
+          <Text className="font-rubik-medium" style={styles.backText}>
+            Go Back
+          </Text>
+        </TouchableOpacity>
+      </LinearGradient>
+    );
+  }
+
+  if (!reel) {
+    return null;
+  }
+
+  const caption = reel.caption.length > 100 && !showFullCaption
+    ? reel.caption.slice(0, 100) + '...'
+    : reel.caption;
+
+  return (
+    <LinearGradient
+      colors={['#000000', '#1a1a1a', '#2a2a2a']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.container}
+    >
+      <VideoView
+        style={styles.video}
+        player={player}
+        contentFit="contain"
+        nativeControls={false}
+        posterSource={reel.thumbnailUrl ? { uri: reel.thumbnailUrl } : undefined}
+      />
+
+      <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+        <Ionicons name="arrow-back" size={24} color="#FFD700" />
+      </TouchableOpacity>
+
+      <LinearGradient
+        colors={['transparent', 'rgba(0, 0, 0, 0.9)']}
+        style={styles.gradientOverlay}
+      >
+        <Pressable style={styles.userInfo} onPress={handleProfilePress}>
+          <Image source={{ uri: reel.user.avatar }} style={styles.avatar} />
+          <Text className="font-rubik-bold" style={styles.username}>
+            {reel.user.username}
+          </Text>
+        </Pressable>
+
+        <View style={styles.captionContainer}>
+          <Text className="font-rubik-regular" style={styles.caption}>
+            {caption}
+          </Text>
+          {reel.caption.length > 100 && (
+            <TouchableOpacity onPress={() => setShowFullCaption(!showFullCaption)}>
+              <Text className="font-rubik-medium" style={styles.showMore}>
+                {showFullCaption ? 'Show less' : 'Show more'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.actions}>
+          <Animated.View style={[styles.actionButton, animatedStyles.like]}>
+            <TouchableOpacity onPress={handleLike}>
+              <AntDesign
+                name={isLiked ? 'heart' : 'hearto'}
+                size={24}
+                color={isLiked ? '#FFD700' : '#ffffff'}
+              />
+              <Text className="font-rubik-regular" style={styles.actionText}>
+                {reel.likesCount}
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
+
+          <Animated.View style={[styles.actionButton, animatedStyles.comment]}>
+            <TouchableOpacity onPress={handleComment}>
+              <Feather name="message-circle" size={24} color="#FFD700" />
+              <Text className="font-rubik-regular" style={styles.actionText}>
+                {reel.commentsCount}
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
+
+          <Animated.View style={[styles.actionButton, animatedStyles.share]}>
+            <TouchableOpacity onPress={handleShare}>
+              <Feather name="share" size={24} color="#FFD700" />
+            </TouchableOpacity>
+          </Animated.View>
+
+          <Animated.View style={[styles.actionButton, animatedStyles.mute]}>
+            <TouchableOpacity onPress={handleMute}>
+              <Feather
+                name={isMuted ? 'volume-x' : 'volume-2'}
+                size={24}
+                color="#FFD700"
+              />
+            </TouchableOpacity>
+          </Animated.View>
+
+          <Animated.View style={[styles.actionButton, animatedStyles.playPause]}>
+            <TouchableOpacity onPress={handlePlayPause}>
+              <Feather
+                name={isPlaying ? 'pause' : 'play'}
+                size={24}
+                color="#FFD700"
+              />
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </LinearGradient>
+    </LinearGradient>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loaderContainer: {
+    padding: 20,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorText: {
+    color: '#ffffff',
+    fontSize: 18,
+    marginBottom: 20,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
+  backText: {
+    color: '#FFD700',
+    fontSize: 16,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
+  video: {
+    width: width,
+    height: height,
+    backgroundColor: 'black',
+  },
+  backButton: {
+    position: 'absolute',
+    top: 40,
+    left: 20,
+    padding: 8,
+    backgroundColor: 'rgba(255, 215, 0, 0.2)',
+    borderRadius: 16,
+    zIndex: 1,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.3)',
+  },
+  gradientOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '50%',
+    padding: 16,
+    justifyContent: 'flex-end',
+  },
+  userInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    padding: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.3)',
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+    borderWidth: 2,
+    borderColor: '#FFD700',
+  },
+  username: {
+    color: '#ffffff',
+    fontSize: 16,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
+  captionContainer: {
+    marginBottom: 16,
+  },
+  caption: {
+    color: '#ffffff',
+    fontSize: 14,
+    lineHeight: 20,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
+  showMore: {
+    color: '#FFD700',
+    fontSize: 12,
+    marginTop: 6,
+  },
+  actions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  actionButton: {
+    alignItems: 'center',
+    padding: 8,
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.3)',
+  },
+  actionText: {
+    color: '#ffffff',
+    fontSize: 12,
+    marginTop: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+    textAlign: 'center',
+  },
+});
+
+export default ReelDetail;
