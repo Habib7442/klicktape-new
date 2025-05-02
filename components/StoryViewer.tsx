@@ -37,6 +37,10 @@ const StoryViewer = ({ stories, onClose, currentIndex }: StoryViewerProps) => {
   const [currentStoryIndex, setCurrentStoryIndex] = useState(currentIndex);
   const [paused, setPaused] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [hideInterface, setHideInterface] = useState(false);
+
+  // Add this line to get the current story
+  const currentStory = stories[currentStoryIndex];
 
   useEffect(() => {
     // Fade in animation when component mounts
@@ -111,17 +115,31 @@ const StoryViewer = ({ stories, onClose, currentIndex }: StoryViewerProps) => {
   const handlePressIn = () => {
     setPaused(true);
     progress.stopAnimation();
+    setHideInterface(true);
   };
 
   const handlePressOut = () => {
     setPaused(false);
+    setHideInterface(false);
   };
 
-  const currentStory = stories[currentStoryIndex];
+  const handleTap = (direction: 'next' | 'previous') => {
+    // Prevent closing on tap
+    if (direction === 'next') {
+      nextStory();
+    } else {
+      previousStory();
+    }
+  };
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-      <View style={styles.progressContainer}>
+      <Animated.View 
+        style={[
+          styles.progressContainer, 
+          { opacity: hideInterface ? 0 : 1 }
+        ]}
+      >
         {stories.map((_, index) => (
           <View key={index} style={styles.progressBarBackground}>
             <Animated.View
@@ -142,10 +160,15 @@ const StoryViewer = ({ stories, onClose, currentIndex }: StoryViewerProps) => {
             />
           </View>
         ))}
-      </View>
+      </Animated.View>
 
       {/* User Info Header */}
-      <View style={styles.userInfoContainer}>
+      <Animated.View 
+        style={[
+          styles.userInfoContainer,
+          { opacity: hideInterface ? 0 : 1 }
+        ]}
+      >
         <Image
           source={{ uri: currentStory?.user.avatar || "https://via.placeholder.com/32" }}
           style={styles.avatar}
@@ -158,7 +181,7 @@ const StoryViewer = ({ stories, onClose, currentIndex }: StoryViewerProps) => {
         <TouchableOpacity style={styles.closeButton} onPress={onClose}>
           <AntDesign name="close" size={24} color="white" />
         </TouchableOpacity>
-      </View>
+      </Animated.View>
 
       <Image
         source={{ uri: currentStory?.image_url || "https://via.placeholder.com/300" }}
@@ -169,15 +192,23 @@ const StoryViewer = ({ stories, onClose, currentIndex }: StoryViewerProps) => {
       <View style={styles.touchableContainer}>
         <TouchableOpacity
           style={styles.previousTouch}
-          onPress={previousStory}
+          onPress={() => handleTap('previous')}
           onPressIn={handlePressIn}
           onPressOut={handlePressOut}
+          activeOpacity={1}
+        />
+        <TouchableOpacity
+          style={styles.centerTouch}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          activeOpacity={1}
         />
         <TouchableOpacity
           style={styles.nextTouch}
-          onPress={nextStory}
+          onPress={() => handleTap('next')}
           onPressIn={handlePressIn}
           onPressOut={handlePressOut}
+          activeOpacity={1}
         />
       </View>
     </Animated.View>
@@ -215,7 +246,7 @@ const styles = StyleSheet.create({
   image: {
     width: width,
     height: height,
-    resizeMode: "contain",
+    resizeMode: "cover", // Changed from contain to cover
     backgroundColor: "black",
   },
   userInfoContainer: {
@@ -253,6 +284,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
   },
   previousTouch: {
+    flex: 1,
+  },
+  centerTouch: {
+    flex: 3,
+  },
+  nextTouch: {
     flex: 1,
   },
   nextTouch: {

@@ -14,16 +14,22 @@ import { supabase } from "@/lib/supabase";
 import { useDispatch } from "react-redux";
 import { setUser } from "@/src/store/slices/authSlice";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Feather } from "@expo/vector-icons";
 
 const SignIn = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const dispatch = useDispatch();
 
   const onSubmit = async () => {
     if (!email || !password) {
       Alert.alert("Error", "Please fill in all fields");
+      return;
+    }
+    if (!supabase) {
+      Alert.alert("Error", "Unable to connect to the service");
       return;
     }
     setIsLoading(true);
@@ -44,10 +50,10 @@ const SignIn = () => {
           throw new Error("Failed to fetch user profile");
         }
 
-        const userData = { 
-          id: userProfile.id, 
-          username: userProfile.username, 
-          avatar: userProfile.avatar_url 
+        const userData = {
+          id: userProfile.id,
+          username: userProfile.username,
+          avatar: userProfile.avatar_url,
         };
         await AsyncStorage.setItem("user", JSON.stringify(userData));
         dispatch(setUser(userData));
@@ -70,14 +76,26 @@ const SignIn = () => {
       Alert.alert("Error", "Please enter your email address");
       return;
     }
+    if (!supabase) {
+      Alert.alert("Error", "Unable to connect to the service");
+      return;
+    }
     setIsLoading(true);
     try {
+      // The redirectTo URL needs to be properly formatted to capture the token
+      const redirectUrl = "klicktape://reset-password";
+
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: "klicktape://reset-password",
+        redirectTo: redirectUrl,
       });
+
       if (error) throw error;
-      Alert.alert("Success", "Password reset instructions sent to your email");
-    } catch (error: any) {
+
+      Alert.alert(
+        "Success",
+        "Password reset instructions sent to your email. Please check your inbox and follow the link to reset your password."
+      );
+    } catch (error) {
       Alert.alert(
         "Error",
         error.message || "Failed to process request. Please try again."
@@ -110,14 +128,26 @@ const SignIn = () => {
           </View>
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your password"
-              placeholderTextColor="rgba(255, 255, 255, 0.5)"
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-            />
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Enter your password"
+                placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                secureTextEntry={!showPassword}
+                value={password}
+                onChangeText={setPassword}
+              />
+              <TouchableOpacity
+                style={styles.eyeButton}
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                <Feather
+                  name={showPassword ? "eye" : "eye-off"}
+                  size={20}
+                  color="rgba(255, 215, 0, 0.7)"
+                />
+              </TouchableOpacity>
+            </View>
           </View>
           <TouchableOpacity
             style={styles.forgotLink}
@@ -202,6 +232,24 @@ const styles = StyleSheet.create({
   signUpContainer: { flexDirection: "row", justifyContent: "center" },
   signUpText: { fontSize: 14, color: "rgba(255, 255, 255, 0.7)" },
   signUpLink: { marginLeft: 4 },
+  passwordContainer: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255, 215, 0, 0.3)",
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+  },
+  passwordInput: {
+    flex: 1,
+    padding: 12,
+    color: "#ffffff",
+    fontSize: 16,
+  },
+  eyeButton: {
+    padding: 12,
+  },
 });
 
 export default SignIn;

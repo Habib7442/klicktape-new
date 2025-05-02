@@ -1,26 +1,24 @@
 import { Tabs } from "expo-router";
-import {
-  Image,
-  ImageSourcePropType,
-  View,
-  Text,
-  StyleSheet,
-} from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import React from "react";
-import { icons } from "@/constants";
+import { Feather } from "@expo/vector-icons";
 
 const TabIcon = ({
-  source,
+  iconName,
   focused,
   title,
 }: {
-  source: ImageSourcePropType;
+  iconName: string;
   focused: boolean;
   title: string;
 }) => (
   <View style={styles.tabIconContainer}>
     <View style={[styles.iconWrapper, focused && styles.iconWrapperActive]}>
-      <Image source={source} resizeMode="contain" style={styles.icon} />
+      <Feather 
+        name={iconName} 
+        size={24} 
+        color={focused ? "#FFD700" : "#A0A0A0"} 
+      />
     </View>
     <Text
       style={[
@@ -48,7 +46,7 @@ export default function Layout() {
           title: "Home",
           headerShown: false,
           tabBarIcon: ({ focused }) => (
-            <TabIcon source={icons.homeIcon} focused={focused} title="Home" />
+            <TabIcon iconName="home" focused={focused} title="Home" />
           ),
         }}
       />
@@ -59,7 +57,7 @@ export default function Layout() {
           headerShown: false,
           tabBarIcon: ({ focused }) => (
             <TabIcon
-              source={icons.searchIcon}
+              iconName="search"
               focused={focused}
               title="Search"
             />
@@ -73,12 +71,12 @@ export default function Layout() {
           headerShown: false,
           tabBarIcon: ({ focused }) => (
             <TabIcon
-              source={icons.createIcon}
+              iconName="plus-square"
               focused={focused}
               title="Create"
             />
           ),
-          tabBarStyle: { display: "none" }, // Hide the tab bar on this screen
+          tabBarStyle: { display: "none" },
         }}
       />
       <Tabs.Screen
@@ -87,7 +85,7 @@ export default function Layout() {
           title: "Reels",
           headerShown: false,
           tabBarIcon: ({ focused }) => (
-            <TabIcon source={icons.reelsIcon} focused={focused} title="Reels" />
+            <TabIcon iconName="film" focused={focused} title="Reels" />
           ),
           tabBarStyle: { display: "none" },
         }}
@@ -98,7 +96,7 @@ export default function Layout() {
           title: "Rooms",
           headerShown: false,
           tabBarIcon: ({ focused }) => (
-            <TabIcon source={icons.roomsIcon} focused={focused} title="Rooms" />
+            <TabIcon iconName="users" focused={focused} title="Rooms" />
           ),
         }}
       />
@@ -109,7 +107,7 @@ export default function Layout() {
           headerShown: false,
           tabBarIcon: ({ focused }) => (
             <TabIcon
-              source={icons.profileIcon}
+              iconName="user"
               focused={focused}
               title="Profile"
             />
@@ -177,7 +175,7 @@ const styles = StyleSheet.create({
     whiteSpace: "nowrap",
   },
   titleActive: {
-    color: "#FFD700",
+    color: "#FFD700",  // Already golden
   },
   titleInactive: {
     color: "#A0A0A0",

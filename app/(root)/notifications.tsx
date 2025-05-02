@@ -19,7 +19,7 @@ import { notificationsAPI } from "@/lib/notificationsApi";
 
 interface Notification {
   id: string;
-  type: "like" | "comment" | "follow";
+  type: "like" | "comment" | "follow" | "mention";  // Added "mention" type
   sender_id: string;
   sender: {
     username: string;
@@ -50,7 +50,9 @@ export default function NotificationsScreen() {
   const fetchNotifications = async () => {
     if (!userId) return;
     try {
+      console.log('Fetching notifications for user:', userId);
       const data = await notificationsAPI.getNotifications(userId);
+      console.log('Fetched notifications:', data);
       setNotifications(data);
     } catch (error) {
       console.error("Error fetching notifications:", error);
@@ -75,12 +77,16 @@ export default function NotificationsScreen() {
             filter: `recipient_id=eq.${userId}`,
           },
           async (payload) => {
+            console.log('New notification received:', payload);
             const newNotification = payload.new as any;
             const { data: senderData, error } = await supabase
               .from("profiles")
               .select("username, avatar_url")
               .eq("id", newNotification.sender_id)
               .single();
+
+            console.log('Sender data from profiles:', senderData);
+            console.log('Sender data error:', error);
 
             if (!error && senderData) {
               setNotifications((prev) => [
@@ -112,7 +118,9 @@ export default function NotificationsScreen() {
 
   const handleNotificationPress = async (notification: Notification) => {
     try {
+      console.log('Handling notification press:', notification);
       await notificationsAPI.markAsRead(notification.id);
+      console.log('Marked notification as read:', notification.id);
 
       if (notification.type === "follow") {
         router.push({
@@ -175,6 +183,7 @@ export default function NotificationsScreen() {
             {notification.type === "like" && "liked your post"}
             {notification.type === "comment" && "commented on your post"}
             {notification.type === "follow" && "started following you"}
+            {notification.type === "mention" && "mentioned you in a post"}
           </Text>
           <Text className="font-rubik-medium" style={styles.timeAgo}>
             {timeAgo}

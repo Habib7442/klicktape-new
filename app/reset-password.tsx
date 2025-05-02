@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   Alert,
   StyleSheet,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "@/lib/supabase";
 
@@ -16,6 +16,50 @@ const ResetPassword = () => {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const params = useLocalSearchParams();
+  
+  // Get the access token from the URL if it exists
+  // This will be present if user is coming from a password reset email link
+  const accessToken = params.access_token;
+
+  useEffect(() => {
+    // If there's an access token in the URL, set the session
+    if (accessToken) {
+      setSession(accessToken);
+    } else {
+      // Check if user is already authenticated
+      checkSession();
+    }
+  }, [accessToken]);
+
+  const setSession = async (token: any) => {
+    try {
+      const { error } = await supabase.auth.setSession({
+        access_token: token,
+        refresh_token: '',
+      });
+      
+      if (error) {
+        console.error("Error setting session:", error);
+        Alert.alert("Error", "Invalid or expired reset link. Please request a new password reset.");
+        router.replace("/reset-password");
+      }
+    } catch (error) {
+      console.error("Session error:", error);
+    }
+  };
+
+  const checkSession = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      // If no active session, redirect to sign in
+      Alert.alert(
+        "Authentication Required", 
+        "Please sign in first to change your password.",
+        [{ text: "OK", onPress: () => router.replace("/sign-in") }]
+      );
+    }
+  };
 
   const onSubmit = async () => {
     // Validate inputs
@@ -53,7 +97,7 @@ const ResetPassword = () => {
           },
         ]
       );
-    } catch (error: any) {
+    } catch (error) {
       console.error("Reset password error:", error);
       Alert.alert(
         "Error",

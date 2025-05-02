@@ -16,6 +16,7 @@ import { SafeAreaView, SafeAreaProvider } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router } from "expo-router";
 
 interface Comment {
   id: string;
@@ -30,6 +31,7 @@ interface Comment {
     avatar: string;
   };
   replies?: Comment[];
+  mentions?: Array<{ user_id: string; username: string }>;
 }
 
 interface CommentsModalProps {
@@ -47,12 +49,22 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
     const [loading, setLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [user, setUser] = useState<any>(null);
+    const [mentionedUsers, setMentionedUsers] = useState<
+      Array<{ id: string; username: string }>
+    >([]);
+    const [showMentionsList, setShowMentionsList] = useState(false);
+    const [filteredUsers, setFilteredUsers] = useState<
+      Array<{ id: string; username: string }>
+    >([]);
+    const mentionInputRef = useRef<TextInput>(null);
+    const mentionStartIndex = useRef<number>(-1);
     const subscriptionRef = useRef<any>(null);
 
     const cacheKey = `${entityType}_comments_${entityId}`;
     const table = entityType === "reel" ? "reel_comments" : "comments";
     const entityTable = entityType === "reel" ? "reels" : "posts";
-    const likeTable = entityType === "reel" ? "reel_comment_likes" : "comment_likes";
+    const likeTable =
+      entityType === "reel" ? "reel_comment_likes" : "comment_likes";
 
     useEffect(() => {
       const getUserFromStorage = async () => {
@@ -199,7 +211,9 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
 
       if (error || !data) {
         console.error(`${entityType} ID validation error:`, entityId, error);
-        throw new Error(`Cannot add comment: ${entityType} with ID ${entityId} does not exist.`);
+        throw new Error(
+          `Cannot add comment: ${entityType} with ID ${entityId} does not exist.`
+        );
       }
       return true;
     };
@@ -213,10 +227,11 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
 
       setSubmitting(true);
       try {
-        const isValidEntity = await validateEntityId();
-        if (!isValidEntity) {
-          throw new Error(`Cannot add comment: ${entityType} with ID ${entityId} does not exist.`);
-        }
+        await validateEntityId();
+        const mentionData = mentionedUsers.map((user) => ({
+          user_id: user.id,
+          username: user.username,
+        }));
 
         const { data: newCommentData, error: insertError } = await supabase
           .from(table)
@@ -228,6 +243,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
             created_at: new Date().toISOString(),
             likes_count: 0,
             replies_count: 0,
+            mentions: mentionData,
           })
           .select()
           .single();
@@ -254,7 +270,8 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
             .eq("id", replyingTo.id)
             .single();
 
-          if (parentError || !parentComment) throw new Error("Parent comment not found");
+          if (parentError || !parentComment)
+            throw new Error("Parent comment not found");
 
           await supabase
             .from(table)
@@ -290,17 +307,22 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
         setComments(updatedComments);
         await AsyncStorage.setItem(cacheKey, JSON.stringify(updatedComments));
 
+        setMentionedUsers([]);
         setNewComment("");
         setReplyingTo(null);
-      } catch (error: any) {
+        setShowMentionsList(false);
+      } catch (error) {
         console.error(`Error adding ${entityType} comment:`, error);
-        Alert.alert("Error", error.message || `Failed to add ${entityType} comment.`);
+        Alert.alert("Error", `Failed to add ${entityType} comment.`);
       } finally {
         setSubmitting(false);
       }
     };
 
-    const handleDeleteComment = async (commentId: string, parentCommentId: string | null) => {
+    const handleDeleteComment = async (
+      commentId: string,
+      parentCommentId: string | null
+    ) => {
       if (!user) {
         Alert.alert("Error", "You must be logged in to delete a comment.");
         return;
@@ -330,25 +352,38 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                   .eq("id", entityId)
                   .single();
 
-                if (entityError || !entity) throw new Error(`${entityType} not found`);
+                if (entityError || !entity)
+                  throw new Error(`${entityType} not found`);
 
                 await supabase
                   .from(entityTable)
-                  .update({ comments_count: Math.max(0, (entity.comments_count || 0) - 1) })
+                  .update({
+                    comments_count: Math.max(
+                      0,
+                      (entity.comments_count || 0) - 1
+                    ),
+                  })
                   .eq("id", entityId);
 
                 if (parentCommentId) {
-                  const { data: parentComment, error: parentError } = await supabase
-                    .from(table)
-                    .select("replies_count")
-                    .eq("id", parentCommentId)
-                    .single();
+                  const { data: parentComment, error: parentError } =
+                    await supabase
+                      .from(table)
+                      .select("replies_count")
+                      .eq("id", parentCommentId)
+                      .single();
 
-                  if (parentError || !parentComment) throw new Error("Parent comment not found");
+                  if (parentError || !parentComment)
+                    throw new Error("Parent comment not found");
 
                   await supabase
                     .from(table)
-                    .update({ replies_count: Math.max(0, (parentComment.replies_count || 0) - 1) })
+                    .update({
+                      replies_count: Math.max(
+                        0,
+                        (parentComment.replies_count || 0) - 1
+                      ),
+                    })
                     .eq("id", parentCommentId);
                 }
 
@@ -358,18 +393,28 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                     if (comment.id === parentCommentId) {
                       return {
                         ...comment,
-                        replies: (comment.replies || []).filter((reply) => reply.id !== commentId),
-                        replies_count: Math.max(0, (comment.replies_count || 0) - 1),
+                        replies: (comment.replies || []).filter(
+                          (reply) => reply.id !== commentId
+                        ),
+                        replies_count: Math.max(
+                          0,
+                          (comment.replies_count || 0) - 1
+                        ),
                       };
                     }
                     return comment;
                   });
                 } else {
-                  updatedComments = updatedComments.filter((comment) => comment.id !== commentId);
+                  updatedComments = updatedComments.filter(
+                    (comment) => comment.id !== commentId
+                  );
                 }
 
                 setComments(updatedComments);
-                await AsyncStorage.setItem(cacheKey, JSON.stringify(updatedComments));
+                await AsyncStorage.setItem(
+                  cacheKey,
+                  JSON.stringify(updatedComments)
+                );
               } catch (error) {
                 console.error(`Error deleting ${entityType} comment:`, error);
                 Alert.alert("Error", `Failed to delete ${entityType} comment.`);
@@ -387,7 +432,6 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
       }
 
       try {
-        // Step 1: Check if the user has already liked the comment
         const { data: existingLike, error: fetchLikeError } = await supabase
           .from(likeTable)
           .select("id")
@@ -399,60 +443,130 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
 
         let newLikesCount;
         if (existingLike) {
-          // Unlike action
           const { error: deleteError } = await supabase
             .from(likeTable)
             .delete()
             .eq("id", existingLike.id);
-          if (deleteError) throw deleteError;
-          newLikesCount = -1; // Decrement likes count
-          console.log(`Unliked comment ${commentId} in ${likeTable}`);
+          if (deleteError) throw `Error: ${deleteError.message}`;
+          newLikesCount = -1;
         } else {
-          // Like action
           const { error: insertError } = await supabase.from(likeTable).insert({
             comment_id: commentId,
             user_id: user.id,
             created_at: new Date().toISOString(),
           });
           if (insertError) throw insertError;
-          newLikesCount = 1; // Increment likes count
-          console.log(`Liked comment ${commentId} in ${likeTable}`);
+          newLikesCount = 1;
         }
 
-        // Step 2: Fetch the current likes_count from the database
         const { data: commentData, error: fetchCommentError } = await supabase
           .from(table)
           .select("likes_count")
           .eq("id", commentId)
           .single();
 
-        if (fetchCommentError || !commentData) throw new Error(`Comment not found: ${fetchCommentError?.message}`);
+        if (fetchCommentError || !commentData)
+          throw new Error(`Comment not found`);
 
-        const currentLikesCount = commentData.likes_count || 0;
-        const updatedLikesCount = Math.max(0, currentLikesCount + newLikesCount);
-        console.log(`Current likes_count: ${currentLikesCount}, New likes_count: ${updatedLikesCount}`);
+        const updatedLikesCount = Math.max(
+          0,
+          commentData.likes_count + newLikesCount
+        );
 
-        // Step 3: Update the likes_count in the database
         const { error: updateError } = await supabase
           .from(table)
           .update({ likes_count: updatedLikesCount })
           .eq("id", commentId);
 
-        if (updateError) throw new Error(`Failed to update likes_count: ${updateError.message}`);
-        console.log(`Updated likes_count in ${table} to ${updatedLikesCount} for comment ${commentId}`);
+        if (updateError) throw updateError;
 
-        // Step 4: Refresh comments to sync with the database
         await fetchComments();
-        console.log(`Refreshed comments after liking/unliking`);
       } catch (error) {
         console.error(`Error liking ${entityType} comment:`, error);
-        Alert.alert("Error", `Failed to like ${entityType} comment: ${error.message}`);
+        Alert.alert("Error", `Failed to like ${entityType} comment.`);
+      }
+    };
+
+    const parseCommentText = (
+      text: string,
+      mentions: Array<{ user_id: string; username: string }> = []
+    ) => {
+      const parts: JSX.Element[] = [];
+      const mentionRegex = /@(\w+)/g;
+      let lastIndex = 0;
+      let match;
+
+      while ((match = mentionRegex.exec(text)) !== null) {
+        const mentionStart = match.index;
+        const mentionEnd = mentionStart + match[0].length;
+        const username = match[1];
+
+        // Add text before the mention
+        if (mentionStart > lastIndex) {
+          parts.push(
+            <Text key={`text-${lastIndex}`} style={styles.commentText}>
+              {text.slice(lastIndex, mentionStart)}
+            </Text>
+          );
+        }
+
+        // Find the corresponding user_id for the username
+        const mentionedUser = mentions.find((m) => m.username === username);
+        if (mentionedUser) {
+          parts.push(
+            <TouchableOpacity
+              key={`mention-${mentionStart}`}
+              onPress={() => handleMentionClick(mentionedUser.user_id)}
+            >
+              <Text style={[styles.commentText, styles.mentionText]}>
+                {match[0]}
+              </Text>
+            </TouchableOpacity>
+          );
+        } else {
+          // If no matching user_id, render as plain text
+          parts.push(
+            <Text key={`text-${mentionStart}`} style={styles.commentText}>
+              {match[0]}
+            </Text>
+          );
+        }
+
+        lastIndex = mentionEnd;
+      }
+
+      // Add remaining text after the last mention
+      if (lastIndex < text.length) {
+        parts.push(
+          <Text key={`text-${lastIndex}`} style={styles.commentText}>
+            {text.slice(lastIndex)}
+          </Text>
+        );
+      }
+
+      return parts;
+    };
+
+    const handleMentionClick = (userId: string) => {
+      try {
+        if (!userId) {
+          console.warn('Invalid user ID for mention click');
+          return;
+        }
+        
+        router.push({
+          pathname: '/userProfile/[id]',
+          params: { id: userId }
+        });
+      } catch (error) {
+        console.error('Error navigating to user profile:', error);
       }
     };
 
     const renderComment = useCallback(
       ({ item: comment }: { item: Comment }) => {
-        const avatarUri = comment.user.avatar || "https://via.placeholder.com/40";
+        const avatarUri =
+          comment.user.avatar || "https://via.placeholder.com/40";
         return (
           <View
             style={[
@@ -472,7 +586,9 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                     })}
                   </Text>
                 </View>
-                <Text style={styles.commentText}>{comment.content}</Text>
+                <View style={styles.commentTextContainer}>
+                  {parseCommentText(comment.content, comment.mentions)}
+                </View>
                 <View style={styles.commentActions}>
                   <TouchableOpacity
                     onPress={() => setReplyingTo(comment)}
@@ -482,10 +598,17 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                   </TouchableOpacity>
                   {comment.user_id === user?.id && (
                     <TouchableOpacity
-                      onPress={() => handleDeleteComment(comment.id, comment.parent_comment_id)}
+                      onPress={() =>
+                        handleDeleteComment(
+                          comment.id,
+                          comment.parent_comment_id
+                        )
+                      }
                       style={styles.actionButton}
                     >
-                      <Text style={[styles.actionText, styles.deleteText]}>Delete</Text>
+                      <Text style={[styles.actionText, styles.deleteText]}>
+                        Delete
+                      </Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -518,6 +641,94 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
       [user, comments, entityType, handleLikeComment, handleDeleteComment]
     );
 
+    const searchUsers = async (query: string) => {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, username")
+          .ilike("username", `%${query}%`)
+          .limit(5);
+
+        if (error) throw error;
+        return data || [];
+      } catch (error) {
+        console.error("Error searching users:", error);
+        return [];
+      }
+    };
+
+    const handleTextChange = async (text: string) => {
+      setNewComment(text);
+
+      // Find the last '@' symbol before the current cursor position
+      const cursorPosition = text.length; // Assuming cursor is at the end
+      const lastAtSymbolIndex = text.lastIndexOf("@", cursorPosition - 1);
+
+      if (lastAtSymbolIndex !== -1) {
+        const query = text.slice(lastAtSymbolIndex + 1, cursorPosition);
+        // Check if query is valid (no spaces)
+        if (!query.includes(" ")) {
+          mentionStartIndex.current = lastAtSymbolIndex;
+          if (query.length > 0) {
+            const users = await searchUsers(query);
+            setFilteredUsers(users);
+            setShowMentionsList(users.length > 0);
+          } else {
+            setShowMentionsList(true);
+            setFilteredUsers([]);
+          }
+        } else {
+          setShowMentionsList(false);
+          mentionStartIndex.current = -1;
+        }
+      } else {
+        setShowMentionsList(false);
+        mentionStartIndex.current = -1;
+      }
+    };
+
+    const handleMentionSelect = (selectedUser: {
+      id: string;
+      username: string;
+    }) => {
+      const beforeMention = newComment.slice(0, mentionStartIndex.current);
+      const afterMention = newComment.slice(
+        mentionStartIndex.current +
+          1 +
+          (newComment.slice(mentionStartIndex.current + 1).indexOf(" ") === -1
+            ? newComment.length - (mentionStartIndex.current + 1)
+            : newComment.slice(mentionStartIndex.current + 1).indexOf(" "))
+      );
+
+      const updatedComment =
+        `${beforeMention}@${selectedUser.username} ${afterMention}`.trim();
+      setNewComment(updatedComment);
+      setMentionedUsers([...mentionedUsers, selectedUser]);
+      setShowMentionsList(false);
+      mentionStartIndex.current = -1;
+
+      // Focus the input after selecting a mention
+      mentionInputRef.current?.focus();
+    };
+
+    const MentionsList = () => (
+      <View style={styles.mentionsContainer}>
+        {filteredUsers.length > 0 ? (
+          filteredUsers.map((user) => (
+            <TouchableOpacity
+              key={user.id}
+              style={styles.mentionItem}
+              onPress={() => handleMentionSelect(user)}
+            >
+              <Text style={styles.mentionText}>@{user.username}</Text>
+            </TouchableOpacity>
+          ))
+        ) : (
+          <Text style={styles.noMentionsText}>No users found</Text>
+        )}
+      </View>
+    );
+
     return (
       <SafeAreaProvider>
         <KeyboardAvoidingView
@@ -539,7 +750,9 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
             ) : comments.length === 0 ? (
               <View style={styles.noCommentsContainer}>
                 <Text style={styles.noCommentsText}>No comments yet</Text>
-                <Text style={styles.noCommentsSubtext}>Be the first to comment</Text>
+                <Text style={styles.noCommentsSubtext}>
+                  Be the first to comment
+                </Text>
               </View>
             ) : (
               <FlatList
@@ -564,19 +777,24 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
               )}
               <View style={styles.inputWrapper}>
                 <Image
-                  source={{ uri: user?.avatar || "https://via.placeholder.com/40" }}
+                  source={{
+                    uri: user?.avatar || "https://via.placeholder.com/40",
+                  }}
                   style={styles.inputAvatar}
                 />
                 <TextInput
+                  ref={mentionInputRef}
                   style={styles.input}
                   placeholder={
                     replyingTo
                       ? `Reply to @${replyingTo.user.username}...`
-                      : `Add a comment for ${entityOwnerUsername || `this ${entityType}`}...`
+                      : `Add a comment for ${
+                          entityOwnerUsername || `this ${entityType}`
+                        }...`
                   }
                   placeholderTextColor="rgba(255, 255, 255, 0.5)"
                   value={newComment}
-                  onChangeText={setNewComment}
+                  onChangeText={handleTextChange}
                   multiline
                   returnKeyType="send"
                   onSubmitEditing={handleAddComment}
@@ -592,11 +810,16 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                     <Ionicons
                       name="send"
                       size={20}
-                      color={newComment.trim() ? "#FFD700" : "rgba(255, 255, 255, 0.3)"}
+                      color={
+                        newComment.trim()
+                          ? "#FFD700"
+                          : "rgba(255, 255, 255, 0.3)"
+                      }
                     />
                   )}
                 </TouchableOpacity>
               </View>
+              {showMentionsList && <MentionsList />}
             </View>
           </SafeAreaView>
         </KeyboardAvoidingView>
@@ -689,10 +912,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "rgba(255, 255, 255, 0.6)",
   },
+  commentTextContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
   commentText: {
     fontSize: 14,
     color: "#FFFFFF",
     lineHeight: 20,
+  },
+  mentionText: {
+    color: "#FFD700",
+    fontWeight: "600",
   },
   commentActions: {
     flexDirection: "row",
@@ -765,6 +996,27 @@ const styles = StyleSheet.create({
   sendButton: {
     padding: 4,
     marginLeft: 8,
+  },
+  mentionsContainer: {
+    position: "absolute",
+    bottom: "100%",
+    left: 16,
+    right: 16,
+    backgroundColor: "#1a1a1a",
+    borderRadius: 8,
+    maxHeight: 200,
+    marginBottom: 8,
+    zIndex: 10,
+  },
+  mentionItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.1)",
+  },
+  noMentionsText: {
+    padding: 12,
+    color: "rgba(255, 255, 255, 0.6)",
+    fontSize: 14,
   },
 });
 

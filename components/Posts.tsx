@@ -25,8 +25,6 @@ import {
   toggleLike,
 } from "@/src/store/slices/postsSlice";
 
-
-
 interface Post {
   id: string;
   image_urls: string[];
@@ -58,7 +56,6 @@ const Posts = () => {
 
   const dispatch = useDispatch();
   const posts = useSelector((state: RootState) => state.posts.posts);
-  console.log(posts);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const POSTS_PER_PAGE = 5;
@@ -228,6 +225,14 @@ const Posts = () => {
 
   const renderPost = ({ item: post }: { item: Post }) => {
     const renderCarouselItem = ({ item: imageUrl }: { item: string }) => (
+      // <TouchableOpacity
+      //   onPress={() =>
+      //     router.push({
+      //       pathname: "/post/[id]",
+      //       params: { id: post.id },
+      //     })
+      //   }
+      // >
       <View style={styles.carouselItem}>
         <Image
           source={{ uri: imageUrl }}
@@ -235,8 +240,8 @@ const Posts = () => {
           resizeMode="cover"
         />
       </View>
+      // </TouchableOpacity>
     );
-
 
     return (
       <LinearGradient
@@ -247,7 +252,10 @@ const Posts = () => {
       >
         <View style={styles.postHeader}>
           <View style={styles.userInfo}>
-            <Image source={{ uri: post.user.avatar_url }} style={styles.avatar} />
+            <Image
+              source={{ uri: post.user.avatar_url }}
+              style={styles.avatar}
+            />
 
             <View>
               <TouchableOpacity
@@ -461,6 +469,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: "Rubik-Medium",
     color: "#ffffff",
+    fontStyle: "italic",
   },
   postTime: {
     fontSize: 12,

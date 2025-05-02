@@ -20,6 +20,7 @@ import { Video } from "expo-av";
 import { supabase } from "@/lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
+import DeleteModal from "@/components/DeleteModal";
 
 const Profile = () => {
   const [userId, setUserId] = useState<string | null>(null);
@@ -38,6 +39,12 @@ const Profile = () => {
     accountType: "PERSONAL",
     gender: "",
   });
+
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<{
+    id: string;
+    type: 'post' | 'reel';
+  } | null>(null);
 
   const { fetchUserProfile, fetchPosts, fetchBookmarks, fetchReels, loading } =
     useSupabaseFetch();
@@ -143,6 +150,73 @@ const Profile = () => {
       router.replace("/sign-in");
     } catch (error) {
       console.error("Error logging out:", error);
+    }
+  };
+
+  const handleDelete = async (id: string, type: 'post' | 'reel') => {
+    setItemToDelete({ id, type });
+    setIsDeleteModalVisible(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!itemToDelete) return;
+
+    try {
+      if (itemToDelete.type === 'post') {
+        const { data: post, error: postError } = await supabase
+          .from("posts")
+          .select("image_urls")
+          .eq("id", itemToDelete.id)
+          .eq("user_id", userId)
+          .single();
+
+        if (postError || !post) throw postError || new Error("Post not found");
+
+        if (post.image_urls && post.image_urls.length > 0) {
+          const filePaths = post.image_urls.map((url) =>
+            url.split("/").slice(-2).join("/")
+          );
+          await supabase.storage.from("media").remove(filePaths);
+        }
+
+        await supabase
+          .from("posts")
+          .delete()
+          .eq("id", itemToDelete.id)
+          .eq("user_id", userId);
+
+        setPosts(posts.filter((post) => post.id !== itemToDelete.id));
+      } else {
+        const { data: reel, error: reelError } = await supabase
+          .from("reels")
+          .select("video_url")
+          .eq("id", itemToDelete.id)
+          .eq("user_id", userId)
+          .single();
+
+        if (reelError || !reel) throw reelError || new Error("Reel not found");
+
+        if (reel.video_url) {
+          const filePath = reel.video_url.split("/").slice(-2).join("/");
+          await supabase.storage.from("media").remove([filePath]);
+        }
+
+        await supabase
+          .from("reels")
+          .delete()
+          .eq("id", itemToDelete.id)
+          .eq("user_id", userId);
+
+        setReels(reels.filter((reel) => reel.id !== itemToDelete.id));
+      }
+
+      Alert.alert("Success", `${itemToDelete.type} deleted successfully.`);
+    } catch (error) {
+      console.error(`Error deleting ${itemToDelete.type}:`, error);
+      Alert.alert("Error", `Failed to delete ${itemToDelete.type}. Please try again.`);
+    } finally {
+      setIsDeleteModalVisible(false);
+      setItemToDelete(null);
     }
   };
 
@@ -313,7 +387,7 @@ const Profile = () => {
       {activeTab === "posts" && item.user_id === userId && (
         <TouchableOpacity
           style={styles.deleteButton}
-          onPress={() => handleDeletePost(item.id)}
+          onPress={() => handleDelete(item.id, 'post')}
         >
           <Feather name="trash-2" size={16} color="#FFD700" />
         </TouchableOpacity>
@@ -354,7 +428,7 @@ const Profile = () => {
         {activeTab === "reels" && (
           <TouchableOpacity
             style={styles.deleteButton}
-            onPress={() => handleDeleteReel(item.id)}
+            onPress={() => handleDelete(item.id, 'reel')}
           >
             <Feather name="trash-2" size={16} color="#FFD700" />
           </TouchableOpacity>
@@ -540,6 +614,16 @@ const Profile = () => {
           />
         </ScrollView>
       )}
+      <DeleteModal
+        isVisible={isDeleteModalVisible}
+        title={`Delete ${itemToDelete?.type || ''}`}
+        desc={itemToDelete?.type || ''}
+        cancel={() => {
+          setIsDeleteModalVisible(false);
+          setItemToDelete(null);
+        }}
+        confirm={handleConfirmDelete}
+      />
     </LinearGradient>
   );
 };

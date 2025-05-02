@@ -1,5 +1,12 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  ScrollView,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native";
@@ -24,43 +31,57 @@ export default function SettingsScreen() {
           onPress: async () => {
             try {
               setIsDeleting(true);
-              const { data: { user } } = await supabase.auth.getUser();
+              const {
+                data: { user },
+              } = await supabase.auth.getUser();
               if (user?.id) {
                 // Delete all user's stories
-                await supabase.from('stories').delete().eq('user_id', user.id);
-                
+                await supabase.from("stories").delete().eq("user_id", user.id);
+
                 // Delete all user's posts and associated data
-                await supabase.from('comments').delete().eq('user_id', user.id);
-                await supabase.from('likes').delete().eq('user_id', user.id);
-                await supabase.from('posts').delete().eq('user_id', user.id);
-                
+                await supabase.from("comments").delete().eq("user_id", user.id);
+                await supabase.from("likes").delete().eq("user_id", user.id);
+                await supabase.from("posts").delete().eq("user_id", user.id);
+
                 // Delete all user's messages
-                await supabase.from('messages').delete().eq('sender_id', user.id);
-                await supabase.from('messages').delete().eq('receiver_id', user.id);
-                
+                await supabase
+                  .from("messages")
+                  .delete()
+                  .eq("sender_id", user.id);
+                await supabase
+                  .from("messages")
+                  .delete()
+                  .eq("receiver_id", user.id);
+
                 // Delete all user's notifications
-                await supabase.from('notifications').delete().eq('recipient_id', user.id);
-                await supabase.from('notifications').delete().eq('sender_id', user.id);
-                
+                await supabase
+                  .from("notifications")
+                  .delete()
+                  .eq("recipient_id", user.id);
+                await supabase
+                  .from("notifications")
+                  .delete()
+                  .eq("sender_id", user.id);
+
                 // Delete user's profile data
-                await supabase.from('profiles').delete().eq('id', user.id);
-                await supabase.from('users').delete().eq('id', user.id);
-                
+                await supabase.from("profiles").delete().eq("id", user.id);
+                await supabase.from("users").delete().eq("id", user.id);
+
                 // Delete user's storage files
                 const { data: storageData } = await supabase.storage
-                  .from('avatars')
+                  .from("avatars")
                   .list(`user_avatars/${user.id}`);
-                
+
                 if (storageData) {
                   await Promise.all(
-                    storageData.map(file => 
+                    storageData.map((file) =>
                       supabase.storage
-                        .from('avatars')
+                        .from("avatars")
                         .remove([`user_avatars/${user.id}/${file.name}`])
                     )
                   );
                 }
-                
+
                 // Finally delete the authentication user
                 await supabase.auth.signOut();
               }
@@ -81,20 +102,16 @@ export default function SettingsScreen() {
   };
 
   const handleSignOut = async () => {
-    Alert.alert(
-      "Sign Out",
-      "Are you sure you want to sign out?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Sign Out",
-          onPress: async () => {
-            await supabase.auth.signOut();
-            router.replace("/sign-in");
-          },
+    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign Out",
+        onPress: async () => {
+          await supabase.auth.signOut();
+          router.replace("/sign-in");
         },
-      ]
-    );
+      },
+    ]);
   };
 
   return (
@@ -106,10 +123,15 @@ export default function SettingsScreen() {
     >
       <SafeAreaView style={{ flex: 1 }}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+          >
             <Feather name="arrow-left" size={24} color="#FFD700" />
           </TouchableOpacity>
-          <Text className="font-rubik-bold" style={styles.title}>Settings</Text>
+          <Text className="font-rubik-bold" style={styles.title}>
+            Settings
+          </Text>
         </View>
 
         <ScrollView
@@ -117,11 +139,22 @@ export default function SettingsScreen() {
           contentContainerStyle={{ paddingBottom: 40 }}
         >
           <View style={styles.section}>
-            <Text className="font-rubik-bold" style={styles.sectionTitle}>Account</Text>
-            <TouchableOpacity style={styles.settingItem}>
+            <Text className="font-rubik-bold" style={styles.sectionTitle}>
+              Account
+            </Text>
+            <TouchableOpacity
+              style={styles.settingItem}
+              onPress={() => router.push("/edit-profile")}
+            >
               <Feather name="user" size={22} color="#FFD700" />
-              <Text className="font-rubik-regular" style={styles.settingText}>Edit Profile</Text>
-              <Feather name="chevron-right" size={22} color="rgba(255, 215, 0, 0.7)" />
+              <Text className="font-rubik-regular" style={styles.settingText}>
+                Edit Profile
+              </Text>
+              <Feather
+                name="chevron-right"
+                size={22}
+                color="rgba(255, 215, 0, 0.7)"
+              />
             </TouchableOpacity>
             {/* <TouchableOpacity style={styles.settingItem}>
               <Feather name="lock" size={22} color="#FFD700" />
@@ -131,53 +164,106 @@ export default function SettingsScreen() {
           </View>
 
           <View style={styles.section}>
-            <Text className="font-rubik-bold" style={styles.sectionTitle}>Preferences</Text>
-            <TouchableOpacity style={styles.settingItem}>
+            <Text className="font-rubik-bold" style={styles.sectionTitle}>
+              Preferences
+            </Text>
+            <TouchableOpacity
+              style={styles.settingItem}
+              onPress={() => router.push("/notifications")}
+            >
               <Feather name="bell" size={22} color="#FFD700" />
-              <Text className="font-rubik-regular" style={styles.settingText}>Notifications</Text>
-              <Feather name="chevron-right" size={22} color="rgba(255, 215, 0, 0.7)" />
+              <Text className="font-rubik-regular" style={styles.settingText}>
+                Notifications
+              </Text>
+              <Feather
+                name="chevron-right"
+                size={22}
+                color="rgba(255, 215, 0, 0.7)"
+              />
             </TouchableOpacity>
             <TouchableOpacity style={styles.settingItem}>
               <Feather name="eye" size={22} color="#FFD700" />
-              <Text className="font-rubik-regular" style={styles.settingText}>Appearance</Text>
-              <Feather name="chevron-right" size={22} color="rgba(255, 215, 0, 0.7)" />
+              <Text className="font-rubik-regular" style={styles.settingText}>
+                Appearance
+              </Text>
+              <Feather
+                name="chevron-right"
+                size={22}
+                color="rgba(255, 215, 0, 0.7)"
+              />
             </TouchableOpacity>
           </View>
 
           <View style={styles.section}>
-            <Text className="font-rubik-bold" style={styles.sectionTitle}>Support</Text>
+            <Text className="font-rubik-bold" style={styles.sectionTitle}>
+              Support
+            </Text>
             <TouchableOpacity style={styles.settingItem}>
               <Feather name="help-circle" size={22} color="#FFD700" />
-              <Text className="font-rubik-regular" style={styles.settingText}>Help Center</Text>
-              <Feather name="chevron-right" size={22} color="rgba(255, 215, 0, 0.7)" />
+              <Text className="font-rubik-regular" style={styles.settingText}>
+                Help Center
+              </Text>
+              <Feather
+                name="chevron-right"
+                size={22}
+                color="rgba(255, 215, 0, 0.7)"
+              />
             </TouchableOpacity>
             <TouchableOpacity style={styles.settingItem}>
               <Feather name="file-text" size={22} color="#FFD700" />
-              <Text className="font-rubik-regular" style={styles.settingText}>Terms of Service</Text>
-              <Feather name="chevron-right" size={22} color="rgba(255, 215, 0, 0.7)" />
+              <Text className="font-rubik-regular" style={styles.settingText}>
+                Terms of Service
+              </Text>
+              <Feather
+                name="chevron-right"
+                size={22}
+                color="rgba(255, 215, 0, 0.7)"
+              />
             </TouchableOpacity>
             <TouchableOpacity style={styles.settingItem}>
               <Feather name="shield" size={22} color="#FFD700" />
-              <Text className="font-rubik-regular" style={styles.settingText}>Privacy Policy</Text>
-              <Feather name="chevron-right" size={22} color="rgba(255, 215, 0, 0.7)" />
+              <Text className="font-rubik-regular" style={styles.settingText}>
+                Privacy Policy
+              </Text>
+              <Feather
+                name="chevron-right"
+                size={22}
+                color="rgba(255, 215, 0, 0.7)"
+              />
             </TouchableOpacity>
           </View>
 
           <View style={styles.section}>
-            <Text className="font-rubik-bold" style={styles.sectionTitle}>Account Actions</Text>
-            <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+            <Text className="font-rubik-bold" style={styles.sectionTitle}>
+              Account Actions
+            </Text>
+            <TouchableOpacity
+              style={styles.signOutButton}
+              onPress={handleSignOut}
+            >
               <Feather name="log-out" size={22} color="#FFD700" />
-              <Text className="font-rubik-medium" style={styles.signOutText}>Sign Out</Text>
+              <Text className="font-rubik-medium" style={styles.signOutText}>
+                Sign Out
+              </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteAccount} disabled={isDeleting}>
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={handleDeleteAccount}
+              disabled={isDeleting}
+            >
               <Feather name="trash-2" size={22} color="#FFD700" />
-              <Text className="font-rubik-medium" style={styles.deleteButtonText}>
+              <Text
+                className="font-rubik-medium"
+                style={styles.deleteButtonText}
+              >
                 {isDeleting ? "Deleting Account..." : "Delete Account"}
               </Text>
             </TouchableOpacity>
           </View>
 
-          <Text className="font-rubik-regular" style={styles.versionText}>Version 1.0.0</Text>
+          <Text className="font-rubik-regular" style={styles.versionText}>
+            Version 1.0.0
+          </Text>
         </ScrollView>
       </SafeAreaView>
     </LinearGradient>

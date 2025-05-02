@@ -41,4 +41,13 @@ export const roomsAPI = {
 
     if (error) throw error;
   },
+
+  deleteRoom: async (roomId: string) => {
+    const { error } = await supabase
+      .from('rooms')
+      .delete()
+      .eq('id', roomId);
+
+    if (error) throw error;
+  }
 };

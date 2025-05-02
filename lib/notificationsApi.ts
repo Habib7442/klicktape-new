@@ -26,7 +26,7 @@ export const notificationsAPI = {
       const { data, error } = await supabase
         .from("notifications")
         .insert({
-          recipient_id,
+          recipient_id, // Use receiver_id if you didn't rename
           type,
           sender_id,
           post_id,
@@ -36,7 +36,7 @@ export const notificationsAPI = {
         })
         .select()
         .single();
-
+  
       if (error) {
         console.error("Supabase error creating notification:", error);
         throw new Error(`Failed to create notification: ${error.message}`);
@@ -67,15 +67,15 @@ export const notificationsAPI = {
           )
         `
         )
-        .eq("recipient_id", userId)
+        .eq("recipient_id", userId) // Use receiver_id if you didn't rename
         .order("created_at", { ascending: false })
         .limit(50);
-
+  
       if (error) {
         console.error("Supabase error fetching notifications:", error);
         throw new Error(`Failed to fetch notifications: ${error.message}`);
       }
-
+  
       return data.map((notification) => ({
         id: notification.id,
         type: notification.type,
@@ -130,20 +130,15 @@ export const notificationsAPI = {
       const { data, error } = await supabase
         .from("notifications")
         .update({ is_read: true })
-        .eq("recipient_id", userId)
+        .eq("recipient_id", userId) // Use receiver_id if you didn't rename
         .eq("is_read", false)
         .select();
-
+  
       if (error) {
-        console.error(
-          "Supabase error marking all notifications as read:",
-          error
-        );
-        throw new Error(
-          `Failed to mark all notifications as read: ${error.message}`
-        );
+        console.error("Supabase error marking all notifications as read:", error);
+        throw new Error(`Failed to mark all notifications as read: ${error.message}`);
       }
-
+  
       console.log("Notifications marked as read:", data.length);
       return data;
     } catch (error) {

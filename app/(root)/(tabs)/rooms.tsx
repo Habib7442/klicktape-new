@@ -13,6 +13,7 @@ import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { roomsAPI } from "@/lib/roomsApi";
+import DeleteModal from "@/components/DeleteModal";
 
 export default function RoomsScreen() {
   const [rooms, setRooms] = useState([]);
@@ -84,6 +85,7 @@ export default function RoomsScreen() {
   const RoomItem = ({ item, userId, onRoomUpdate }) => {
     const [isJoined, setIsJoined] = useState(false);
     const [joining, setJoining] = useState(false);
+    const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
 
     useEffect(() => {
       checkJoinStatus();
@@ -113,6 +115,21 @@ export default function RoomsScreen() {
       }
     };
 
+    const handleDeletePress = () => {
+      setIsDeleteModalVisible(true);
+    };
+
+    const handleConfirmDelete = async () => {
+      try {
+        await roomsAPI.deleteRoom(item.id);
+        onRoomUpdate(); // Refresh the rooms list
+        setIsDeleteModalVisible(false);
+      } catch (error) {
+        console.error("Error deleting room:", error);
+        alert("Failed to delete room. Please try again.");
+      }
+    };
+
     return (
       <View>
         <TouchableOpacity
@@ -120,7 +137,17 @@ export default function RoomsScreen() {
           activeOpacity={0.9}
         >
           <View style={styles.roomItem}>
-            <Text style={styles.roomName}>{item.name}</Text>
+            <View style={styles.roomHeader}>
+              <Text style={styles.roomName}>{item.name}</Text>
+              {item.creator_id === userId && (
+                <TouchableOpacity
+                  onPress={handleDeletePress}
+                  style={styles.deleteButton}
+                >
+                  <Feather name="trash-2" size={20} color="#FF4444" />
+                </TouchableOpacity>
+              )}
+            </View>
             <Text style={styles.roomDescription}>{item.description}</Text>
             <View style={styles.participantsContainer}>
               <Feather name="users" size={16} color="#FFE55C" />
@@ -141,6 +168,14 @@ export default function RoomsScreen() {
             )}
           </View>
         </TouchableOpacity>
+
+        <DeleteModal
+          isVisible={isDeleteModalVisible}
+          title="Delete Room"
+          desc="room"
+          cancel={() => setIsDeleteModalVisible(false)}
+          confirm={handleConfirmDelete}
+        />
       </View>
     );
   };
@@ -151,9 +186,9 @@ export default function RoomsScreen() {
 
   return (
     <LinearGradient
-    colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-    start={{ x: 0, y: 0 }}
-    end={{ x: 1, y: 1 }}
+      colors={["#000000", "#1a1a1a", "#2a2a2a"]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
       style={styles.container}
     >
       <View>
@@ -168,7 +203,11 @@ export default function RoomsScreen() {
         </View>
 
         {loading ? (
-          <ActivityIndicator size="large" color="#FFE55C" style={styles.loader} />
+          <ActivityIndicator
+            size="large"
+            color="#FFE55C"
+            style={styles.loader}
+          />
         ) : (
           <FlatList
             data={rooms}
@@ -255,11 +294,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255, 229, 92, 0.2)",
   },
+  roomHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
   roomName: {
     fontSize: 22,
     fontFamily: "Rubik-Bold",
     color: "#FFE55C",
-    marginBottom: 10,
+  },
+  deleteButton: {
+    backgroundColor: "rgba(255, 68, 68, 0.1)",
+    padding: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255, 68, 68, 0.3)",
   },
   roomDescription: {
     fontSize: 16,

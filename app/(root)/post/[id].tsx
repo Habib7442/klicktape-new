@@ -19,11 +19,11 @@ import moment from "moment";
 import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "@/lib/supabase";
 import { useDispatch, useSelector } from "react-redux";
-import { toggleLike } from "@/src/store/slices/postsSlice";
+import { toggleLike, toggleBookmark } from "@/src/store/slices/postsSlice";
 import { RootState } from "@/src/store/store";
 
 const { width } = Dimensions.get("window");
-const IMAGE_HEIGHT = width * 0.9; // Maintain aspect ratio for images
+const IMAGE_HEIGHT = width * 0.9;
 
 interface Comment {
   id: string;
@@ -45,7 +45,7 @@ interface Post {
   is_bookmarked?: boolean;
   user: {
     username: string;
-    avatar: string;
+    avatar_url: string;
   };
 }
 
@@ -61,8 +61,10 @@ const PostDetailScreen = () => {
   const router = useRouter();
   const likeScale = useState(new Animated.Value(1))[0];
   const dispatch = useDispatch();
-  const likedPosts = useSelector((state: RootState) => state.posts.likedPosts);
-  const [isBookmarked, setIsBookmarked] = useState(false);
+  
+  // Get bookmark status from Redux store
+  const bookmarkedPosts = useSelector((state: RootState) => state.posts.bookmarkedPosts);
+  const isBookmarked = post ? bookmarkedPosts[post.id] || false : false;
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -78,6 +80,7 @@ const PostDetailScreen = () => {
 
   const fetchPostAndComments = async () => {
     try {
+      setLoading(true);
       const { data: postData, error: postError } = await supabase
         .from("posts")
         .select(
@@ -97,8 +100,7 @@ const PostDetailScreen = () => {
         .eq("id", id as string)
         .single();
 
-      if (postError || !postData)
-        throw postError || new Error("Post not found");
+      if (postError || !postData) throw postError || new Error("Post not found");
 
       const { data: commentsData, error: commentsError } = await supabase
         .from("comments")
@@ -127,31 +129,13 @@ const PostDetailScreen = () => {
           .eq("user_id", userId)
           .single();
 
-        if (!likeError && likeData) {
-          setIsLiked(true);
-        }
-
-        // Check bookmark status
-        const { data: bookmarkData, error: bookmarkError } = await supabase
-          .from("bookmarks")
-          .select("id")
-          .eq("post_id", id as string)
-          .eq("user_id", userId)
-          .single();
-
-        if (!bookmarkError && bookmarkData) {
-          setIsBookmarked(true);
-        }
+        setIsLiked(!likeError && likeData);
       }
-      const isLikedFromRedux = likedPosts[postData.id] || false;
-      setIsLiked(isLikedFromRedux);
+
       setPost(postData as Post);
       setComments(commentsData as Comment[]);
     } catch (error) {
-      console.error(
-        "Error fetching post details:",
-        JSON.stringify(error, null, 2)
-      );
+      console.error("Error fetching post details:", error);
     } finally {
       setLoading(false);
     }
@@ -160,6 +144,15 @@ const PostDetailScreen = () => {
   const handleLike = async () => {
     if (!userId || !post) return;
 
+    // Optimistic update
+    const newLikeStatus = !isLiked;
+    setIsLiked(newLikeStatus);
+    setPost(prev => prev ? {
+      ...prev,
+      likes_count: newLikeStatus ? prev.likes_count + 1 : prev.likes_count - 1
+    } : null);
+
+    // Animate the like button
     Animated.sequence([
       Animated.timing(likeScale, {
         toValue: 1.2,
@@ -182,9 +175,33 @@ const PostDetailScreen = () => {
 
       if (error) throw error;
     } catch (error) {
-      // Revert the like state if the API call fails
-      dispatch(toggleLike(post.id));
-      console.error("Error toggling like:", JSON.stringify(error, null, 2));
+      // Revert on error
+      setIsLiked(!newLikeStatus);
+      setPost(prev => prev ? {
+        ...prev,
+        likes_count: newLikeStatus ? prev.likes_count - 1 : prev.likes_count + 1
+      } : null);
+      console.error("Error toggling like:", error);
+    }
+  };
+
+  const handleBookmark = async () => {
+    if (!userId || !post) return;
+
+    try {
+      // Dispatch the action to update Redux store
+      dispatch(toggleBookmark(post.id));
+      
+      const { error } = await supabase.rpc("toggle_bookmark", {
+        post_id: post.id,
+        user_id: userId,
+      });
+
+      if (error) throw error;
+    } catch (error) {
+      // Revert the bookmark state in Redux if the API call fails
+      dispatch(toggleBookmark(post.id));
+      console.error("Error toggling bookmark:", error);
     }
   };
 
@@ -219,13 +236,13 @@ const PostDetailScreen = () => {
         .update({ comments_count: post.comments_count + 1 })
         .eq("id", post.id);
 
-      setComments((prev) => [commentData as Comment, ...prev]);
+      setComments(prev => [commentData as Comment, ...prev]);
       setNewComment("");
-      setPost((prev) =>
+      setPost(prev =>
         prev ? { ...prev, comments_count: prev.comments_count + 1 } : null
       );
     } catch (error) {
-      console.error("Error adding comment:", JSON.stringify(error, null, 2));
+      console.error("Error adding comment:", error);
     }
   };
 
@@ -235,23 +252,6 @@ const PostDetailScreen = () => {
         event.nativeEvent.layoutMeasurement.width
     );
     setCurrentImageIndex(slide);
-  };
-
-  const handleBookmark = async () => {
-    if (!userId || !post) return;
-
-    try {
-      setIsBookmarked(!isBookmarked);
-      const { error } = await supabase.rpc("toggle_bookmark", {
-        post_id: post.id,
-        user_id: userId,
-      });
-
-      if (error) throw error;
-    } catch (error) {
-      setIsBookmarked(!isBookmarked); // Revert on error
-      console.error("Error toggling bookmark:", JSON.stringify(error, null, 2));
-    }
   };
 
   if (loading) {
@@ -300,7 +300,10 @@ const PostDetailScreen = () => {
               <Ionicons name="arrow-back" size={24} color="#FFD700" />
             </TouchableOpacity>
             <View style={styles.userInfo}>
-              <Image source={{ uri: post.user.avatar_url }} style={styles.avatar} />
+              <Image
+                source={{ uri: post.user.avatar_url }}
+                style={styles.avatar}
+              />
               <Text style={styles.username}>{post.user.username}</Text>
             </View>
           </View>
@@ -318,7 +321,7 @@ const PostDetailScreen = () => {
                   key={index}
                   source={{ uri: url }}
                   style={styles.image}
-                  resizeMode="cover"
+                  resizeMode="contain"
                 />
               ))}
             </ScrollView>
@@ -350,8 +353,11 @@ const PostDetailScreen = () => {
               </TouchableOpacity>
               <Text style={styles.count}>{post.likes_count} likes</Text>
             </View>
-            
-            <TouchableOpacity onPress={handleBookmark} style={styles.bookmarkButton}>
+
+            <TouchableOpacity
+              onPress={handleBookmark}
+              style={styles.bookmarkButton}
+            >
               <Ionicons
                 name={isBookmarked ? "bookmark" : "bookmark-outline"}
                 size={28}

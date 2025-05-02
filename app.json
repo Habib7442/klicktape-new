@@ -15,13 +15,14 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
-        "backgroundColor": "#151718"
+        "backgroundColor": "#000000"
       },
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.CAMERA"
       ],
+      
       "package": "com.flerid.klicktape"
     },
     "web": {
@@ -34,10 +35,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#151718"
+          "backgroundColor": "#000000"
         }
       ],
       [
@@ -77,6 +78,12 @@
         "react-native-libsodium",
         {}
       ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location."
+        }
+      ],
       "expo-secure-store"
     ],
     "experiments": {
@@ -87,7 +94,7 @@
         "origin": false
       },
       "eas": {
-        "projectId": "c3a0c8c2-1332-4584-b43a-2ac80443b729"
+        "projectId": "79789b66-edbb-406a-99df-7a43c1795247"
       }
     }
   }

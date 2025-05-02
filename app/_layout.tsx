@@ -43,6 +43,10 @@ export default function RootLayout() {
               name="verify-email"
               options={{ headerShown: false }}
             />
+            <Stack.Screen
+              name="reset-password"
+              options={{ headerShown: false }}
+            />
             <Stack.Screen name="+not-found" />
           </Stack>
         </PersistGate>

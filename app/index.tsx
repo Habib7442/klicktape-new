@@ -3,84 +3,84 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { ActivityIndicator, View } from "react-native";
 
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000; // 1 second
+
 const Page = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [hasProfile, setHasProfile] = useState(false);
 
+  const checkProfile = async (
+    email: string,
+    retryCount = 0
+  ): Promise<boolean> => {
+    try {
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("username")
+        .eq("email", email)
+        .single();
+
+      if (error && error.code !== "PGRST116") {
+        // PGRST116 = no rows found
+        console.error("Profile check error:", error);
+        return false;
+      }
+
+      // Check if username exists and is not empty
+      const profileValid =
+        !!profile?.username && profile.username.trim() !== "";
+      return profileValid;
+    } catch (error) {
+      console.error("Error checking profile:", error);
+      if (retryCount < MAX_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
+        return checkProfile(email, retryCount + 1);
+      }
+      return false;
+    }
+  };
+
+  const verifyAuthState = async (session: any) => {
+    const signedIn = !!session;
+    setIsSignedIn(signedIn);
+
+    if (signedIn && session?.user?.email) {
+      const profileExists = await checkProfile(session.user.email);
+      setHasProfile(profileExists);
+    } else {
+      setHasProfile(false);
+    }
+    setIsLoading(false);
+  };
+
   useEffect(() => {
-    // Check session and auth state changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      const signedIn = !!session;
-      setIsSignedIn(signedIn);
+    let isMounted = true;
+    let authSubscription: any;
 
-      if (signedIn && session?.user?.email) {
-        // Check if user has a profile with a non-null, non-empty username
-        const { data: profile, error } = await supabase
-          .from("profiles")
-          .select("username")
-          .eq("email", session.user.email)
-          .single();
+    const initializeAuth = async () => {
+      // First check existing session
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (isMounted) await verifyAuthState(session);
 
-        console.log("Profile check (onAuthStateChange):", {
-          email: session.user.email,
-          profile,
-          error,
-        });
-
-        if (error && error.code !== "PGRST116") {
-          console.error("Profile check error:", error);
-          setHasProfile(false); // Default to no profile on error
-        } else {
-          // Check if username is non-null and non-empty
-          setHasProfile(!!profile?.username && profile.username.trim() !== "");
+      // Then subscribe to auth changes
+      authSubscription = supabase.auth.onAuthStateChange(
+        async (event, session) => {
+          if (isMounted) await verifyAuthState(session);
         }
-      } else {
-        setHasProfile(false);
-      }
+      ).data.subscription;
+    };
 
-      setIsLoading(false);
-    });
+    initializeAuth();
 
-    // Initial check
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      const signedIn = !!session;
-      setIsSignedIn(signedIn);
-
-      if (signedIn && session?.user?.email) {
-        // Check if user has a profile with a non-null, non-empty username
-        const { data: profile, error } = await supabase
-          .from("profiles")
-          .select("username")
-          .eq("email", session.user.email)
-          .single();
-
-        console.log("Profile check (getSession):", {
-          email: session.user.email,
-          profile,
-          error,
-        });
-
-        if (error && error.code !== "PGRST116") {
-          console.error("Profile check error:", error);
-          setHasProfile(false); // Default to no profile on error
-        } else {
-          // Check if username is non-null and non-empty
-          setHasProfile(!!profile?.username && profile.username.trim() !== "");
-        }
-      } else {
-        setHasProfile(false);
-      }
-
-      setIsLoading(false);
-    });
-
-    return () => subscription?.unsubscribe(); // Cleanup
+    return () => {
+      isMounted = false;
+      authSubscription?.unsubscribe();
+    };
   }, []);
-
-  console.log("Redirect state:", { isSignedIn, hasProfile, isLoading });
 
   if (isLoading) {
     return (
@@ -95,7 +95,7 @@ const Page = () => {
   }
 
   return hasProfile ? (
-    <Redirect href="/(root)/(tabs)/home" />
+    <Redirect href="/welcome-main" />
   ) : (
     <Redirect href="/create-profile" />
   );

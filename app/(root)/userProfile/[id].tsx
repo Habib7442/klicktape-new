@@ -195,7 +195,6 @@ const UserProfile = () => {
     );
   }
 
-  console.log(userProfile, "userr");
 
   return (
     <LinearGradient

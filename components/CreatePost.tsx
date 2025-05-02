@@ -1,5 +1,6 @@
 import * as ImageManipulator from "expo-image-manipulator";
-import React, { useState, useEffect } from "react";
+import * as Location from "expo-location";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -21,24 +22,48 @@ import Carousel from "react-native-reanimated-carousel";
 import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { postsAPI } from "@/lib/postsApi";
+import { notificationsAPI } from "@/lib/notificationsApi";
 
 const TAB_BAR_HEIGHT = 90;
 const TAB_BAR_MARGIN = 24;
+const EMOJIS = ["😊", "😂", "❤️", "👍", "🎉", "🔥", "🌟", "💖", "😍", "🤩"];
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
   const [userId, setUserId] = useState<string | null>(null);
-  const [images, setImages] = useState<string[]>([]);
+  const [media, setMedia] = useState<Array<{ uri: string; type: 'image' }>>([]);
   const [caption, setCaption] = useState("");
   const [loading, setLoading] = useState(false);
-  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [activeMediaIndex, setActiveMediaIndex] = useState(0);
+  const [location, setLocation] = useState<string | null>(null);
+  const [taggedUsers, setTaggedUsers] = useState<Array<{ id: string; username: string }>>([]);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Array<{ id: string; username: string; avatar: string }>>([]);
+  const [isTagging, setIsTagging] = useState(false);
+  const [step, setStep] = useState<"select" | "edit" | "details">("select");
+
   const scaleValue = new Animated.Value(1);
+
+  const filters = [
+    { name: "Original", filter: null },
+    { name: "Clarendon", filter: { brightness: 1.1, contrast: 1.2, saturation: 1.1 } },
+    { name: "Juno", filter: { contrast: 1.1, saturation: 1.2 } },
+    { name: "Ludwig", filter: { brightness: 1.05, contrast: 1.05 } },
+    { name: "Valencia", filter: { brightness: 1.08, contrast: 0.98, saturation: 1.1 } },
+    { name: "Sepia", filter: { sepia: 1 } },
+    { name: "Negative", filter: { contrast: -1, brightness: -1 } },
+  ];
 
   useEffect(() => {
     const fetchUser = async () => {
-      const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser();
+      if (!supabase) {
+        console.error("Supabase client is not initialized");
+        alert("Failed to initialize. Please try again later.");
+        return;
+      }
+
+      const { data: { user }, error } = await supabase.auth.getUser();
       if (error) {
         console.error("Error fetching user:", error);
         alert("Failed to authenticate. Please sign in again.");
@@ -54,10 +79,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
       const manipResult = await ImageManipulator.manipulateAsync(
         uri,
         [{ resize: { width: 1080 } }],
-        {
-          compress: 0.7,
-          format: ImageManipulator.SaveFormat.JPEG,
-        }
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
       );
 
       const fileInfo = await fetch(manipResult.uri);
@@ -67,10 +89,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
         return await ImageManipulator.manipulateAsync(
           manipResult.uri,
           [{ resize: { width: 720 } }],
-          {
-            compress: 0.5,
-            format: ImageManipulator.SaveFormat.JPEG,
-          }
+          { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG }
         );
       }
 
@@ -81,7 +100,33 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
     }
   };
 
-  const pickImage = async () => {
+  const applyFilter = async (filter: any) => {
+    if (media.length === 0 || activeMediaIndex >= media.length) return;
+
+    try {
+      let manipResult;
+      if (filter) {
+        manipResult = await ImageManipulator.manipulateAsync(
+          media[activeMediaIndex].uri,
+          [],
+          filter
+        );
+      } else {
+        // If no filter (Original), revert to the original compressed image
+        const originalUri = media[activeMediaIndex].uri;
+        manipResult = await ImageManipulator.manipulateAsync(originalUri, [], {});
+      }
+
+      const newMedia = [...media];
+      newMedia[activeMediaIndex] = { ...newMedia[activeMediaIndex], uri: manipResult.uri };
+      setMedia(newMedia);
+    } catch (error) {
+      console.error("Error applying filter:", error);
+      alert("Failed to apply filter. Please try again.");
+    }
+  };
+
+  const pickMedia = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: false,
@@ -90,14 +135,65 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
     });
 
     if (!result.canceled) {
-      const compressedImages = await Promise.all(
+      const processedMedia = await Promise.all(
         result.assets.map(async (asset) => {
           const compressed = await compressImage(asset.uri);
-          return compressed.uri;
+          return { uri: compressed.uri, type: 'image' as const };
         })
       );
-      setImages((prev) => [...prev, ...compressedImages]);
+      setMedia((prev) => [...prev, ...processedMedia]);
+      setStep("edit");
     }
+  };
+
+  const getLocation = async () => {
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        alert('Permission to access location was denied');
+        return;
+      }
+
+      let location = await Location.getCurrentPositionAsync({});
+      const reverseGeocode = await Location.reverseGeocodeAsync({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      });
+
+      if (reverseGeocode[0]) {
+        const { city, region, country } = reverseGeocode[0];
+        setLocation(`${city}, ${region}, ${country}`);
+      }
+    } catch (error) {
+      console.error("Error getting location:", error);
+      alert("Failed to get location. Please try again.");
+    }
+  };
+
+  const searchUsers = async (query: string) => {
+    if (query.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    try {
+      const results = await postsAPI.searchUsers(query);
+      setSearchResults(results);
+    } catch (error) {
+      console.error("Error searching users:", error);
+      alert("Failed to search users. Please try again.");
+    }
+  };
+
+  const handleTagUser = (user: { id: string; username: string }) => {
+    if (!taggedUsers.some(u => u.id === user.id)) {
+      setTaggedUsers([...taggedUsers, user]);
+    }
+    setSearchQuery("");
+  };
+
+  const removeTaggedUser = (userId: string) => {
+    setTaggedUsers(taggedUsers.filter(user => user.id !== userId));
   };
 
   const handlePost = async () => {
@@ -106,7 +202,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
       return;
     }
 
-    if (images.length === 0) {
+    if (media.length === 0) {
       alert("Please select at least one image");
       return;
     }
@@ -114,18 +210,38 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
     try {
       setLoading(true);
 
-      const imageFiles = images.map((uri, index) => ({
-        uri,
-        name: `image_${Date.now()}_${index}.jpg`, // Generate a unique name for each image
-        type: "image/jpeg",
-        size: 0, // Size is not used in the upload, but kept for compatibility
+      const imageFiles = media.map((item, index) => ({
+        uri: item.uri,
+        name: `image_${Date.now()}_${index}.jpg`,
+        type: 'image/jpeg',
+        size: 0,
       }));
 
-      await postsAPI.createPost(imageFiles, caption, userId);
+      const postData = await postsAPI.createPost(imageFiles, caption, userId);
 
-      setImages([]);
+      if (taggedUsers.length > 0) {
+        await Promise.all(
+          taggedUsers.map(async (user) => {
+            try {
+              await notificationsAPI.createNotification(
+                user.id, // recipient_id (or receiver_id if not renamed)
+                "mention",
+                userId, // sender_id
+                postData.id
+              );
+            } catch (error) {
+              console.error(`Failed to create notification for user ${user.id}:`, error);
+            }
+          })
+        );
+      }
+
+      setMedia([]);
       setCaption("");
-      setActiveImageIndex(0);
+      setActiveMediaIndex(0);
+      setLocation(null);
+      setTaggedUsers([]);
+      setStep("select");
 
       onPostCreated();
       onClose();
@@ -138,45 +254,218 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
   };
 
   const handlePressIn = () => {
-    Animated.spring(scaleValue, {
-      toValue: 0.95,
-      useNativeDriver: true,
-    }).start();
+    Animated.spring(scaleValue, { toValue: 0.95, useNativeDriver: true }).start();
   };
 
   const handlePressOut = () => {
-    Animated.spring(scaleValue, {
-      toValue: 1,
-      useNativeDriver: true,
-    }).start();
+    Animated.spring(scaleValue, { toValue: 1, useNativeDriver: true }).start();
   };
 
   const onClose = () => {
     router.replace("/home");
   };
 
-  const removeImage = (index: number) => {
-    setImages((prev) => prev.filter((_, i) => i !== index));
-    if (activeImageIndex >= index && activeImageIndex > 0) {
-      setActiveImageIndex((prev) => prev - 1);
+  const removeMedia = (index: number) => {
+    setMedia((prev) => prev.filter((_, i) => i !== index));
+    if (activeMediaIndex >= index && activeMediaIndex > 0) {
+      setActiveMediaIndex((prev) => prev - 1);
     }
+    if (media.length === 1) {
+      setStep("select");
+    }
+  };
+
+  const insertEmoji = (emoji: string) => {
+    setCaption(prev => prev + emoji);
+    setShowEmojiPicker(false);
   };
 
   const renderCarouselItem = ({
     item,
     index,
   }: {
-    item: string;
+    item: { uri: string; type: 'image' };
     index: number;
   }) => (
     <View style={styles.carouselItem}>
-      <Image source={{ uri: item }} style={styles.carouselImage} />
+      <Image source={{ uri: item.uri }} style={styles.carouselImage} />
       <TouchableOpacity
         style={styles.removeImageButton}
-        onPress={() => removeImage(index)}
+        onPress={() => removeMedia(index)}
       >
         <Feather name="x-circle" size={24} color="#FFD700" />
       </TouchableOpacity>
+    </View>
+  );
+
+  const renderEditScreen = () => (
+    <View style={styles.editContainer}>
+      <View style={styles.carouselContainer}>
+        <Carousel
+          loop={false}
+          width={SCREEN_WIDTH}
+          height={SCREEN_HEIGHT - 200}
+          data={media}
+          onSnapToItem={(index) => setActiveMediaIndex(index)}
+          renderItem={renderCarouselItem}
+        />
+        {media.length > 1 && (
+          <View style={styles.pagination}>
+            {media.map((_, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.paginationDot,
+                  index === activeMediaIndex && styles.paginationDotActive,
+                ]}
+              />
+            ))}
+          </View>
+        )}
+        <TouchableOpacity style={styles.addMoreButton} onPress={pickMedia}>
+          <Feather name="plus-circle" size={24} color="#FFD700" />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView horizontal style={styles.filterContainer}>
+        {filters.map((filter, index) => (
+          <TouchableOpacity
+            key={index}
+            style={styles.filterOption}
+            onPress={() => applyFilter(filter.filter)}
+          >
+            <Image
+              source={{ uri: media[activeMediaIndex]?.uri || '' }}
+              style={styles.filterThumbnail}
+            />
+            <Text style={styles.filterName}>{filter.name}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      <TouchableOpacity
+        style={styles.nextButton}
+        onPress={() => setStep("details")}
+      >
+        <Text style={styles.nextButtonText}>Next</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderDetailsScreen = () => (
+    <View style={styles.content}>
+      <View style={styles.carouselContainer}>
+        <Carousel
+          loop={false}
+          width={SCREEN_WIDTH}
+          height={SCREEN_HEIGHT - 300}
+          data={media}
+          onSnapToItem={(index) => setActiveMediaIndex(index)}
+          renderItem={renderCarouselItem}
+        />
+        {media.length > 1 && (
+          <View style={styles.pagination}>
+            {media.map((_, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.paginationDot,
+                  index === activeMediaIndex && styles.paginationDotActive,
+                ]}
+              />
+            ))}
+          </View>
+        )}
+      </View>
+
+      <View style={styles.captionContainer}>
+        <TextInput
+          style={styles.captionInput}
+          placeholder="Write a caption..."
+          placeholderTextColor="rgba(255, 215, 0, 0.5)"
+          multiline
+          value={caption}
+          onChangeText={setCaption}
+        />
+        <TouchableOpacity
+          style={styles.emojiButton}
+          onPress={() => setShowEmojiPicker(!showEmojiPicker)}
+        >
+          <Feather name="smile" size={24} color="#FFD700" />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.optionsContainer}>
+        <TouchableOpacity
+          style={styles.optionButton}
+          onPress={() => setIsTagging(!isTagging)}
+        >
+          <Feather name="user-plus" size={20} color="#FFD700" />
+          <Text style={styles.optionText}>Tag People</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.optionButton}
+          onPress={getLocation}
+        >
+          <Feather name="map-pin" size={20} color="#FFD700" />
+          <Text style={styles.optionText}>Add Location</Text>
+        </TouchableOpacity>
+      </View>
+
+      {isTagging && (
+        <View style={styles.taggingContainer}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search users..."
+            placeholderTextColor="rgba(255, 215, 0, 0.5)"
+            value={searchQuery}
+            onChangeText={(text) => {
+              setSearchQuery(text);
+              searchUsers(text);
+            }}
+          />
+          {searchResults.length > 0 && (
+            <ScrollView style={styles.searchResults}>
+              {searchResults.map((user) => (
+                <TouchableOpacity
+                  key={user.id}
+                  style={styles.userResult}
+                  onPress={() => handleTagUser(user)}
+                >
+                  <Text style={styles.username}>@{user.username}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      )}
+
+      {location && (
+        <View style={styles.locationTag}>
+          <Feather name="map-pin" size={16} color="#FFD700" />
+          <Text style={styles.locationText}>{location}</Text>
+          <TouchableOpacity onPress={() => setLocation(null)}>
+            <Feather name="x" size={16} color="#FFD700" />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {taggedUsers.length > 0 && (
+        <View style={styles.taggedUsersContainer}>
+          <Text style={styles.taggedUsersTitle}>Tagged:</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {taggedUsers.map(user => (
+              <View key={user.id} style={styles.taggedUser}>
+                <Text style={styles.taggedUsername}>@{user.username}</Text>
+                <TouchableOpacity onPress={() => removeTaggedUser(user.id)}>
+                  <Feather name="x" size={14} color="#FFD700" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
     </View>
   );
 
@@ -197,75 +486,74 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.header}>
-            <TouchableOpacity onPress={onClose}>
-              <Feather name="x" size={24} color="#FFD700" />
+            <TouchableOpacity onPress={() => {
+              if (step !== "select") {
+                setMedia([]);
+                setStep("select");
+              } else {
+                onClose();
+              }
+            }}>
+              <Feather name={step === "select" ? "x" : "arrow-left"} size={24} color="#FFD700" />
             </TouchableOpacity>
             <Text style={styles.headerText}>Create Post</Text>
-            <TouchableOpacity
-              onPress={handlePost}
-              disabled={images.length === 0 || loading}
-              style={[
-                styles.postButton,
-                images.length === 0 && styles.disabledButton,
-              ]}
-              onPressIn={handlePressIn}
-              onPressOut={handlePressOut}
-            >
-              <Animated.View style={{ transform: [{ scale: scaleValue }] }}>
-                <Text style={styles.postButtonText}>Post</Text>
-              </Animated.View>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.content}>
-            {images.length === 0 ? (
-              <TouchableOpacity style={styles.imagePicker} onPress={pickImage}>
-                <Feather name="image" size={40} color="rgba(255, 215, 0, 0.7)" />
-                <Text style={styles.imagePickerText}>Tap to select images</Text>
+            {step === "details" ? (
+              <TouchableOpacity
+                onPress={handlePost}
+                disabled={media.length === 0 || loading}
+                style={[styles.postButton, media.length === 0 && styles.disabledButton]}
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+              >
+                <Animated.View style={{ transform: [{ scale: scaleValue }] }}>
+                  <Text style={styles.postButtonText}>Post</Text>
+                </Animated.View>
               </TouchableOpacity>
             ) : (
-              <View style={styles.carouselContainer}>
-                <Carousel
-                  loop={false}
-                  width={Dimensions.get("window").width - 32}
-                  height={300}
-                  data={images}
-                  onSnapToItem={(index) => setActiveImageIndex(index)}
-                  renderItem={renderCarouselItem}
-                />
-                {images.length > 1 && (
-                  <View style={styles.pagination}>
-                    {images.map((_, index) => (
-                      <View
-                        key={index}
-                        style={[
-                          styles.paginationDot,
-                          index === activeImageIndex && styles.paginationDotActive,
-                        ]}
-                      />
-                    ))}
-                  </View>
-                )}
-                <TouchableOpacity style={styles.addMoreButton} onPress={pickImage}>
-                  <Feather name="plus-circle" size={24} color="#FFD700" />
-                </TouchableOpacity>
-              </View>
+              <View style={{ width: 60 }} />
             )}
-
-            <TextInput
-              style={styles.captionInput}
-              placeholder="Write a caption..."
-              placeholderTextColor="rgba(255, 215, 0, 0.5)"
-              multiline
-              value={caption}
-              onChangeText={setCaption}
-            />
           </View>
+
+          {step === "select" && (
+            <View style={styles.content}>
+              <TouchableOpacity style={styles.mediaPicker} onPress={pickMedia}>
+                <Feather name="image" size={40} color="rgba(255, 215, 0, 0.7)" />
+                <Text style={styles.mediaPickerText}>Tap to select images</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {step === "edit" && renderEditScreen()}
+          {step === "details" && renderDetailsScreen()}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {showEmojiPicker && (
+        <View style={styles.emojiPickerContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {EMOJIS.map((emoji, index) => (
+              <TouchableOpacity
+                key={index}
+                style={styles.emojiItem}
+                onPress={() => insertEmoji(emoji)}
+              >
+                <Text style={styles.emojiText}>{emoji}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <TouchableOpacity
+            style={styles.closeEmojiPicker}
+            onPress={() => setShowEmojiPicker(false)}
+          >
+            <Feather name="x" size={24} color="#FFD700" />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {loading && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#FFD700" />
+          <Text style={styles.loadingText}>Creating your post...</Text>
         </View>
       )}
     </LinearGradient>
@@ -294,7 +582,7 @@ const styles = StyleSheet.create({
     fontFamily: "Rubik-Medium",
     color: "#ffffff",
   },
-  imagePickerText: {
+  mediaPickerText: {
     marginTop: 12,
     color: "#ffffff",
     fontSize: 16,
@@ -323,7 +611,11 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
   },
-  imagePicker: {
+  editContainer: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  mediaPicker: {
     height: 300,
     backgroundColor: "rgba(255, 215, 0, 0.1)",
     borderRadius: 12,
@@ -334,7 +626,8 @@ const styles = StyleSheet.create({
     borderStyle: "dashed",
   },
   carouselContainer: {
-    height: 300,
+    height: SCREEN_HEIGHT - 200,
+    width: SCREEN_WIDTH,
     borderRadius: 12,
     overflow: "hidden",
     shadowColor: "#000",
@@ -347,15 +640,15 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 215, 0, 0.2)",
   },
   carouselItem: {
-    width: "100%",
-    height: "100%",
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT - 200,
     justifyContent: "center",
     alignItems: "center",
   },
   carouselImage: {
     width: "100%",
     height: "100%",
-    resizeMode: "cover",
+    resizeMode: "contain", // Changed to "contain" to avoid cropping while ensuring full visibility
   },
   removeImageButton: {
     position: "absolute",
@@ -396,12 +689,53 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255, 215, 0, 0.3)",
   },
-  captionInput: {
+  filterContainer: {
+    flexGrow: 0,
+    paddingVertical: 10,
+    backgroundColor: "#1a1a1a",
+  },
+  filterOption: {
+    width: 80,
+    marginHorizontal: 8,
+    alignItems: "center",
+  },
+  filterThumbnail: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    marginBottom: 5,
+    resizeMode: "cover",
+  },
+  filterName: {
+    color: "#FFFFFF",
+    fontFamily: "Rubik-Regular",
+    fontSize: 12,
+    textAlign: "center",
+  },
+  nextButton: {
+    position: "absolute",
+    bottom: 20,
+    right: 20,
+    backgroundColor: "#FFD700",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  nextButtonText: {
+    color: "#000",
+    fontSize: 16,
+    fontFamily: "Rubik-Medium",
+  },
+  captionContainer: {
     marginTop: 16,
+    position: 'relative',
+  },
+  captionInput: {
     fontSize: 16,
     minHeight: 100,
     textAlignVertical: "top",
     padding: 12,
+    paddingRight: 40,
     backgroundColor: "rgba(255, 215, 0, 0.1)",
     borderRadius: 12,
     borderWidth: 1,
@@ -409,11 +743,131 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontFamily: "Rubik-Regular",
   },
+  emojiButton: {
+    position: 'absolute',
+    right: 10,
+    bottom: 10,
+  },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0, 0, 0, 0.7)",
     justifyContent: "center",
     alignItems: "center",
+  },
+  loadingText: {
+    marginTop: 16,
+    color: '#FFD700',
+    fontFamily: 'Rubik-Medium',
+  },
+  optionsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 16,
+  },
+  optionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.3)',
+  },
+  optionText: {
+    marginLeft: 8,
+    color: '#FFD700',
+    fontFamily: 'Rubik-Regular',
+  },
+  taggingContainer: {
+    marginTop: 10,
+  },
+  searchInput: {
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    borderRadius: 8,
+    padding: 10,
+    color: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.3)',
+  },
+  searchResults: {
+    maxHeight: 150,
+    marginTop: 5,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 8,
+  },
+  userResult: {
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 215, 0, 0.1)',
+  },
+  username: {
+    color: '#FFFFFF',
+    fontFamily: 'Rubik-Regular',
+  },
+  locationTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    padding: 8,
+    borderRadius: 20,
+    marginTop: 12,
+    alignSelf: 'flex-start',
+  },
+  locationText: {
+    marginLeft: 8,
+    marginRight: 8,
+    color: '#FFD700',
+    fontFamily: 'Rubik-Regular',
+  },
+  taggedUsersContainer: {
+    marginTop: 12,
+  },
+  taggedUsersTitle: {
+    color: '#FFD700',
+    fontFamily: 'Rubik-Medium',
+    marginBottom: 8,
+  },
+  taggedUser: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.3)',
+  },
+  taggedUsername: {
+    color: '#FFD700',
+    fontFamily: 'Rubik-Regular',
+    marginRight: 8,
+  },
+  emojiPickerContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+    backgroundColor: '#1a1a1a',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 215, 0, 0.3)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+  emojiItem: {
+    padding: 10,
+  },
+  emojiText: {
+    fontSize: 24,
+  },
+  closeEmojiPicker: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    zIndex: 1,
   },
 });
 

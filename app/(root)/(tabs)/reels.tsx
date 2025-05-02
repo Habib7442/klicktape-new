@@ -13,6 +13,7 @@ import {
   Pressable,
   SafeAreaView,
   Share,
+  BackHandler,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import { useVideoPlayer, VideoView } from "expo-video";
@@ -36,6 +37,7 @@ import { Reel } from "@/types/type";
 import { AppDispatch } from "@/src/store/store";
 import { useDispatch as useReduxDispatch } from "react-redux";
 import { router } from "expo-router";
+import { useNavigation } from "@react-navigation/native";
 
 const { width, height } = Dimensions.get("window");
 const REELS_PER_PAGE = 5;
@@ -119,14 +121,9 @@ const Reels = () => {
   const renderReel = useCallback(
     ({ item }: { item: Reel }) => {
       const isVisible = item.id === visibleReelId;
-      return (
-        <ReelItem
-          reel={item}
-          isVisible={isVisible}
-        />
-      );
+      return <ReelItem reel={item} isVisible={isVisible} />;
     },
-    [dispatch, visibleReelId]
+    [visibleReelId]
   );
 
   if (!loading && reels.length === 0) {
@@ -203,15 +200,18 @@ const ReelItem: React.FC<{
   reel: Reel;
   isVisible: boolean;
 }> = ({ reel, isVisible }) => {
+  const navigation = useNavigation();
   const dispatch = useReduxDispatch<AppDispatch>();
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [showFullCaption, setShowFullCaption] = useState(false);
+  const playerRef = useRef<any>(null);
   const isMounted = useRef(true);
 
   const player = useVideoPlayer(reel.video_url, (player) => {
     player.loop = true;
     player.muted = false;
+    playerRef.current = player;
   });
 
   const scaleValues = {
@@ -224,28 +224,76 @@ const ReelItem: React.FC<{
 
   useEffect(() => {
     isMounted.current = true;
-    if (player) {
-      try {
-        if (isVisible) {
-          player.play();
-          setIsPlaying(true);
-        } else {
-          player.pause();
-          setIsPlaying(false);
+
+    const backHandler = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        if (playerRef.current && isMounted.current) {
+          try {
+            playerRef.current.pause();
+            setIsPlaying(false);
+          } catch (error) {
+            console.warn("Error pausing video on back press:", error);
+          }
         }
-      } catch (error) {
-        console.warn("Error toggling player state:", error);
+        return false;
       }
-    }
+    );
+
     return () => {
       isMounted.current = false;
-      try {
-        player.pause();
-      } catch (error) {
-        console.warn("Error pausing player on unmount:", error);
+      backHandler.remove();
+      if (playerRef.current) {
+        try {
+          playerRef.current.pause();
+          playerRef.current = null;
+        } catch (error) {
+          console.warn("Error cleaning up video player:", error);
+        }
       }
     };
-  }, [isVisible, player]);
+  }, []);
+
+  useEffect(() => {
+    if (!isMounted.current) return;
+
+    try {
+      if (isVisible && playerRef.current) {
+        playerRef.current.play();
+        setIsPlaying(true);
+      } else if (playerRef.current) {
+        playerRef.current.pause();
+        setIsPlaying(false);
+      }
+    } catch (error) {
+      console.warn("Error toggling player state:", error);
+    }
+  }, [isVisible]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", () => {
+      if (isMounted.current && playerRef.current) {
+        try {
+          playerRef.current.pause();
+          setIsPlaying(false);
+        } catch (error) {
+          console.warn("Error pausing video on navigation:", error);
+        }
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      if (isMounted.current && playerRef.current) {
+        try {
+          playerRef.current.pause();
+          setIsPlaying(false);
+        } catch (error) {
+          console.warn("Error pausing video on cleanup:", error);
+        }
+      }
+    };
+  }, [navigation]);
 
   const handleToggleLike = async () => {
     if (!reel.id || typeof reel.id !== "string" || reel.id === "undefined") {
@@ -254,13 +302,14 @@ const ReelItem: React.FC<{
       return;
     }
 
-    // Optimistically update the UI
     dispatch({
       type: "reels/toggleLike/fulfilled",
       payload: {
         reelId: reel.id,
         is_liked: !reel.is_liked,
-        likes_count: reel.is_liked ? reel.likes_count - 1 : reel.likes_count + 1,
+        likes_count: reel.is_liked
+          ? reel.likes_count - 1
+          : reel.likes_count + 1,
       },
     });
 
@@ -268,17 +317,17 @@ const ReelItem: React.FC<{
       const result = await dispatch(
         toggleLike({ reelId: reel.id, isLiked: reel.is_liked })
       ).unwrap();
-      
-      // Remove array destructuring since result is an object
-      console.log("Like toggled successfully for reel:", reel.id, { ...result, reelId: reel.id });
-      
-      // Animate the like button
+
+      console.log("Like toggled successfully for reel:", reel.id, {
+        ...result,
+        reelId: reel.id,
+      });
+
       scaleValues.like.value = withSpring(1.2, {}, () => {
         scaleValues.like.value = withSpring(1);
       });
     } catch (error: any) {
       console.error("Error toggling like:", error);
-      // Revert the optimistic update on error
       dispatch({
         type: "reels/toggleLike/fulfilled",
         payload: {
@@ -287,8 +336,7 @@ const ReelItem: React.FC<{
           likes_count: reel.likes_count,
         },
       });
-      
-      // Only show alert for non-duplicate errors
+
       if (!error.message?.includes("duplicate key value")) {
         Alert.alert(
           "Error",
@@ -296,15 +344,15 @@ const ReelItem: React.FC<{
         );
       }
     }
-};
+  };
 
   const handleShare = async () => {
+    if (!isMounted.current) return;
+
     try {
       await Share.share({
         message: `Check out this reel: ${reel.caption}\n${reel.video_url}`,
       });
-      if (!isMounted.current) return;
-
       scaleValues.share.value = withSpring(1.2, {}, () => {
         scaleValues.share.value = withSpring(1);
       });
@@ -319,11 +367,16 @@ const ReelItem: React.FC<{
     scaleValues.comment.value = withSpring(1.2, {}, () => {
       scaleValues.comment.value = withSpring(1);
     });
-    try {
-      player.pause();
-    } catch (err) {
-      console.warn("Error pausing video before comment navigation:", err);
+
+    if (playerRef.current) {
+      try {
+        playerRef.current.pause();
+        setIsPlaying(false);
+      } catch (error) {
+        console.warn("Error pausing video before comment navigation:", error);
+      }
     }
+
     router.push({
       pathname: "/reels-comments-screen",
       params: {
@@ -337,10 +390,12 @@ const ReelItem: React.FC<{
     if (!isMounted.current) return;
 
     setIsMuted(!isMuted);
-    try {
-      player.muted = !isMuted;
-    } catch (err) {
-      console.warn("Error toggling mute:", err);
+    if (playerRef.current) {
+      try {
+        playerRef.current.muted = !isMuted;
+      } catch (error) {
+        console.warn("Error toggling mute:", error);
+      }
     }
     scaleValues.mute.value = withSpring(1.2, {}, () => {
       scaleValues.mute.value = withSpring(1);
@@ -351,15 +406,16 @@ const ReelItem: React.FC<{
     if (!isMounted.current) return;
 
     try {
-      if (isPlaying) {
-        player.pause();
-      } else {
-        player.play();
+      if (isPlaying && playerRef.current) {
+        playerRef.current.pause();
+        setIsPlaying(false);
+      } else if (playerRef.current) {
+        playerRef.current.play();
+        setIsPlaying(true);
       }
-    } catch (err) {
-      console.warn("Error toggling play/pause:", err);
+    } catch (error) {
+      console.warn("Error toggling play/pause:", error);
     }
-    setIsPlaying(!isPlaying);
     scaleValues.playPause.value = withSpring(1.2, {}, () => {
       scaleValues.playPause.value = withSpring(1);
     });
@@ -369,37 +425,59 @@ const ReelItem: React.FC<{
     if (!isMounted.current) return;
 
     console.log("Navigating to user profile with ID:", reel.userId);
-    try {
-      player.pause();
-    } catch (err) {
-      console.warn("Error pausing video before profile navigation:", err);
+    if (playerRef.current) {
+      try {
+        playerRef.current.pause();
+        setIsPlaying(false);
+      } catch (error) {
+        console.warn("Error pausing video before profile navigation:", error);
+      }
     }
     router.push(`/userProfile/${reel.userId}`);
   };
 
   const animatedStyles = {
-    like: useAnimatedStyle(() => ({ transform: [{ scale: scaleValues.like.value }] })),
-    comment: useAnimatedStyle(() => ({ transform: [{ scale: scaleValues.comment.value }] })),
-    share: useAnimatedStyle(() => ({ transform: [{ scale: scaleValues.share.value }] })),
-    mute: useAnimatedStyle(() => ({ transform: [{ scale: scaleValues.mute.value }] })),
-    playPause: useAnimatedStyle(() => ({ transform: [{ scale: scaleValues.playPause.value }] })),
+    like: useAnimatedStyle(() => ({
+      transform: [{ scale: scaleValues.like.value }],
+    })),
+    comment: useAnimatedStyle(() => ({
+      transform: [{ scale: scaleValues.comment.value }],
+    })),
+    share: useAnimatedStyle(() => ({
+      transform: [{ scale: scaleValues.share.value }],
+    })),
+    mute: useAnimatedStyle(() => ({
+      transform: [{ scale: scaleValues.mute.value }],
+    })),
+    playPause: useAnimatedStyle(() => ({
+      transform: [{ scale: scaleValues.playPause.value }],
+    })),
   };
 
-
-  const caption = reel.caption.length > 100 && !showFullCaption
-    ? reel.caption.slice(0, 100) + "..."
-    : reel.caption;
+  const caption =
+    reel.caption.length > 100 && !showFullCaption
+      ? reel.caption.slice(0, 100) + "..."
+      : reel.caption;
 
   return (
     <View style={styles.reelContainer}>
-      {/* Beautiful Header */}
       <LinearGradient
         colors={["rgba(0,0,0,0.8)", "transparent"]}
         style={styles.headerGradient}
       >
         <SafeAreaView style={styles.header}>
-          <TouchableOpacity 
-            onPress={() => router.back()}
+          <TouchableOpacity
+            onPress={() => {
+              if (playerRef.current) {
+                try {
+                  playerRef.current.pause();
+                  setIsPlaying(false);
+                } catch (error) {
+                  console.warn("Error pausing video on back:", error);
+                }
+              }
+              router.back();
+            }}
             style={styles.backButton}
           >
             <Feather name="arrow-left" size={24} color="#FFD700" />
@@ -414,7 +492,9 @@ const ReelItem: React.FC<{
         style={styles.video}
         nativeControls={false}
         contentFit="cover"
-        posterSource={reel.thumbnail_url ? { uri: reel.thumbnail_url } : undefined}
+        posterSource={
+          reel.thumbnail_url ? { uri: reel.thumbnail_url } : undefined
+        }
       />
 
       <LinearGradient
@@ -431,7 +511,9 @@ const ReelItem: React.FC<{
             <View style={styles.captionContainer}>
               <Text style={styles.caption}>{caption}</Text>
               {reel.caption.length > 100 && (
-                <TouchableOpacity onPress={() => setShowFullCaption(!showFullCaption)}>
+                <TouchableOpacity
+                  onPress={() => setShowFullCaption(!showFullCaption)}
+                >
                   <Text style={styles.showMore}>
                     {showFullCaption ? "Show less" : "Show more"}
                   </Text>
@@ -458,7 +540,9 @@ const ReelItem: React.FC<{
             </View>
 
             <View style={styles.actionWrapper}>
-              <Animated.View style={[styles.actionButton, animatedStyles.comment]}>
+              <Animated.View
+                style={[styles.actionButton, animatedStyles.comment]}
+              >
                 <TouchableOpacity onPress={handleComment}>
                   <Feather name="message-circle" size={28} color="#FFD700" />
                 </TouchableOpacity>
@@ -482,7 +566,9 @@ const ReelItem: React.FC<{
               </TouchableOpacity>
             </Animated.View>
 
-            <Animated.View style={[styles.actionButton, animatedStyles.playPause]}>
+            <Animated.View
+              style={[styles.actionButton, animatedStyles.playPause]}
+            >
               <TouchableOpacity onPress={handlePlayPause}>
                 <Feather
                   name={isPlaying ? "pause" : "play"}
@@ -508,7 +594,6 @@ const styles = StyleSheet.create({
     height,
     backgroundColor: "#000",
   },
-  // Header Styles
   headerGradient: {
     position: "absolute",
     top: 0,
@@ -580,11 +665,31 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 215, 0, 0.3)",
     alignSelf: "flex-start",
   },
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
   username: {
     fontSize: 16,
     fontFamily: "Rubik-Bold",
-    color: "#20B2AA", // Teal color
+    color: "#20B2AA",
     marginLeft: 8,
+  },
+  captionContainer: {
+    marginBottom: 16,
+  },
+  caption: {
+    fontSize: 16,
+    fontFamily: "Rubik-Regular",
+    color: "#ffffff",
+    lineHeight: 22,
+  },
+  showMore: {
+    fontSize: 14,
+    fontFamily: "Rubik-Medium",
+    color: "#FFD700",
+    marginTop: 4,
   },
   actions: {
     alignItems: "center",
@@ -613,16 +718,6 @@ const styles = StyleSheet.create({
     textShadowColor: "rgba(0, 0, 0, 0.5)",
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 2,
-  },
-  actionText: {
-    color: "#ffffff",
-    fontSize: 12,
-    marginTop: 4,
-    fontFamily: "Rubik-Regular",
-    textShadowColor: "rgba(0, 0, 0, 0.5)",
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
-    textAlign: "center",
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,

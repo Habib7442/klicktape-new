@@ -19,6 +19,7 @@ import { generateUsername, supabase } from "../lib/supabase";
 import { cacheManager } from "../lib/utils/cacheManager";
 import { storiesAPI } from "@/lib/storiesApi";
 import { LinearGradient } from "expo-linear-gradient";
+import DeleteModal from "./DeleteModal";
 
 interface Story {
   id: string;
@@ -189,7 +190,7 @@ const Stories = () => {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        aspect: [4, 3],
+        aspect: [9, 16],
         quality: 0.8,
       });
 
@@ -312,9 +313,9 @@ const Stories = () => {
     }).start();
   };
 
-  const handleDeleteStory = async (storyId: string) => {
+  const handleDeleteStory = (storyId: string) => {
     setStoryToDelete(storyId);
-    setIsWarningModalVisible(true);
+    setIsWarningModalVisible(true);  // Only show modal when delete is clicked
   };
 
   const confirmDeleteStory = async () => {
@@ -358,12 +359,12 @@ const Stories = () => {
 
   const handleStoryPress = (index: number) => {
     const clickedStory = stories[index];
-    
+
     // Filter stories to show only the clicked user's stories
     const userStories = stories.filter(
       (story) => story.user_id === clickedStory.user_id
     );
-    
+
     // Find the index of the clicked story within the user's stories
     const userStoryIndex = userStories.findIndex(
       (story) => story.id === clickedStory.id
@@ -371,7 +372,7 @@ const Stories = () => {
 
     setViewerStories(userStories);
     setViewerStartIndex(userStoryIndex);
-    
+
     // Start animation
     scaleAnim.setValue(0.8);
     setIsViewerVisible(true);
@@ -454,10 +455,7 @@ const Stories = () => {
             )}
           </View>
 
-          <TouchableOpacity
-            style={styles.postButton}
-            onPress={handlePostStory}
-          >
+          <TouchableOpacity style={styles.postButton} onPress={handlePostStory}>
             <LinearGradient
               colors={["#FFD700", "#FFA500"]}
               style={styles.postButtonGradient}
@@ -528,41 +526,22 @@ const Stories = () => {
       </Modal>
 
       {/* Delete Warning Modal */}
-      <Modal
+
+      <DeleteModal
         isVisible={isWarningModalVisible}
-        style={styles.warningModal}
-        backdropOpacity={0.5}
-        animationIn="zoomIn"
-        animationOut="zoomOut"
-      >
-        <View style={styles.warningModalContent}>
-          <Text className="font-rubik-bold" style={styles.warningTitle}>
-            Delete Story
-          </Text>
-          <Text className="font-rubik-medium" style={styles.warningText}>
-            Are you sure you want to delete this story? This action cannot be
-            undone.
-          </Text>
-          <View style={styles.warningButtonContainer}>
-            <TouchableOpacity
-              style={[styles.warningButton, styles.cancelButton]}
-              onPress={cancelDeleteStory}
-            >
-              <Text className="font-rubik-medium" style={styles.warningButtonText}>
-                Cancel
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.warningButton, styles.deleteButtonModal]}
-              onPress={confirmDeleteStory}
-            >
-              <Text className="font-rubik-medium" style={styles.warningButtonText}>
-                Delete
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+        title="Delete Story"
+        desc="story"
+        cancel={() => {
+          setIsWarningModalVisible(false);
+          setStoryToDelete(null);
+        }}
+        confirm={async () => {
+          if (storyToDelete) {
+            await confirmDeleteStory();
+            setIsWarningModalVisible(false);
+          }
+        }}
+      />
     </View>
   );
 };
