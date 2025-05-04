@@ -116,7 +116,7 @@ const Sidebar = () => {
       await supabase.auth.signOut();
       dispatch(logout());
       dispatch(closeSidebar());
-      router.replace("/sign-in");
+      router.replace("/sign-up");
     } catch (error) {
       console.error("Error logging out:", error);
     }

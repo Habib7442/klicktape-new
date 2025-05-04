@@ -17,7 +17,7 @@ const ResetPassword = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const params = useLocalSearchParams();
-  
+
   // Get the access token from the URL if it exists
   // This will be present if user is coming from a password reset email link
   const accessToken = params.access_token;
@@ -26,43 +26,63 @@ const ResetPassword = () => {
     // If there's an access token in the URL, set the session
     if (accessToken) {
       setSession(accessToken);
-    } else {
-      // Check if user is already authenticated
-      checkSession();
     }
+    // Remove the else clause - we don't want to check session when coming from email link
   }, [accessToken]);
 
-  const setSession = async (token: any) => {
+  const setSession = async (token: string) => {
+    setIsLoading(true);
     try {
-      const { error } = await supabase.auth.setSession({
+      const { data, error } = await supabase.auth.setSession({
         access_token: token,
-        refresh_token: '',
+        refresh_token: "", 
       });
-      
-      if (error) {
-        console.error("Error setting session:", error);
-        Alert.alert("Error", "Invalid or expired reset link. Please request a new password reset.");
-        router.replace("/reset-password");
+
+      if (error) throw error;
+
+      if (!data.session) {
+        throw new Error("Session not established");
       }
     } catch (error) {
       console.error("Session error:", error);
+      Alert.alert(
+        "Error",
+        "Invalid or expired reset link. Please request a new password reset.",
+        [{ text: "OK", onPress: () => router.replace("/sign-in") }]
+      );
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  // We can remove the checkSession function entirely as it's no longer needed
   const checkSession = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      // If no active session, redirect to sign in
-      Alert.alert(
-        "Authentication Required", 
-        "Please sign in first to change your password.",
-        [{ text: "OK", onPress: () => router.replace("/sign-in") }]
-      );
+    setIsLoading(true);
+    try {
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession();
+
+      if (error) throw error;
+      if (!session) {
+        Alert.alert(
+          "Password Reset",
+          "To reset your password, please use the 'Forgot Password' option on the sign in screen.",
+          [{ text: "OK", onPress: () => router.replace("/sign-in") }]
+        );
+      }
+    } catch (error) {
+      console.error("Session check error:", error);
+      Alert.alert("Error", "Failed to verify session. Please try again.", [
+        { text: "OK", onPress: () => router.replace("/sign-in") },
+      ]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const onSubmit = async () => {
-    // Validate inputs
     if (!password || !confirmPassword) {
       Alert.alert("Error", "Please fill in all fields");
       return;
@@ -80,7 +100,6 @@ const ResetPassword = () => {
 
     setIsLoading(true);
     try {
-      // Update password using Supabase
       const { error } = await supabase.auth.updateUser({
         password,
       });

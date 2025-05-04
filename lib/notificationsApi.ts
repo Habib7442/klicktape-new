@@ -61,9 +61,9 @@ export const notificationsAPI = {
           comment_id,
           created_at,
           is_read,
-          sender:users!sender_id (
+          sender:profiles!sender_id (
             username,
-            avatar
+            avatar_url
           )
         `
         )

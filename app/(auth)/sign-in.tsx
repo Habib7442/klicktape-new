@@ -82,8 +82,8 @@ const SignIn = () => {
     }
     setIsLoading(true);
     try {
-      // The redirectTo URL needs to be properly formatted to capture the token
-      const redirectUrl = "klicktape://reset-password";
+      const redirectUrl =   
+      'https://klicktape.com/reset-password.html';
 
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: redirectUrl,

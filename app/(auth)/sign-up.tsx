@@ -15,6 +15,7 @@ import { Feather } from "@expo/vector-icons";
 
 const SignUp = () => {
   const [email, setEmail] = useState("");
+  const [name, setName] = useState("");  // Add this line
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -23,6 +24,7 @@ const SignUp = () => {
     if (
       !email ||
       !password ||
+      !name ||  // Add name validation
       password.length < 6 ||
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     ) {
@@ -37,7 +39,10 @@ const SignUp = () => {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: "klicktape://verify-email" },
+        options: { 
+          emailRedirectTo: "klicktape://verify-email",
+          
+        },
       });
       if (error) throw error;
       if (data.user) {
@@ -74,8 +79,8 @@ const SignUp = () => {
               style={styles.input}
               placeholder="Enter your full name"
               placeholderTextColor="rgba(255, 255, 255, 0.5)"
-              value={email}
-              onChangeText={setEmail}
+              value={name}
+              onChangeText={setName}
             />
           </View>
           <View style={styles.inputGroup}>

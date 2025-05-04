@@ -55,16 +55,21 @@ const PostDetailScreen = () => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
   const [newComment, setNewComment] = useState("");
-  const [isLiked, setIsLiked] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const router = useRouter();
   const likeScale = useState(new Animated.Value(1))[0];
   const dispatch = useDispatch();
-  
+
   // Get bookmark status from Redux store
-  const bookmarkedPosts = useSelector((state: RootState) => state.posts.bookmarkedPosts);
+  const bookmarkedPosts = useSelector(
+    (state: RootState) => state.posts.bookmarkedPosts
+  );
+  // Add this selector to get liked posts state from Redux
+  const likedPosts = useSelector((state: RootState) => state.posts.likedPosts);
   const isBookmarked = post ? bookmarkedPosts[post.id] || false : false;
+  // Use Redux state for likes instead of local state
+  const isLiked = post ? likedPosts[post.id] || false : false;
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -100,7 +105,8 @@ const PostDetailScreen = () => {
         .eq("id", id as string)
         .single();
 
-      if (postError || !postData) throw postError || new Error("Post not found");
+      if (postError || !postData)
+        throw postError || new Error("Post not found");
 
       const { data: commentsData, error: commentsError } = await supabase
         .from("comments")
@@ -120,18 +126,7 @@ const PostDetailScreen = () => {
 
       if (commentsError) throw commentsError;
 
-      if (userId) {
-        // Check like status
-        const { data: likeData, error: likeError } = await supabase
-          .from("likes")
-          .select("id")
-          .eq("post_id", id as string)
-          .eq("user_id", userId)
-          .single();
-
-        setIsLiked(!likeError && likeData);
-      }
-
+      // Remove the local like status check since we're using Redux
       setPost(postData as Post);
       setComments(commentsData as Comment[]);
     } catch (error) {
@@ -144,13 +139,20 @@ const PostDetailScreen = () => {
   const handleLike = async () => {
     if (!userId || !post) return;
 
-    // Optimistic update
+    // Remove local state management since we're using Redux
     const newLikeStatus = !isLiked;
-    setIsLiked(newLikeStatus);
-    setPost(prev => prev ? {
-      ...prev,
-      likes_count: newLikeStatus ? prev.likes_count + 1 : prev.likes_count - 1
-    } : null);
+
+    // Update post likes count
+    setPost((prev) =>
+      prev
+        ? {
+            ...prev,
+            likes_count: newLikeStatus
+              ? prev.likes_count + 1
+              : prev.likes_count - 1,
+          }
+        : null
+    );
 
     // Animate the like button
     Animated.sequence([
@@ -167,7 +169,9 @@ const PostDetailScreen = () => {
     ]).start();
 
     try {
+      // Dispatch Redux action first for immediate UI update
       dispatch(toggleLike(post.id));
+
       const { error } = await supabase.rpc("toggle_like", {
         post_id: post.id,
         user_id: userId,
@@ -175,12 +179,20 @@ const PostDetailScreen = () => {
 
       if (error) throw error;
     } catch (error) {
-      // Revert on error
-      setIsLiked(!newLikeStatus);
-      setPost(prev => prev ? {
-        ...prev,
-        likes_count: newLikeStatus ? prev.likes_count - 1 : prev.likes_count + 1
-      } : null);
+      // Revert the Redux state on error
+      dispatch(toggleLike(post.id));
+      
+      // Revert the post count
+      setPost((prev) =>
+        prev
+          ? {
+              ...prev,
+              likes_count: newLikeStatus
+                ? prev.likes_count - 1
+                : prev.likes_count + 1,
+            }
+          : null
+      );
       console.error("Error toggling like:", error);
     }
   };
@@ -191,7 +203,7 @@ const PostDetailScreen = () => {
     try {
       // Dispatch the action to update Redux store
       dispatch(toggleBookmark(post.id));
-      
+
       const { error } = await supabase.rpc("toggle_bookmark", {
         post_id: post.id,
         user_id: userId,
@@ -236,9 +248,9 @@ const PostDetailScreen = () => {
         .update({ comments_count: post.comments_count + 1 })
         .eq("id", post.id);
 
-      setComments(prev => [commentData as Comment, ...prev]);
+      setComments((prev) => [commentData as Comment, ...prev]);
       setNewComment("");
-      setPost(prev =>
+      setPost((prev) =>
         prev ? { ...prev, comments_count: prev.comments_count + 1 } : null
       );
     } catch (error) {

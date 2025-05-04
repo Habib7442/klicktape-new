@@ -19,11 +19,11 @@ import { notificationsAPI } from "@/lib/notificationsApi";
 
 interface Notification {
   id: string;
-  type: "like" | "comment" | "follow" | "mention";  // Added "mention" type
+  type: "like" | "comment" | "follow" | "mention"; // Added "mention" type
   sender_id: string;
   sender: {
     username: string;
-    avatar: string;
+    avatar_url: string;
   };
   post_id?: string;
   comment_id?: string;
@@ -40,7 +40,9 @@ export default function NotificationsScreen() {
 
   useEffect(() => {
     const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       setUserId(user?.id || null);
     };
 
@@ -50,9 +52,9 @@ export default function NotificationsScreen() {
   const fetchNotifications = async () => {
     if (!userId) return;
     try {
-      console.log('Fetching notifications for user:', userId);
+      console.log("Fetching notifications for user:", userId);
       const data = await notificationsAPI.getNotifications(userId);
-      console.log('Fetched notifications:', data);
+      console.log("Fetched notifications:", data);
       setNotifications(data);
     } catch (error) {
       console.error("Error fetching notifications:", error);
@@ -77,7 +79,7 @@ export default function NotificationsScreen() {
             filter: `recipient_id=eq.${userId}`,
           },
           async (payload) => {
-            console.log('New notification received:', payload);
+            console.log("New notification received:", payload);
             const newNotification = payload.new as any;
             const { data: senderData, error } = await supabase
               .from("profiles")
@@ -85,8 +87,8 @@ export default function NotificationsScreen() {
               .eq("id", newNotification.sender_id)
               .single();
 
-            console.log('Sender data from profiles:', senderData);
-            console.log('Sender data error:', error);
+            console.log("Sender data from profiles:", senderData);
+            console.log("Sender data error:", error);
 
             if (!error && senderData) {
               setNotifications((prev) => [
@@ -118,16 +120,16 @@ export default function NotificationsScreen() {
 
   const handleNotificationPress = async (notification: Notification) => {
     try {
-      console.log('Handling notification press:', notification);
+      console.log("Handling notification press:", notification);
       await notificationsAPI.markAsRead(notification.id);
-      console.log('Marked notification as read:', notification.id);
+      console.log("Marked notification as read:", notification.id);
 
       if (notification.type === "follow") {
         router.push({
           pathname: "/userProfile/[id]",
           params: {
             id: notification.sender_id,
-            avatar: notification.sender.avatar,
+            avatar: notification.sender.avatar_url,
           },
         });
       } else if (notification.post_id) {
@@ -172,7 +174,7 @@ export default function NotificationsScreen() {
         onPress={() => handleNotificationPress(notification)}
       >
         <Image
-          source={{ uri: notification.sender.avatar }}
+          source={{ uri: notification.sender.avatar_url }}
           style={styles.avatar}
         />
         <View style={styles.notificationContent}>

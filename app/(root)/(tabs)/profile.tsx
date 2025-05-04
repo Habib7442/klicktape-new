@@ -147,7 +147,7 @@ const Profile = () => {
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
-      router.replace("/sign-in");
+      router.replace("/sign-up");
     } catch (error) {
       console.error("Error logging out:", error);
     }

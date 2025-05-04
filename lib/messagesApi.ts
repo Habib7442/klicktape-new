@@ -7,6 +7,16 @@ export const messagesAPI = {
     content: string
   ) => {
     try {
+      const { data: receiver, error: receiverError } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", receiverId)
+        .single();
+
+      if (receiverError || !receiver) {
+        throw new Error("Recipient does not exist");
+      }
+
       const { data, error } = await supabase
         .from("messages")
         .insert({
@@ -14,16 +24,18 @@ export const messagesAPI = {
           receiver_id: receiverId,
           content,
           is_read: false,
+          status: "sent",
           created_at: new Date().toISOString(),
         })
         .select()
         .single();
 
       if (error) throw error;
+      console.log("Message sent successfully:", data.id);
       return data;
     } catch (error) {
       console.error("Error sending message:", error);
-      throw error;
+      throw new Error(`Failed to send message: ${(error as Error).message}`);
     }
   },
 
@@ -40,19 +52,34 @@ export const messagesAPI = {
       return { documents: data };
     } catch (error) {
       console.error("Error fetching user conversations:", error);
-      throw error;
+      throw new Error(`Failed to fetch conversations: ${(error as Error).message}`);
     }
   },
 
   markAsRead: async (messageId: string) => {
-    const { error } = await supabase
-      .from('messages')
-      .update({ is_read: true })
-      .eq('id', messageId);
-      
-    if (error) {
-      console.error('Error marking message as read:', error);
-      throw error;
+    try {
+      const { data: message, error: checkError } = await supabase
+        .from("messages")
+        .select("is_read")
+        .eq("id", messageId)
+        .single();
+
+      if (checkError) throw checkError;
+      if (message.is_read) {
+        console.log("Message already read:", messageId);
+        return;
+      }
+
+      const { error } = await supabase
+        .from("messages")
+        .update({ is_read: true, status: "read" })
+        .eq("id", messageId);
+
+      if (error) throw error;
+      console.log("Message marked as read:", messageId);
+    } catch (error) {
+      console.error("Error marking message as read:", error);
+      throw new Error(`Failed to mark message as read: ${(error as Error).message}`);
     }
   },
 
@@ -70,7 +97,7 @@ export const messagesAPI = {
       if (data.length > 0) {
         await supabase
           .from("messages")
-          .update({ is_read: true })
+          .update({ is_read: true, status: "read" })
           .in(
             "id",
             data.map((m) => m.id)
@@ -102,7 +129,6 @@ export const messagesAPI = {
 
   getConversationBetweenUsers: async (userId: string, otherUserId: string) => {
     try {
-      // Validate inputs before querying
       if (!userId || !otherUserId) {
         throw new Error("Invalid userId or otherUserId");
       }
@@ -119,7 +145,36 @@ export const messagesAPI = {
       return { documents: data };
     } catch (error) {
       console.error("Error fetching conversation:", error);
-      throw error;
+      throw new Error(`Failed to fetch conversation: ${(error as Error).message}`);
+    }
+  },
+
+  setTypingStatus: async (userId: string, chatId: string, isTyping: boolean) => {
+    try {
+      if (!userId || !chatId) {
+        throw new Error("Invalid userId or chatId");
+      }
+
+      const { data, error } = await supabase
+        .from("typing_status")
+        .upsert(
+          {
+            user_id: userId,
+            chat_id: chatId,
+            is_typing: isTyping,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: ["user_id", "chat_id"] }
+        )
+        .select()
+        .single();
+
+      if (error) throw error;
+      console.log("Typing status updated:", { userId, chatId, isTyping });
+      return data;
+    } catch (error) {
+      console.error("Error setting typing status:", error);
+      throw new Error(`Failed to set typing status: ${(error as Error).message}`);
     }
   },
 };
