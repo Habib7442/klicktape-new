@@ -72,13 +72,30 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
           const userData = await AsyncStorage.getItem("user");
           if (userData) {
             const parsedUser = JSON.parse(userData);
-            const { data: userFromDB, error } = await supabase
+            let { data: userFromDB, error } = await supabase
               .from("profiles")
-              .select("username, avatar_url")
+              .select("id, username, avatar_url")
               .eq("id", parsedUser.id)
               .single();
 
-            if (error) throw error;
+            if (error || !userFromDB) {
+              // Create a profile if it doesn't exist
+              const username = `user_${Math.random().toString(36).substring(2, 10)}`;
+              const { data: newProfile, error: insertError } = await supabase
+                .from("profiles")
+                .insert({
+                  id: parsedUser.id,
+                  username,
+                  avatar_url: "",
+                })
+                .select()
+                .single();
+
+              if (insertError || !newProfile) {
+                throw new Error(`Failed to create user profile: ${insertError?.message}`);
+              }
+              userFromDB = newProfile;
+            }
 
             const updatedUser = {
               ...parsedUser,
@@ -130,12 +147,10 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
       try {
         const { data, error } = await supabase
           .from(table)
-          .select(
-            `
+          .select(`
             *,
-            user:users (username, avatar)
-          `
-          )
+            user:profiles!comments_user_id_fkey (username, avatar_url)
+          `)
           .eq(`${entityType}_id`, entityId)
           .order("created_at", { ascending: true });
 
@@ -147,7 +162,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
           ...comment,
           user: {
             username: comment.user?.username || "Unknown",
-            avatar: comment.user?.avatar || "https://via.placeholder.com/40",
+            avatar: comment.user?.avatar_url || "https://via.placeholder.com/40",
           },
         }));
 

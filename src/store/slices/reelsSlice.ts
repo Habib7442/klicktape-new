@@ -208,9 +208,18 @@ const reelsSlice = createSlice({
         const { reelId, is_liked, likes_count } = action.payload;
         const reel = state.reels.find((r) => r.id === reelId);
         if (reel) {
-          reel.is_liked = is_liked;
-          reel.likes_count = likes_count;
-          if (is_liked) {
+          // If API returns undefined values, use the opposite of current state
+          const newIsLiked = is_liked !== undefined ? is_liked : !reel.is_liked;
+          const newLikesCount = likes_count !== undefined 
+            ? likes_count 
+            : (newIsLiked ? reel.likes_count + 1 : reel.likes_count - 1);
+          
+          // Update the reel with calculated values
+          reel.is_liked = newIsLiked;
+          reel.likes_count = newLikesCount;
+          
+          // Update the liked reels array
+          if (newIsLiked) {
             if (!state.likedReelIds.includes(reelId)) {
               state.likedReelIds.push(reelId);
             }

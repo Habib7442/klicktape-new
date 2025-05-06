@@ -7,8 +7,58 @@ interface FetchResponse<T> {
   loading: boolean;
 }
 
+// Constants for profile check retries
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000; // 1 second
+
 export const useSupabaseFetch = () => {
   const [loading, setLoading] = useState(false);
+
+  const checkProfile = async (
+    email: string,
+    userId?: string,
+    retryCount = 0
+  ): Promise<boolean> => {
+    try {
+      // First try by email
+      const { data: profileByEmail, error: emailError } = await supabase
+        .from("profiles")
+        .select("username")
+        .eq("email", email)
+        .single();
+
+      // If found by email and has username, return true
+      if (profileByEmail?.username && profileByEmail.username.trim() !== "") {
+        console.log("Profile found by email:", email);
+        return true;
+      }
+
+      // If userId is provided, also try by ID
+      if (userId) {
+        const { data: profileById, error: idError } = await supabase
+          .from("profiles")
+          .select("username")
+          .eq("id", userId)
+          .single();
+
+        // If found by ID and has username, return true
+        if (profileById?.username && profileById.username.trim() !== "") {
+          console.log("Profile found by ID:", userId);
+          return true;
+        }
+      }
+
+      // No valid profile found
+      return false;
+    } catch (error) {
+      console.error("Error checking profile:", error);
+      if (retryCount < MAX_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
+        return checkProfile(email, userId, retryCount + 1);
+      }
+      return false;
+    }
+  };
 
   const fetchUserProfile = async (userId: string): Promise<any> => {
     try {
@@ -89,6 +139,7 @@ export const useSupabaseFetch = () => {
   };
 
   return {
+    checkProfile,
     fetchUserProfile,
     fetchPosts,
     fetchBookmarks,

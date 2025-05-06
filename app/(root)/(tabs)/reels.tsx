@@ -302,38 +302,45 @@ const ReelItem: React.FC<{
       return;
     }
 
+    // Calculate new state
+    const newIsLiked = !reel.is_liked;
+    const newLikesCount = reel.is_liked ? reel.likes_count - 1 : reel.likes_count + 1;
+    
+    // Dispatch optimistic update first
     dispatch({
       type: "reels/toggleLike/fulfilled",
       payload: {
         reelId: reel.id,
-        is_liked: !reel.is_liked,
-        likes_count: reel.is_liked
-          ? reel.likes_count - 1
-          : reel.likes_count + 1,
+        is_liked: newIsLiked,
+        likes_count: newLikesCount,
       },
+    });
+    
+    // Animate the like button
+    scaleValues.like.value = withSpring(1.2, {}, () => {
+      scaleValues.like.value = withSpring(1);
     });
 
     try {
-      const result = await dispatch(
-        toggleLike({ reelId: reel.id, isLiked: reel.is_liked })
-      ).unwrap();
+      // Make the API call but don't use its response to update UI
+      await dispatch(
+        toggleLike({ 
+          reelId: reel.id, 
+          isLiked: !newIsLiked // Pass the opposite because we're toggling from the current state
+        })
+      );
 
-      console.log("Like toggled successfully for reel:", reel.id, {
-        ...result,
-        reelId: reel.id,
-      });
-
-      scaleValues.like.value = withSpring(1.2, {}, () => {
-        scaleValues.like.value = withSpring(1);
-      });
+      console.log("Like toggled successfully for reel:", reel.id);
     } catch (error: any) {
       console.error("Error toggling like:", error);
+      
+      // Revert the optimistic update if the API call fails
       dispatch({
         type: "reels/toggleLike/fulfilled",
         payload: {
           reelId: reel.id,
-          is_liked: reel.is_liked,
-          likes_count: reel.likes_count,
+          is_liked: reel.is_liked, // Original value before our change
+          likes_count: reel.likes_count, // Original value before our change
         },
       });
 

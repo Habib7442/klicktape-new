@@ -25,13 +25,14 @@ import { RootState } from "@/src/store/store";
 const { width } = Dimensions.get("window");
 const IMAGE_HEIGHT = width * 0.9;
 
+// Update the comment interface to match the correct field name
 interface Comment {
   id: string;
   content: string;
   created_at: string;
   user: {
     username: string;
-    avatar: string;
+    avatar_url: string;  // Changed from avatar to avatar_url
   };
 }
 
@@ -117,7 +118,7 @@ const PostDetailScreen = () => {
           created_at,
           user:user_id (
             username,
-            avatar
+            avatar_url
           )
         `
         )
@@ -235,7 +236,7 @@ const PostDetailScreen = () => {
           created_at,
           user:user_id (
             username,
-            avatar
+            avatar_url
           )
         `
         )
@@ -393,7 +394,7 @@ const PostDetailScreen = () => {
             {comments.map((comment) => (
               <View key={comment.id} style={styles.commentItem}>
                 <Image
-                  source={{ uri: comment.user.avatar }}
+                  source={{ uri: comment.user.avatar_url }}  // Changed from avatar to avatar_url
                   style={styles.commentAvatar}
                 />
                 <View style={styles.commentContent}>
@@ -635,3 +636,5 @@ const styles = StyleSheet.create({
 });
 
 export default PostDetailScreen;
+
+

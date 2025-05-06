@@ -39,10 +39,23 @@ const UserProfile = () => {
 
   useEffect(() => {
     const fetchUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      setCurrentUserId(user?.id || null);
+      if (!supabase) return;
+
+      try {
+        const {
+          data: { user },
+          error,
+        } = await supabase.auth.getUser();
+
+        if (error) {
+          console.error("Error fetching current user:", error);
+          return;
+        }
+
+        setCurrentUserId(user?.id || null);
+      } catch (error) {
+        console.error("Error in fetchUser:", error);
+      }
     };
 
     fetchUser();
@@ -57,7 +70,7 @@ const UserProfile = () => {
           fetchPosts(id),
           fetchReels(id),
         ]);
-        
+
         setUserProfile(profile);
         setUserPosts(posts);
         setUserReels(reels);
@@ -76,13 +89,19 @@ const UserProfile = () => {
 
   const checkIfFollowing = async () => {
     try {
-      if (!currentUserId) return;
+      if (!currentUserId || !supabase) return;
+
       const { data, error } = await supabase
         .from("follows")
         .select("id")
         .eq("follower_id", currentUserId)
         .eq("following_id", id)
         .single();
+
+      if (error && error.code !== 'PGRST116') {
+        // PGRST116 is the error code for "no rows returned" which is expected if not following
+        console.error("Error checking follow status:", error);
+      }
 
       setIsFollowing(!!data);
     } catch (error) {
@@ -98,7 +117,7 @@ const UserProfile = () => {
         fetchPosts(id),
         fetchReels(id),
       ]);
-      
+
       setUserProfile(profile);
       setUserPosts(posts);
       setUserReels(reels);
@@ -112,22 +131,92 @@ const UserProfile = () => {
 
   const handleFollow = async () => {
     try {
-      if (!currentUserId) return;
-      if (isFollowing) {
-        await supabase
+      if (!currentUserId || !supabase) return;
+  
+      // Ensure current user has a profile
+      let { data: currentUserProfile, error: profileError } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", currentUserId)
+        .single();
+  
+      if (profileError || !currentUserProfile) {
+        // Create a profile for the current user
+        const username = `user_${Math.random().toString(36).substring(2, 10)}`;
+        const { data: newProfile, error: insertError } = await supabase
+          .from("profiles")
+          .insert({
+            id: currentUserId,
+            username,
+            avatar_url: "https://via.placeholder.com/150",
+          })
+          .select()
+          .single();
+  
+        if (insertError || !newProfile) {
+          console.error("Error creating user profile:", insertError);
+          return;
+        }
+        currentUserProfile = newProfile;
+      }
+  
+      // Check if already following
+      const { data: existingFollow, error: followError } = await supabase
+        .from("follows")
+        .select("id")
+        .eq("follower_id", currentUserId)
+        .eq("following_id", id)
+        .single();
+  
+      if (followError && followError.code !== "PGRST116") {
+        console.error("Error checking follow status:", followError);
+        return;
+      }
+  
+      if (existingFollow) {
+        // Unfollow user
+        const { error: deleteError } = await supabase
           .from("follows")
           .delete()
-          .eq("follower_id", currentUserId)
-          .eq("following_id", id);
+          .eq("id", existingFollow.id);
+  
+        if (deleteError) {
+          console.error("Error unfollowing user:", deleteError);
+          return;
+        }
       } else {
-        await supabase
+        // Follow user
+        const { error: insertError } = await supabase
           .from("follows")
           .insert({
             follower_id: currentUserId,
             following_id: id,
+            created_at: new Date().toISOString(),
           });
+  
+        if (insertError) {
+          console.error("Error following user:", insertError);
+          return;
+        }
+  
+        // Create notification for the followed user
+        try {
+          const { error: notifError } = await supabase.from("notifications").insert({
+            recipient_id: id, // Changed from receiver_id to recipient_id
+            sender_id: currentUserId,
+            type: "follow",
+            created_at: new Date().toISOString(),
+            is_read: false,
+          });
+          if (notifError) {
+            console.error("Error creating follow notification:", notifError);
+          }
+        } catch (notifError) {
+          console.error("Error creating follow notification:", notifError);
+        }
       }
-      
+  
+      // Update UI
       setIsFollowing(!isFollowing);
       setUserProfile((prev: any) => ({
         ...prev,

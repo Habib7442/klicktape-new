@@ -62,11 +62,20 @@ const Home = () => {
     getUser();
   }, []);
 
-  const fetchInitialData = async () => {
-    if (!userId) return;
+  // Memoize the fetchInitialData function to avoid recreation on each render
+  const fetchInitialData = React.useCallback(async () => {
+    if (!userId || !supabase) {
+      console.log("Cannot fetch initial data: userId or supabase is null");
+      return;
+    }
 
     const now = Date.now();
-    if (now - lastFetchTime < 30000) return;
+    if (now - lastFetchTime < 30000) {
+      console.log("Skipping fetch, last fetch was less than 30 seconds ago");
+      return;
+    }
+
+    console.log("Fetching initial data for user:", userId);
 
     try {
       const [notifications, unreadMessages] = await Promise.all([
@@ -74,20 +83,26 @@ const Home = () => {
         messagesAPI.getUnreadMessagesCount(userId),
       ]);
 
+      console.log("Fetched notifications:", notifications.length);
+      console.log("Unread messages count:", unreadMessages);
+
       const unread = notifications.filter((n) => !n.is_read).length;
+      console.log("Unread notifications count:", unread);
+
       dispatch(setUnreadCount(unread));
       dispatch(setUnreadMessageCount(unreadMessages));
       setLastFetchTime(Date.now());
     } catch (error) {
       console.error("Error fetching initial data:", error);
     }
-  };
+  }, [userId, supabase, lastFetchTime, dispatch]);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !supabase) return;
 
     fetchInitialData();
 
+    // Create a notification channel with detailed logging
     const notificationsSubscription = supabase
       .channel("notifications")
       .on(
@@ -99,8 +114,13 @@ const Home = () => {
           filter: `recipient_id=eq.${userId}`,
         },
         (payload) => {
+          console.log("New notification received:", payload.new);
           if (!payload.new.is_read) {
+            // Immediately increment the unread count in the UI
             dispatch(incrementUnreadCount());
+
+            // Play a notification sound if needed
+            // You can add sound playback here
           }
         }
       )
@@ -113,6 +133,7 @@ const Home = () => {
           filter: `recipient_id=eq.${userId}`,
         },
         async (payload) => {
+          console.log("Notification updated:", payload.new);
           if (payload.new.is_read && !payload.old.is_read) {
             // Fetch the actual unread count from the database
             try {
@@ -129,8 +150,11 @@ const Home = () => {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log("Notification subscription status:", status);
+      });
 
+    // Create a messages channel with detailed logging
     const messagesSubscription = supabase
       .channel("messages")
       .on(
@@ -142,22 +166,30 @@ const Home = () => {
           filter: `receiver_id=eq.${userId}`,
         },
         (payload) => {
+          console.log("New message received:", payload.new);
           if (!payload.new.is_read) {
             dispatch(setUnreadMessageCount(unreadMessageCount + 1));
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log("Messages subscription status:", status);
+      });
 
+    // Set up periodic refresh
     const interval = setInterval(() => {
       fetchInitialData();
     }, 300000);
 
+    // Cleanup function
     return () => {
-      supabase.removeChannel(notificationsSubscription);
-      supabase.removeChannel(messagesSubscription);
+      if (supabase) {
+        supabase.removeChannel(notificationsSubscription);
+        supabase.removeChannel(messagesSubscription);
+      }
       clearInterval(interval);
-      if (userId) {
+
+      if (userId && supabase) {
         (async () => {
           try {
             await supabase
@@ -174,7 +206,7 @@ const Home = () => {
   }, [userId, dispatch, unreadCount, unreadMessageCount]);
 
   useEffect(() => {
-    if (userId) {
+    if (userId && supabase) {
       dispatch(setActiveStatus(true));
       (async () => {
         try {
@@ -188,15 +220,16 @@ const Home = () => {
         }
       })();
     }
-  }, [userId, dispatch]);
+  }, [userId, dispatch, supabase]);
 
-  // Add a new effect to update notification count when screen comes into focus
+  // Update notification count when screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
-      if (userId) {
+      if (userId && supabase) {
+        console.log("Screen focused, refreshing notification data");
         fetchInitialData();
       }
-    }, [userId])
+    }, [userId, supabase, fetchInitialData])
   );
 
   return (

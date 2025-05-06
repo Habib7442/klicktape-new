@@ -2,7 +2,6 @@ import { supabase } from "./supabase";
 import { Platform } from "react-native";
 
 export const postsAPI = {
-  // Upload image to Supabase storage
   uploadImage: async (file: {
     uri: string;
     name?: string;
@@ -10,7 +9,6 @@ export const postsAPI = {
     size: number;
   }) => {
     try {
-      // Check authentication
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -19,7 +17,6 @@ export const postsAPI = {
       }
       console.log("Authenticated user:", user.id);
 
-      // Determine file extension (default to jpg if not provided)
       const fileExt = file.name?.split(".").pop()?.toLowerCase() || "jpg";
       const fileName =
         file.name ||
@@ -28,13 +25,11 @@ export const postsAPI = {
 
       console.log("Uploading file from URI:", file.uri);
 
-      // Normalize URI for Android
       let normalizedUri = file.uri;
       if (Platform.OS === "android" && !normalizedUri.startsWith("file://")) {
         normalizedUri = `file://${normalizedUri}`;
       }
 
-      // Create FormData for the upload
       const formData = new FormData();
       formData.append("file", {
         uri: normalizedUri,
@@ -42,7 +37,6 @@ export const postsAPI = {
         type: `image/${fileExt === "jpg" ? "jpeg" : fileExt}`,
       } as any);
 
-      // Upload to Supabase Storage
       const { error } = await supabase.storage
         .from("media")
         .upload(filePath, formData, {
@@ -55,7 +49,6 @@ export const postsAPI = {
         throw new Error(`Failed to upload image: ${error.message}`);
       }
 
-      // Get public URL
       const { data } = supabase.storage.from("media").getPublicUrl(filePath);
 
       if (!data?.publicUrl) {
@@ -69,24 +62,49 @@ export const postsAPI = {
     }
   },
 
-  // Create a new post
   createPost: async (
     imageFiles: { uri: string; name?: string; type: string; size: number }[],
     caption: string,
     userId: string
   ) => {
     try {
-      // Upload all images and get their URLs
+      // Check if user has a profile
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", userId) // profiles.id stores auth.users.id
+        .single();
+
+      if (profileError || !profile) {
+        // Create a profile if it doesn't exist
+        const username = `user_${Math.random().toString(36).substring(2, 10)}`;
+        const { data: newProfile, error: insertError } = await supabase
+          .from("profiles")
+          .insert({
+            id: userId, // profiles.id = auth.users.id
+            username,
+            avatar_url: "",
+          })
+          .select()
+          .single();
+
+        if (insertError || !newProfile) {
+          throw new Error(`Failed to create user profile: ${insertError?.message}`);
+        }
+        profile = newProfile;
+      }
+
+      // Upload images
       const uploadedFiles = await Promise.all(
         imageFiles.map((file) => postsAPI.uploadImage(file))
       );
       const imageUrls = uploadedFiles.map((file) => file.url);
 
-      // Create the post directly with the userId (UUID from auth.users)
+      // Create post with profiles.id
       const { data, error } = await supabase
         .from("posts")
         .insert({
-          user_id: userId,
+          user_id: profile.id, // profiles.id (same as auth.users.id)
           image_urls: imageUrls,
           caption,
           created_at: new Date().toISOString(),
@@ -103,7 +121,6 @@ export const postsAPI = {
     }
   },
 
-  // Rest of the postsAPI functions remain unchanged
   getPosts: async (page = 1, limit = 5) => {
     try {
       const offset = (page - 1) * limit;
@@ -112,7 +129,7 @@ export const postsAPI = {
         .select(
           `
           *,
-          user:profiles (username, avatar_url)
+          profiles:profiles!posts_user_id_fkey (username, avatar_url)
         `
         )
         .order("created_at", { ascending: false })
@@ -122,7 +139,7 @@ export const postsAPI = {
 
       return posts.map((post) => ({
         ...post,
-        user: post.user || {
+        user: post.profiles || {
           username: "Unknown User",
           avatar: "https://via.placeholder.com/150",
         },
@@ -140,7 +157,7 @@ export const postsAPI = {
         .select(
           `
           *,
-          user:profiles (username, avatar_url)
+          profiles:profiles!posts_user_id_fkey (username, avatar_url)
         `
         )
         .eq("id", postId)
@@ -149,7 +166,7 @@ export const postsAPI = {
       if (error) throw error;
       return {
         ...post,
-        user: data.user || {
+        user: post.profiles || {
           username: "Unknown User",
           avatar: "https://via.placeholder.com/150",
         },
@@ -165,7 +182,7 @@ export const postsAPI = {
       const { data: user, error: userError } = await supabase
         .from("profiles")
         .select("id")
-        .eq("user_id", userId)
+        .eq("id", userId) // profiles.id = auth.users.id
         .single();
 
       if (userError || !user) throw new Error("User not found");
@@ -198,7 +215,7 @@ export const postsAPI = {
 
         if (post.user_id !== user.id) {
           await supabase.from("notifications").insert({
-            recipient_id: post.user_id,
+            receiver_id: post.user_id,
             sender_id: user.id,
             type: "like",
             post_id: postId,
@@ -224,7 +241,7 @@ export const postsAPI = {
       const { data: user, error: userError } = await supabase
         .from("profiles")
         .select("id, username, avatar_url")
-        .eq("user_id", userId)
+        .eq("id", userId) // profiles.id = auth.users.id
         .single();
 
       if (userError || !user) throw new Error("User not found");
@@ -281,7 +298,7 @@ export const postsAPI = {
         if (parentComment.user_id !== user.id) {
           operations.push(
             supabase.from("notifications").insert({
-              recipient_id: parentComment.user_id,
+              receiver_id: parentComment.user_id,
               sender_id: user.id,
               type: "comment",
               post_id: postId,
@@ -296,7 +313,7 @@ export const postsAPI = {
       if (post.user_id !== user.id) {
         operations.push(
           supabase.from("notifications").insert({
-            recipient_id: post.user_id,
+            receiver_id: post.user_id,
             sender_id: user.id,
             type: "comment",
             post_id: postId,
@@ -329,7 +346,7 @@ export const postsAPI = {
         .select(
           `
           *,
-          user:users (username, avatar)
+          profiles:profiles!comments_user_id_fkey (username, avatar_url)
         `
         )
         .eq("post_id", postId)
@@ -340,7 +357,7 @@ export const postsAPI = {
 
       return comments.map((comment) => ({
         ...comment,
-        user: comment.user || {
+        user: comment.profiles || {
           username: "Unknown User",
           avatar: "https://via.placeholder.com/150",
         },
@@ -405,7 +422,7 @@ export const postsAPI = {
       const { data: user, error: userError } = await supabase
         .from("profiles")
         .select("id")
-        .eq("user_id", userId)
+        .eq("id", userId) // profiles.id = auth.users.id
         .single();
 
       if (userError || !user) throw new Error("User not found");
@@ -442,7 +459,7 @@ export const postsAPI = {
       const { data: user, error: userError } = await supabase
         .from("profiles")
         .select("id")
-        .eq("user_id", userId)
+        .eq("id", userId) // profiles.id = auth.users.id
         .single();
 
       if (userError || !user) throw new Error("User not found");
@@ -462,7 +479,7 @@ export const postsAPI = {
         .select(
           `
           *,
-          user:users (username, avatar)
+          profiles:profiles!posts_user_id_fkey (username, avatar_url)
         `
         )
         .in("id", postIds);
@@ -471,7 +488,7 @@ export const postsAPI = {
 
       return posts.map((post) => ({
         ...post,
-        user: post.user || {
+        user: post.profiles || {
           username: "Unknown User",
           avatar: "https://via.placeholder.com/150",
         },
@@ -486,7 +503,7 @@ export const postsAPI = {
       const { data: user, error: userError } = await supabase
         .from("profiles")
         .select("id, username, avatar_url")
-        .eq("user_id", userId)
+        .eq("id", userId) // profiles.id = auth.users.id
         .single();
 
       if (userError || !user) throw new Error("User not found");
@@ -517,7 +534,7 @@ export const postsAPI = {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("*")
+        .select("id, username, avatar_url")
         .ilike("username", `${searchTerm}%`)
         .order("username", { ascending: false })
         .limit(20);
@@ -535,7 +552,7 @@ export const postsAPI = {
       const { data: user, error: userError } = await supabase
         .from("profiles")
         .select("id")
-        .eq("user_id", userId)
+        .eq("id", userId) // profiles.id = auth.users.id
         .single();
 
       if (userError || !user) throw new Error("User not found");
@@ -596,7 +613,7 @@ export const postsAPI = {
       const { data: currentUser, error: currentUserError } = await supabase
         .from("profiles")
         .select("id")
-        .eq("user_id", currentUserId)
+        .eq("id", currentUserId) // profiles.id = auth.users.id
         .single();
 
       if (currentUserError || !currentUser)
@@ -605,7 +622,7 @@ export const postsAPI = {
       const { data: targetUser, error: targetUserError } = await supabase
         .from("profiles")
         .select("id")
-        .eq("user_id", targetUserId)
+        .eq("id", targetUserId) // profiles.id = auth.users.id
         .single();
 
       if (targetUserError || !targetUser)
@@ -630,7 +647,7 @@ export const postsAPI = {
         });
 
         await supabase.from("notifications").insert({
-          recipient_id: targetUser.id,
+          receiver_id: targetUser.id,
           sender_id: currentUser.id,
           type: "follow",
           created_at: new Date().toISOString(),
@@ -650,7 +667,7 @@ export const postsAPI = {
       const { data: currentUser, error: currentUserError } = await supabase
         .from("profiles")
         .select("id")
-        .eq("user_id", currentUserId)
+        .eq("id", currentUserId) // profiles.id = auth.users.id
         .single();
 
       if (currentUserError || !currentUser)
@@ -659,7 +676,7 @@ export const postsAPI = {
       const { data: targetUser, error: targetUserError } = await supabase
         .from("profiles")
         .select("id")
-        .eq("user_id", targetUserId)
+        .eq("id", targetUserId) // profiles.id = auth.users.id
         .single();
 
       if (targetUserError || !targetUser)
@@ -684,7 +701,7 @@ export const postsAPI = {
       const { data: user, error: userError } = await supabase
         .from("profiles")
         .select("id")
-        .eq("user_id", userId)
+        .eq("id", userId) // profiles.id = auth.users.id
         .single();
 
       if (userError || !user) throw new Error("User not found");
@@ -722,7 +739,7 @@ export const postsAPI = {
         .select(
           `
           *,
-          user:users (username, avatar)
+          profiles:profiles!posts_user_id_fkey (username, avatar_url)
         `
         )
         .order("created_at", { ascending: false })
@@ -733,7 +750,7 @@ export const postsAPI = {
       const combinedPosts = posts.map((post) => ({
         ...post,
         type: "image",
-        user: post.user || {
+        user: post.profiles || {
           username: "Unknown User",
           avatar: "https://via.placeholder.com/150",
         },

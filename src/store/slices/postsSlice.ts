@@ -1,22 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-
-interface User {
-  username: string;
-  avatar: string;
-}
-
-interface Post {
-  id: string; // Changed from $id to match Supabase
-  image_urls: string[]; // Changed from imageUrls to match Supabase
-  caption: string;
-  user_id: string; // Changed from userId
-  created_at: string; // Changed from createdAt
-  likes_count: number; // Changed from likesCount
-  comments_count: number; // Changed from commentsCount
-  is_liked?: boolean; // Changed from isLiked
-  is_bookmarked?: boolean; // Changed from isBookmarked
-  user: User;
-}
+import { Post } from '@/src/types/post';
 
 interface PostsState {
   posts: Post[];
@@ -35,15 +18,21 @@ const postsSlice = createSlice({
   initialState,
   reducers: {
     setPosts: (state, action: PayloadAction<Post[]>) => {
-      // Initialize liked and bookmarked status from API response
+      // Initialize liked and bookmarked status ONLY from API response
+      // Don't use the persisted state to determine if a post is liked
       const newPosts = action.payload.map(post => ({
         ...post,
         likes_count: Math.max(0, post.likes_count),
-        is_liked: post.is_liked || state.likedPosts[post.id] || false,
-        is_bookmarked: post.is_bookmarked || state.bookmarkedPosts[post.id] || false,
+        // Only use the API response to determine if a post is liked
+        is_liked: post.is_liked === true ? true : false,
+        is_bookmarked: post.is_bookmarked === true ? true : false,
       }));
 
-      // Update the liked/bookmarked state maps
+      // Reset and update the liked/bookmarked state maps based on API response
+      // This ensures we don't carry over likes from previous user sessions
+      state.likedPosts = {};
+      state.bookmarkedPosts = {};
+
       newPosts.forEach(post => {
         if (post.is_liked) state.likedPosts[post.id] = true;
         if (post.is_bookmarked) state.bookmarkedPosts[post.id] = true;
@@ -54,9 +43,9 @@ const postsSlice = createSlice({
     toggleLike: (state, action: PayloadAction<string>) => {
       const postId = action.payload;
       const isLiked = !state.likedPosts[postId];
-      
+
       state.likedPosts[postId] = isLiked;
-      
+
       state.posts = state.posts.map(post => {
         if (post.id === postId) {
           return {
@@ -71,9 +60,9 @@ const postsSlice = createSlice({
     toggleBookmark: (state, action: PayloadAction<string>) => {
       const postId = action.payload;
       const isBookmarked = !state.bookmarkedPosts[postId];
-      
+
       state.bookmarkedPosts[postId] = isBookmarked;
-      
+
       state.posts = state.posts.map(post => {
         if (post.id === postId) {
           return {

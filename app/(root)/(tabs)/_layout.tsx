@@ -85,7 +85,7 @@ export default function Layout() {
           title: "Reels",
           headerShown: false,
           tabBarIcon: ({ focused }) => (
-            <TabIcon iconName="film" focused={focused} title="Reels" />
+            <TabIcon iconName="film" focused={focused} title="Tapes" />
           ),
           tabBarStyle: { display: "none" },
         }}

@@ -66,7 +66,7 @@ const ReelDetail = () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) throw new Error('User not authenticated');
 
-        // Fetch reel data using Supabase
+        // Updated query to use profiles instead of users
         const { data, error } = await supabase
           .from('reels')
           .select(`
@@ -78,7 +78,7 @@ const ReelDetail = () => {
             likes_count,
             comments_count,
             created_at,
-            user:users(username, avatar)
+            user:profiles!reels_user_id_fkey(username, avatar_url)
           `)
           .eq('id', id)
           .single();

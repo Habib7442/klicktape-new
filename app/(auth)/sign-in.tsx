@@ -46,10 +46,18 @@ const SignIn = () => {
           .eq("id", data.user.id)
           .single();
 
-        if (profileError || !userProfile) {
+        if (profileError && profileError.code !== "PGRST116") {
+          // Error other than "no rows found"
           throw new Error("Failed to fetch user profile");
         }
 
+        if (!userProfile || !userProfile.username) {
+          // No profile or empty username - redirect to create profile
+          router.replace("/(root)/create-profile");
+          return;
+        }
+
+        // User has a profile - proceed normally
         const userData = {
           id: userProfile.id,
           username: userProfile.username,

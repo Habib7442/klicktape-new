@@ -32,12 +32,12 @@ export const reelsAPI = {
 
       const userLikedReelIds = likedReels?.map(like => like.reel_id) || [];
 
-      // Then fetch the reels
+      // Then fetch the reels with profiles instead of users
       const { data, error } = await supabase
         .from("reels")
         .select(`
           *,
-          user:users(username, avatar)
+          user:profiles!reels_user_id_fkey (username, avatar_url)
         `)
         .order("created_at", { ascending: false })
         .range(offset, offset + limit - 1);
@@ -47,6 +47,10 @@ export const reelsAPI = {
       const reels = data.map((reel) => ({
         ...reel,
         is_liked: userLikedReelIds.includes(reel.id),
+        user: {
+          ...reel.user,
+          avatar: reel.user?.avatar_url || "https://via.placeholder.com/150"
+        }
       })) as Reel[];
 
       const invalidReels = reels.filter((reel) => !reel.id || typeof reel.id !== "string");
@@ -101,26 +105,26 @@ export const reelsAPI = {
     try {
       const table = entityType === "reel" ? "reel_comments" : "comments";
       const cacheKey = `${entityType}_comments_${entityId}`;
-
+  
       const { data, error } = await supabase
         .from(table)
         .select(`
           *,
-          user:users(username, avatar)
+          user:profiles!comments_user_id_fkey(username, avatar_url)
         `)
         .eq(`${entityType}_id`, entityId)
         .order("created_at", { ascending: true });
-
+  
       if (error) throw new Error(`Failed to fetch ${entityType} comments: ${error.message}`);
-
+  
       const commentsWithDefaultAvatar = data.map((comment) => ({
         ...comment,
         user: {
           username: comment.user?.username || "Unknown",
-          avatar: comment.user?.avatar || "https://via.placeholder.com/40",
+          avatar: comment.user?.avatar_url || "https://via.placeholder.com/40",
         },
       }));
-
+  
       const nestedComments = nestComments(commentsWithDefaultAvatar);
       await AsyncStorage.setItem(cacheKey, JSON.stringify(nestedComments));
       return nestedComments;

@@ -24,35 +24,18 @@ import {
   toggleBookmark,
   toggleLike,
 } from "@/src/store/slices/postsSlice";
-
-interface Post {
-  id: string;
-  image_urls: string[];
-  caption: string;
-  user_id: string;
-  created_at: string;
-  likes_count: number;
-  comments_count: number;
-  is_liked?: boolean;
-  is_bookmarked?: boolean;
-  user: {
-    username: string;
-    avatar_url: string;
-  };
-}
+import { Post } from "@/src/types/post";
 
 const Posts = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [showComments, setShowComments] = useState<{ [key: string]: boolean }>(
-    {}
-  );
+  // State for comment text
   const [commentText, setCommentText] = useState<{ [key: string]: string }>({});
+
+  // State for carousel image indexes
   const [activeImageIndexes, setActiveImageIndexes] = useState<{
     [key: string]: number;
   }>({});
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
 
   const dispatch = useDispatch();
   const posts = useSelector((state: RootState) => state.posts.posts);
@@ -66,15 +49,29 @@ const Posts = () => {
 
   const fetchPosts = async (pageNumber = 1, isLoadMore = false) => {
     try {
+      if (!supabase) {
+        console.error("Supabase client is not initialized");
+        return;
+      }
+
       const {
         data: { user },
         error: authError,
       } = await supabase.auth.getUser();
-      console.log("User:", user, "Auth Error:", authError);
-      if (!user || authError) {
+
+      if (authError) {
+        console.error("Error getting current user:", authError);
         router.replace("/sign-in");
         return;
       }
+
+      if (!user) {
+        console.error("No user found");
+        router.replace("/sign-in");
+        return;
+      }
+
+      console.log("Fetching posts for user:", user.id);
 
       const offset = (pageNumber - 1) * POSTS_PER_PAGE;
       const { data: fetchedPosts, error } = await supabase
@@ -82,33 +79,56 @@ const Posts = () => {
         .select(
           `
           *,
-          user:profiles!fk_posts_user (username, avatar_url),
-          likes (user_id),
-          bookmarks (user_id)
+          user:profiles!posts_user_id_fkey(username, avatar_url),
+          likes!likes_post_id_fkey(user_id),
+          bookmarks!bookmarks_post_id_fkey(user_id)
           `
         )
         .order("created_at", { ascending: false })
         .range(offset, offset + POSTS_PER_PAGE - 1);
 
-      console.log("Fetched Posts:", fetchedPosts, "Error:", error);
-      if (error || !fetchedPosts) {
-        throw error || new Error("No posts found");
+      if (error) {
+        console.error("Error fetching posts:", error);
+        throw error;
       }
 
-      const updatedPosts = fetchedPosts.map((post) => ({
-        ...post,
-        is_liked: post.likes
-          ? post.likes.some((like) => like.user_id === user.id)
-          : false,
-        is_bookmarked: post.bookmarks
-          ? post.bookmarks.some((bookmark) => bookmark.user_id === user.id)
-          : false,
-      }));
+      if (!fetchedPosts || fetchedPosts.length === 0) {
+        console.log("No posts found");
+        if (!isLoadMore) {
+          dispatch(setPosts([]));
+        }
+        setHasMore(false);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      // Explicitly check if the current user has liked or bookmarked each post
+      const updatedPosts = fetchedPosts.map((post) => {
+        // Check if the current user's ID is in the likes array
+        const isLiked = Array.isArray(post.likes) &&
+          post.likes.some((like: any) => like.user_id === user.id);
+
+        // Check if the current user's ID is in the bookmarks array
+        const isBookmarked = Array.isArray(post.bookmarks) &&
+          post.bookmarks.some((bookmark: any) => bookmark.user_id === user.id);
+
+        console.log(`Post ${post.id} liked status for user ${user.id}:`, {
+          isLiked,
+          likesArray: post.likes
+        });
+
+        return {
+          ...post,
+          is_liked: isLiked,
+          is_bookmarked: isBookmarked,
+          user: post.user || { username: "Unknown User", avatar_url: "https://via.placeholder.com/150" },
+        };
+      });
 
       dispatch(
         setPosts(isLoadMore ? [...posts, ...updatedPosts] : updatedPosts)
       );
-      console.log("Dispatched Posts:", updatedPosts);
       setHasMore(fetchedPosts.length === POSTS_PER_PAGE);
     } catch (error) {
       console.error("Error fetching posts:", error);
@@ -131,57 +151,118 @@ const Posts = () => {
 
   const handleLike = async (postId: string) => {
     try {
+      if (!supabase) {
+        console.error("Supabase client is not initialized");
+        return;
+      }
+
       const {
         data: { user },
+        error: authError,
       } = await supabase.auth.getUser();
+
+      if (authError) {
+        console.error("Error getting current user:", authError);
+        return;
+      }
 
       if (!user) {
         router.push("/sign-in");
         return;
       }
 
+      // Optimistically update UI
       dispatch(toggleLike(postId));
+
+      // Make the API call to update the database
       const { error } = await supabase.rpc("toggle_like", {
         post_id: postId,
         user_id: user.id,
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error in toggle_like RPC:", error);
+        // Revert the optimistic update if the API call fails
+        dispatch(toggleLike(postId));
+        return;
+      }
+
+      // Force a refresh of the posts to ensure like status is correct
+      setTimeout(() => {
+        fetchPosts(1, false);
+      }, 500);
     } catch (error) {
+      // Revert the optimistic update if there's an exception
       dispatch(toggleLike(postId));
-      console.error("Error toggling like:", error);
+      console.error("Exception in handleLike:", error);
     }
   };
 
   const handleBookmark = async (postId: string) => {
     try {
+      if (!supabase) {
+        console.error("Supabase client is not initialized");
+        return;
+      }
+
       const {
         data: { user },
+        error: authError,
       } = await supabase.auth.getUser();
+
+      if (authError) {
+        console.error("Error getting current user:", authError);
+        return;
+      }
 
       if (!user) {
         router.push("/sign-in");
         return;
       }
 
+      // Optimistically update UI
       dispatch(toggleBookmark(postId));
+
+      // Make the API call to update the database
       const { error } = await supabase.rpc("toggle_bookmark", {
         post_id: postId,
         user_id: user.id,
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error in toggle_bookmark RPC:", error);
+        // Revert the optimistic update if the API call fails
+        dispatch(toggleBookmark(postId));
+        return;
+      }
+
+      // Force a refresh of the posts to ensure bookmark status is correct
+      setTimeout(() => {
+        fetchPosts(1, false);
+      }, 500);
     } catch (error) {
+      // Revert the optimistic update if there's an exception
       dispatch(toggleBookmark(postId));
-      console.error("Error toggling bookmark:", error);
+      console.error("Exception in handleBookmark:", error);
     }
   };
 
   const handleComment = async (postId: string) => {
     try {
+      if (!supabase) {
+        console.error("Supabase client is not initialized");
+        return;
+      }
+
       const {
         data: { user },
+        error: authError,
       } = await supabase.auth.getUser();
+
+      if (authError) {
+        console.error("Error getting current user:", authError);
+        return;
+      }
 
       if (!user) {
         router.push("/sign-in");
@@ -198,12 +279,16 @@ const Posts = () => {
         created_at: new Date().toISOString(),
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error inserting comment:", error);
+        return;
+      }
 
+      // Clear the comment text and refresh posts
       setCommentText((prev) => ({ ...prev, [postId]: "" }));
       fetchPosts();
     } catch (error) {
-      console.error("Error adding comment:", error);
+      console.error("Exception in handleComment:", error);
     }
   };
 
@@ -311,8 +396,13 @@ const Posts = () => {
           </Text>
           <TouchableOpacity
             onPress={() => {
-              setSelectedPostId(post.id);
-              setModalVisible(true);
+              router.push({
+                pathname: "/(root)/posts-comments-screen",
+                params: {
+                  postId: post.id,
+                  postOwnerUsername: post.user.username,
+                }
+              });
             }}
           >
             <Text style={styles.statText}>
@@ -366,27 +456,7 @@ const Posts = () => {
           </TouchableOpacity>
         </View>
 
-        {showComments[post.id] && (
-          <View style={styles.commentsSection}>
-            <View style={styles.commentInputContainer}>
-              <TextInput
-                placeholder="Add a comment..."
-                placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                value={commentText[post.id] || ""}
-                onChangeText={(text) =>
-                  setCommentText((prev) => ({ ...prev, [post.id]: text }))
-                }
-                style={styles.commentInput}
-              />
-              <TouchableOpacity
-                onPress={() => handleComment(post.id)}
-                style={styles.commentButton}
-              >
-                <Text style={styles.commentButtonText}>Post</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
+        {/* Comment input section removed - now handled in the comments screen */}
       </LinearGradient>
     );
   };

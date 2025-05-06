@@ -13,7 +13,7 @@ import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { useSelector, useDispatch } from "react-redux";
 import { RootState } from "@/src/store/store";
-import { logout } from "@/src/store/slices/authSlice";
+import { logoutUser } from "@/src/store/actions/authActions";
 import { closeSidebar } from "@/src/store/slices/sidebarSlice";
 import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -106,16 +106,34 @@ const Sidebar = () => {
 
   const handleLogout = async () => {
     try {
-      if (user?.id) {
-        await supabase
-          .from("profiles")
-          .update({ is_active: false })
-          .eq("id", user.id);
+      if (!supabase) {
+        console.error("Supabase client is not initialized");
+        return;
       }
 
+      // Update user active status if possible
+      if (user?.id) {
+        try {
+          await supabase
+            .from("profiles")
+            .update({ is_active: false })
+            .eq("id", user.id);
+        } catch (statusError) {
+          console.error("Error updating active status:", statusError);
+          // Continue with logout even if this fails
+        }
+      }
+
+      // Sign out from Supabase
       await supabase.auth.signOut();
-      dispatch(logout());
+
+      // Clear all Redux state
+      dispatch(logoutUser());
+
+      // Close sidebar
       dispatch(closeSidebar());
+
+      // Navigate to sign-up screen
       router.replace("/sign-up");
     } catch (error) {
       console.error("Error logging out:", error);

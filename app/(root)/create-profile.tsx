@@ -4,6 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 import { supabase, generateUsername } from "@/lib/supabase";
 import { router } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const CreateProfile = () => {
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
@@ -78,12 +79,36 @@ const CreateProfile = () => {
     }
   };
 
+  const handleSignOut = async () => {
+    try {
+      setIsLoading(true);
+      await supabase.auth.signOut();
+      await AsyncStorage.removeItem("user");
+      Alert.alert("Success", "You have been signed out successfully");
+      router.replace("/(auth)/sign-in");
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "Failed to sign out");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <LinearGradient colors={["#000000", "#1a1a1a", "#2a2a2a"]} style={styles.container}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <Text style={styles.title}>Complete Your Profile</Text>
           <Text style={styles.subtitle}>Welcome to Klicktape</Text>
+          
+          {/* Sign Out Button at the top */}
+          <TouchableOpacity 
+            style={styles.signOutButton} 
+            onPress={handleSignOut}
+            disabled={isLoading}
+          >
+            <Text style={styles.signOutButtonText}>Sign Out</Text>
+          </TouchableOpacity>
+          
           <View style={styles.avatarContainer}>
             <TouchableOpacity onPress={pickImage}>
               {avatarUri ? <Image source={{ uri: avatarUri }} style={styles.avatar} /> : <View style={styles.avatarPlaceholder}><Text style={styles.avatarText}>+</Text></View>}
@@ -176,6 +201,20 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.7 },
   buttonText: { fontSize: 16, color: "#000000", fontWeight: "bold" },
+  signOutButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(255, 0, 0, 0.7)',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  signOutButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
 });
 
 export default CreateProfile;

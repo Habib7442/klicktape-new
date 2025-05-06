@@ -1,54 +1,55 @@
+import React, { useState, useEffect } from "react";
+import { View, ActivityIndicator } from "react-native";
 import { Redirect } from "expo-router";
-import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { ActivityIndicator, View } from "react-native";
-
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 1000; // 1 second
+import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
+import { useDispatch } from "react-redux";
+import { setUser } from "@/src/store/slices/authSlice";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const Page = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [hasProfile, setHasProfile] = useState(false);
-
-  const checkProfile = async (
-    email: string,
-    retryCount = 0
-  ): Promise<boolean> => {
-    try {
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("username")
-        .eq("email", email)
-        .single();
-
-      if (error && error.code !== "PGRST116") {
-        // PGRST116 = no rows found
-        console.error("Profile check error:", error);
-        return false;
-      }
-
-      // Check if username exists and is not empty
-      const profileValid =
-        !!profile?.username && profile.username.trim() !== "";
-      return profileValid;
-    } catch (error) {
-      console.error("Error checking profile:", error);
-      if (retryCount < MAX_RETRIES) {
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
-        return checkProfile(email, retryCount + 1);
-      }
-      return false;
-    }
-  };
+  const { checkProfile } = useSupabaseFetch();
+  const dispatch = useDispatch();
 
   const verifyAuthState = async (session: any) => {
     const signedIn = !!session;
     setIsSignedIn(signedIn);
 
     if (signedIn && session?.user?.email) {
-      const profileExists = await checkProfile(session.user.email);
-      setHasProfile(profileExists);
+      // Get user profile data and store in Redux and AsyncStorage
+      try {
+        const { data: userProfile, error } = await supabase
+          .from("profiles")
+          .select("id, username, avatar_url")
+          .eq("id", session.user.id)
+          .single();
+
+        console.log("User profile check:", {
+          hasProfile: !!userProfile,
+          username: userProfile?.username,
+          id: session.user.id,
+          email: session.user.email
+        });
+
+        if (!error && userProfile) {
+          const userData = {
+            id: userProfile.id,
+            username: userProfile.username,
+            avatar: userProfile.avatar_url,
+          };
+          await AsyncStorage.setItem("user", JSON.stringify(userData));
+          dispatch(setUser(userData));
+        }
+
+        const profileExists = await checkProfile(session.user.email, session.user.id);
+        console.log("Profile exists check:", profileExists);
+        setHasProfile(profileExists);
+      } catch (error) {
+        console.error("Error fetching user profile:", error);
+      }
     } else {
       setHasProfile(false);
     }
@@ -91,13 +92,13 @@ const Page = () => {
   }
 
   if (!isSignedIn) {
-    return <Redirect href="/(auth)/welcome" />;
+    return <Redirect href="/(auth)/sign-in" />;
   }
 
   return hasProfile ? (
-    <Redirect href="/welcome-main" />
+    <Redirect href="/(root)/(tabs)/home" />
   ) : (
-    <Redirect href="/create-profile" />
+    <Redirect href="/(root)/create-profile" />
   );
 };
 

@@ -125,10 +125,10 @@ const Stories = () => {
 
       if (!existingUser) {
         const username = generateUsername();
-        const { error } = await supabase.from("users").insert({
+        const { error } = await supabase.from("profiles").insert({  // Changed from 'users' to 'profiles'
           id: userId,
           username,
-          avatar: "", // Default avatar
+          avatar_url: "", // Changed from 'avatar' to 'avatar_url' to match your schema
         });
         if (error) {
           throw new Error(`Failed to sync user: ${error.message}`);
@@ -190,8 +190,8 @@ const Stories = () => {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        aspect: [9, 16],
         quality: 0.8,
+        // Removed the aspect ratio constraint to allow free-form cropping
       });
 
       if (!result.canceled && result.assets[0].uri) {
@@ -227,6 +227,17 @@ const Stories = () => {
     if (!croppedImage || !userId) return;
 
     try {
+      // Check if user exists in profiles
+      const { data: userProfile, error: profileError } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", userId)
+        .single();
+
+      if (profileError || !userProfile) {
+        throw new Error("User profile not found. Please complete your profile first.");
+      }
+
       setIsPreviewModalVisible(false);
       setLoadingMessage("Creating your story...");
       setIsLoadingModalVisible(true);

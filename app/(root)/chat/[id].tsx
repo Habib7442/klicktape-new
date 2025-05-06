@@ -10,6 +10,8 @@ import {
   ActivityIndicator,
   StyleSheet,
   Alert,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { supabase } from "@/lib/supabase";
@@ -48,13 +50,15 @@ export default function ChatScreen() {
   const [connectionStatus, setConnectionStatus] = useState<"connected" | "disconnected" | "connecting">("connecting");
   const flatListRef = useRef<FlatList>(null);
   const messageCache = useRef<MessageCache>({});
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const subscriptionRef = useRef<{ message: any; typing: any }>({ message: null, typing: null });
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const subscriptionRef = useRef<any>(null);
   const retryCountRef = useRef<number>(0);
-  const maxRetries = 10;
+  const maxRetries = 3;
+  const retryDelay = 5000; // 5 seconds
   const dispatch = useDispatch();
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
+  // Memoized functions
   const getCachedMessages = useCallback((chatId: string) => {
     const cache = messageCache.current[chatId];
     if (!cache) return null;
@@ -68,18 +72,19 @@ export default function ChatScreen() {
     return cache.messages;
   }, []);
 
-  const setCachedMessages = useCallback(
-    (chatId: string, messages: Message[]) => {
-      messageCache.current[chatId] = {
-        messages,
-        lastUpdated: Date.now(),
-      };
-    },
-    []
-  );
+  const setCachedMessages = useCallback((chatId: string, messages: Message[]) => {
+    messageCache.current[chatId] = {
+      messages,
+      lastUpdated: Date.now(),
+    };
+  }, []);
 
-  const loadMessages = async (currentUserId: string, recipient: string) => {
+  const loadMessages = useCallback(async (currentUserId: string, recipient: string) => {
     try {
+      if (!supabase) {
+        throw new Error("Supabase client not initialized");
+      }
+
       const { data: recipientData, error: recipientError } = await supabase
         .from("profiles")
         .select("id")
@@ -94,13 +99,11 @@ export default function ChatScreen() {
       const cachedMessages = getCachedMessages(chatId);
 
       if (cachedMessages) {
-        console.log("Using cached messages");
         setMessages(cachedMessages);
         setLoading(false);
         return;
       }
 
-      console.log("Fetching messages from database");
       const messages = await messagesAPI.getConversationBetweenUsers(
         currentUserId,
         recipient
@@ -111,7 +114,6 @@ export default function ChatScreen() {
       );
 
       if (unreadMessages.length > 0) {
-        console.log("Marking messages as read:", unreadMessages.length);
         await Promise.all(
           unreadMessages.map(async (msg) => {
             await messagesAPI.markAsRead(msg.id);
@@ -123,18 +125,18 @@ export default function ChatScreen() {
 
       setMessages(messages.documents);
       setCachedMessages(chatId, messages.documents);
-      setLoading(false);
     } catch (error) {
       console.error("Failed to load messages:", error);
       Alert.alert("Error", "Failed to load messages: " + (error as Error).message);
-      setLoading(false);
       router.back();
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [getCachedMessages, setCachedMessages]);
 
   const sendMessage = async () => {
     if (!newMessage.trim()) return;
-    if (!userId || !recipientId) {
+    if (!userId || !recipientId || !supabase) {
       Alert.alert("Error", "Cannot send message: Missing user or recipient ID");
       return;
     }
@@ -187,41 +189,53 @@ export default function ChatScreen() {
     }
   };
 
-  const handleTyping = async () => {
+  const handleTyping = useCallback(async () => {
     if (!userId || !recipientId) return;
+
+    // Clear existing timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    // Set typing status to true if not already typing
     if (!isTyping) {
       setIsTyping(true);
       try {
-        await messagesAPI.setTypingStatus(userId, [userId, recipientId].sort().join("-"), true);
+        await messagesAPI.setTypingStatus(
+          userId,
+          [userId, recipientId].sort().join("-"),
+          true
+        );
       } catch (error) {
         console.error("Failed to set typing status:", error);
       }
     }
 
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-
+    // Set timeout to clear typing status
     typingTimeoutRef.current = setTimeout(async () => {
       setIsTyping(false);
       try {
-        await messagesAPI.setTypingStatus(userId, [userId, recipientId].sort().join("-"), false);
+        await messagesAPI.setTypingStatus(
+          userId,
+          [userId, recipientId].sort().join("-"),
+          false
+        );
       } catch (error) {
         console.error("Failed to clear typing status:", error);
       }
     }, 3000);
-  };
+  }, [userId, recipientId, isTyping]);
 
-  const refreshMessages = async () => {
-    if (!userId || !recipientId) return;
-    setLoading(true);
-    await loadMessages(userId, recipientId as string);
-    setLoading(false);
-  };
-
+  // Setup chat and load initial messages
   useEffect(() => {
     const setupChat = async () => {
       try {
+        if (!supabase) {
+          Alert.alert("Error", "Supabase client not initialized");
+          router.replace("/sign-in");
+          return;
+        }
+
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
           Alert.alert("Error", "User not authenticated. Please log in.");
@@ -236,153 +250,104 @@ export default function ChatScreen() {
         }
 
         setUserId(user.id);
-        setLoading(true);
         await loadMessages(user.id, recipientId);
       } catch (error) {
         console.error("Chat setup error:", error);
         Alert.alert("Error", "Failed to set up chat: " + (error as Error).message);
         router.back();
-      } finally {
-        setLoading(false);
       }
     };
 
     setupChat();
-  }, [recipientId]);
 
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, [recipientId, loadMessages]);
+
+  // Setup real-time subscriptions
   useEffect(() => {
-    if (!userId || !recipientId) return;
+    if (!userId || !recipientId || !supabase) return;
 
     const chatId = [userId, recipientId].sort().join("-");
-    let retryTimeout: NodeJS.Timeout | null = null;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    const subscribe = () => {
+    const setupSubscriptions = async () => {
+      // Clean up any existing subscriptions
+      if (subscriptionRef.current) {
+        await supabase.removeChannel(subscriptionRef.current);
+        subscriptionRef.current = null;
+      }
+
       if (retryCountRef.current >= maxRetries) {
         console.error("Max retries reached for subscriptions");
         setConnectionStatus("disconnected");
         Alert.alert(
           "Connection Error",
-          "Unable to connect to real-time chat. Please check your network or refresh.",
-          [
-            { text: "Refresh", onPress: refreshMessages },
-            { text: "OK" },
-          ]
+          "Unable to connect to real-time chat. Please check your network and try again."
         );
         return;
       }
 
-      // Clean up existing subscriptions
-      if (subscriptionRef.current.message) {
-        supabase.removeChannel(subscriptionRef.current.message);
-        subscriptionRef.current.message = null;
-      }
-      if (subscriptionRef.current.typing) {
-        supabase.removeChannel(subscriptionRef.current.typing);
-        subscriptionRef.current.typing = null;
-      }
+      setConnectionStatus("connecting");
 
-      subscriptionRef.current.message = supabase
-        .channel(`messages:${chatId}`, { configs: { broadcast: { ack: true } } })
+      // Create a single channel for both message and typing events
+      subscriptionRef.current = supabase
+        .channel(`chat:${chatId}`)
         .on(
-          "postgres_changes",
+          'postgres_changes',
           {
-            event: "INSERT",
-            schema: "public",
-            table: "messages",
-            filter: `or(and(sender_id.eq.${userId},receiver_id.eq.${recipientId}),and(sender_id.eq.${recipientId},receiver_id.eq.${userId}))`,
+            event: '*',
+            schema: 'public',
+            table: 'messages',
+            filter: `or(and(sender_id.eq.${userId},receiver_id.eq.${recipientId}),and(sender_id.eq.${recipientId},receiver_id.eq.${userId})`,
           },
           (payload) => {
-            console.log("Message INSERT event:", payload);
-            const message = payload.new as Message;
+            console.log("Message event:", payload.eventType, payload);
 
-            setMessages((prev) => {
-              if (prev.some((m) => m.id === message.id)) {
-                console.log("Duplicate message skipped:", message.id);
-                return prev;
-              }
-              console.log("Adding new message:", message);
-              return [message, ...prev];
-            });
+            switch (payload.eventType) {
+              case 'INSERT':
+                const newMessage = payload.new as Message;
+                setMessages((prev) => {
+                  if (prev.some((m) => m.id === newMessage.id)) return prev;
+                  return [newMessage, ...prev];
+                });
 
-            setCachedMessages(chatId, [message, ...messages]);
+                if (newMessage.sender_id !== userId && !newMessage.is_read) {
+                  messagesAPI.markAsRead(newMessage.id).catch(console.error);
+                  dispatch(setUnreadMessageCount(0));
+                }
+                break;
 
-            if (message.sender_id !== userId && !message.is_read) {
-              console.log("Marking message as read:", message.id);
-              messagesAPI.markAsRead(message.id).catch((error) =>
-                console.error("Failed to mark as read:", error)
-              );
-              dispatch(setUnreadMessageCount(0));
+              case 'UPDATE':
+                const updatedMessage = payload.new as Message;
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === updatedMessage.id
+                      ? { ...m, is_read: updatedMessage.is_read, status: updatedMessage.is_read ? "read" : m.status }
+                      : m
+                  )
+                );
+                break;
+
+              case 'DELETE':
+                const deletedMessage = payload.old as Message;
+                setMessages((prev) => prev.filter((m) => m.id !== deletedMessage.id));
+                break;
             }
           }
         )
         .on(
-          "postgres_changes",
+          'postgres_changes',
           {
-            event: "UPDATE",
-            schema: "public",
-            table: "messages",
-            filter: `or(and(sender_id.eq.${userId},receiver_id.eq.${recipientId}),and(sender_id.eq.${recipientId},receiver_id.eq.${userId}))`,
-          },
-          (payload) => {
-            console.log("Message UPDATE event:", payload);
-            const message = payload.new as Message;
-
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === message.id
-                  ? { ...m, is_read: message.is_read, status: message.is_read ? "read" : m.status }
-                  : m
-              )
-            );
-            setCachedMessages(chatId, messages.map((m) =>
-              m.id === message.id
-                ? { ...m, is_read: message.is_read, status: message.is_read ? "read" : m.status }
-                : m
-              ));
-          }
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "DELETE",
-            schema: "public",
-            table: "messages",
-            filter: `or(and(sender_id.eq.${userId},receiver_id.eq.${recipientId}),and(sender_id.eq.${recipientId},receiver_id.eq.${userId}))`,
-          },
-          (payload) => {
-            console.log("Message DELETE event:", payload);
-            const oldMessage = payload.old as Message;
-
-            setMessages((prev) => prev.filter((m) => m.id !== oldMessage.id));
-            setCachedMessages(chatId, messages.filter((m) => m.id !== oldMessage.id));
-          }
-        )
-        .subscribe((status, error) => {
-          console.log("Message subscription status:", status, error ? error.message : "");
-          if (status === "SUBSCRIBED") {
-            console.log("Message subscription active for chat:", chatId);
-            setConnectionStatus("connected");
-            retryCountRef.current = 0;
-          } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
-            console.warn("Message subscription error, retrying in", 10 + retryCountRef.current * 10, "s...");
-            setConnectionStatus("disconnected");
-            retryCountRef.current += 1;
-            retryTimeout = setTimeout(subscribe, (10 + retryCountRef.current * 10) * 1000);
-          }
-        });
-
-      subscriptionRef.current.typing = supabase
-        .channel(`typing:${chatId}`, { configs: { broadcast: { ack: true } } })
-        .on(
-          "postgres_changes",
-          {
-            event: "UPDATE",
-            schema: "public",
-            table: "typing_status",
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'typing_status',
             filter: `chat_id=eq.${chatId}`,
           },
           (payload) => {
-            console.log("Typing event:", payload);
             const typingStatus = payload.new as { user_id: string; is_typing: boolean };
             if (typingStatus.user_id === recipientId) {
               setRecipientTyping(typingStatus.is_typing);
@@ -390,50 +355,42 @@ export default function ChatScreen() {
           }
         )
         .subscribe((status, error) => {
-          console.log("Typing subscription status:", status, error ? error.message : "");
-          if (status === "SUBSCRIBED") {
-            console.log("Typing subscription active for chat:", chatId);
+          console.log("Subscription status:", status, error ? error.message : "");
+
+          if (status === 'SUBSCRIBED') {
+            console.log("Successfully subscribed to chat channel");
             setConnectionStatus("connected");
             retryCountRef.current = 0;
-          } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
-            console.warn("Typing subscription error, retrying in", 10 + retryCountRef.current * 10, "s...");
+          } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+            console.warn("Subscription error, retrying...");
             setConnectionStatus("disconnected");
             retryCountRef.current += 1;
-            retryTimeout = setTimeout(subscribe, (10 + retryCountRef.current * 10) * 1000);
+            retryTimeout = setTimeout(setupSubscriptions, retryDelay);
           }
         });
     };
 
-    subscribe();
+    setupSubscriptions();
 
     return () => {
-      if (subscriptionRef.current.message) {
-        supabase.removeChannel(subscriptionRef.current.message);
-        subscriptionRef.current.message = null;
+      // Cleanup function
+      if (subscriptionRef.current && supabase) {
+        supabase.removeChannel(subscriptionRef.current).catch(console.error);
       }
-      if (subscriptionRef.current.typing) {
-        supabase.removeChannel(subscriptionRef.current.typing);
-        subscriptionRef.current.typing = null;
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
       }
-      if (retryTimeout) clearTimeout(retryTimeout);
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      messageCache.current = {};
       retryCountRef.current = 0;
-      setConnectionStatus("disconnected");
     };
-  }, [userId, recipientId, dispatch]); // Removed messages from dependencies
+  }, [userId, recipientId, dispatch]);
 
-  useEffect(() => {
-    console.log("Messages state updated:", messages.length, "messages");
-  }, [messages]);
-
-  const getItemLayout = (data: any, index: number) => ({
+  const getItemLayout = useCallback((_: any, index: number) => ({
     length: 80,
     offset: 80 * index,
     index,
-  });
+  }), []);
 
-  const renderMessage = ({ item }: { item: Message }) => (
+  const renderMessage = useCallback(({ item }: { item: Message }) => (
     <View
       style={[
         styles.message,
@@ -464,69 +421,74 @@ export default function ChatScreen() {
         )}
       </View>
     </View>
-  );
+  ), [userId]);
 
   return (
     <LinearGradient colors={["#000000", "#1a1a1a"]} style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.flex}
-      >
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color="#FFD700" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Chat</Text>
-          {connectionStatus === "disconnected" && (
-            <TouchableOpacity onPress={refreshMessages}>
-              <Ionicons name="refresh" size={24} color="#FF5555" style={styles.refreshIcon} />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {loading ? (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" color="#FFD700" />
-          </View>
-        ) : (
-          <>
-            <FlatList
-              ref={flatListRef}
-              data={messages}
-              renderItem={renderMessage}
-              keyExtractor={(item) => item.id}
-              inverted
-              contentContainerStyle={styles.messages}
-              initialNumToRender={20}
-              maxToRenderPerBatch={10}
-              windowSize={5}
-              getItemLayout={getItemLayout}
-            />
-            {recipientTyping && (
-              <View style={styles.typingIndicator}>
-                <Text style={styles.typingText}>User is typing...</Text>
-              </View>
-            )}
-          </>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={24} color="#FFD700" />
+        </TouchableOpacity>
+        <Text style={styles.title}>Chat</Text>
+        {connectionStatus === "disconnected" && (
+          <Text style={styles.connectionWarning}>Offline</Text>
         )}
+      </View>
 
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            value={newMessage}
-            onChangeText={(text) => {
-              setNewMessage(text);
-              handleTyping();
-            }}
-            placeholder="Type a message..."
-            placeholderTextColor="#999"
-            multiline
-          />
-          <TouchableOpacity onPress={sendMessage} style={styles.sendButton}>
-            <Ionicons name="send" size={20} color="#FFD700" />
-          </TouchableOpacity>
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#FFD700" />
         </View>
-      </KeyboardAvoidingView>
+      ) : (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.flex}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}
+          enabled
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+            <View style={styles.messagesContainer}>
+              <FlatList
+                ref={flatListRef}
+                data={messages}
+                renderItem={renderMessage}
+                keyExtractor={(item) => item.id}
+                inverted
+                contentContainerStyle={styles.messages}
+                initialNumToRender={20}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                getItemLayout={getItemLayout}
+                removeClippedSubviews={true}
+                keyboardShouldPersistTaps="handled"
+              />
+              {recipientTyping && (
+                <View style={styles.typingIndicator}>
+                  <Text style={styles.typingText}>User is typing...</Text>
+                </View>
+              )}
+            </View>
+          </TouchableWithoutFeedback>
+
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={styles.input}
+              value={newMessage}
+              onChangeText={(text) => {
+                setNewMessage(text);
+                handleTyping();
+              }}
+              placeholder="Type a message..."
+              placeholderTextColor="#999"
+              multiline
+              returnKeyType="default"
+            />
+            <TouchableOpacity onPress={sendMessage} style={styles.sendButton}>
+              <Ionicons name="send" size={20} color="#FFD700" />
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      )}
     </LinearGradient>
   );
 }
@@ -537,6 +499,8 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
   },
   header: {
     flexDirection: "row",
@@ -545,15 +509,17 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === "ios" ? 50 : 20,
     borderBottomWidth: 1,
     borderBottomColor: "#333",
+    zIndex: 10,
   },
   title: {
     color: "#FFD700",
     fontSize: 18,
     fontWeight: "bold",
     marginLeft: 10,
-    flex: 1,
   },
-  refreshIcon: {
+  connectionWarning: {
+    color: "#FF5555",
+    fontSize: 14,
     marginLeft: 10,
   },
   center: {
@@ -561,8 +527,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  messagesContainer: {
+    flex: 1,
+    position: 'relative',
+  },
   messages: {
     padding: 15,
+    paddingBottom: 30,
   },
   message: {
     maxWidth: "80%",
@@ -601,6 +572,13 @@ const styles = StyleSheet.create({
     padding: 15,
     borderTopWidth: 1,
     borderTopColor: "#333",
+    backgroundColor: "#1a1a1a",
+    paddingBottom: Platform.OS === "ios" ? 30 : 15, // Extra padding for iOS
+    position: 'relative',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
   },
   input: {
     flex: 1,
@@ -611,6 +589,7 @@ const styles = StyleSheet.create({
     color: "white",
     marginRight: 10,
     maxHeight: 100,
+    minHeight: 40,
   },
   sendButton: {
     width: 40,
@@ -623,6 +602,11 @@ const styles = StyleSheet.create({
   typingIndicator: {
     padding: 10,
     alignItems: "flex-start",
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.7)',
   },
   typingText: {
     color: "rgba(255, 255, 255, 0.6)",

@@ -114,17 +114,17 @@ export const storiesAPI = {
           created_at,
           expires_at,
           viewed_by,
-          profiles!user_id (username, avatar_url)
-        `
+          profiles!fk_stories_user (username, avatar_url)
+          `
         )
         .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: false })
         .limit(50);
-
+  
       if (error) {
         throw new Error(`Failed to fetch stories: ${error.message}`);
       }
-
+  
       const stories: Story[] = data.map((story) => ({
         id: story.id,
         user_id: story.user_id,
@@ -138,7 +138,7 @@ export const storiesAPI = {
           avatar: story.profiles.avatar_url || "",
         },
       }));
-
+  
       return stories;
     } catch (error) {
       console.error("Error fetching stories:", error);
