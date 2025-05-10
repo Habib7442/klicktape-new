@@ -6,99 +6,281 @@ import {
   TouchableOpacity,
   Alert,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
+import DeleteModal from "@/components/DeleteModal";
+import { useTheme } from "@/src/context/ThemeContext";
+import useThemedStyles from "@/hooks/useThemedStyles";
+import ThemedGradient from "@/components/ThemedGradient";
 
 export default function SettingsScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+  const { colors, isDarkMode } = useTheme();
 
-  const handleDeleteAccount = async () => {
-    Alert.alert(
-      "Delete Account",
-      "Are you sure you want to delete your account? This action cannot be undone.",
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              setIsDeleting(true);
-              const {
-                data: { user },
-              } = await supabase.auth.getUser();
-              if (user?.id) {
-                // Delete all user's stories
-                await supabase.from("stories").delete().eq("user_id", user.id);
+  // Create theme-aware styles
+  const themedStyles = useThemedStyles((colors) => ({
+    title: {
+      fontSize: 24,
+      color: colors.text,
+    },
+    sectionTitle: {
+      fontSize: 18,
+      color: colors.text,
+      marginBottom: 16,
+    },
+    settingText: {
+      flex: 1,
+      marginLeft: 16,
+      fontSize: 16,
+      color: colors.text,
+    },
+    versionText: {
+      textAlign: "center",
+      fontSize: 14,
+      color: colors.textTertiary,
+      marginTop: 20,
+    },
+  }));
 
-                // Delete all user's posts and associated data
-                await supabase.from("comments").delete().eq("user_id", user.id);
-                await supabase.from("likes").delete().eq("user_id", user.id);
-                await supabase.from("posts").delete().eq("user_id", user.id);
+  const handleDeleteAccount = () => {
+    setIsDeleteModalVisible(true);
+  };
 
-                // Delete all user's messages
-                await supabase
-                  .from("messages")
-                  .delete()
-                  .eq("sender_id", user.id);
-                await supabase
-                  .from("messages")
-                  .delete()
-                  .eq("receiver_id", user.id);
+  const handleCancelDelete = () => {
+    setIsDeleteModalVisible(false);
+  };
 
-                // Delete all user's notifications
-                await supabase
-                  .from("notifications")
-                  .delete()
-                  .eq("recipient_id", user.id);
-                await supabase
-                  .from("notifications")
-                  .delete()
-                  .eq("sender_id", user.id);
+  const handleConfirmDelete = async () => {
+    try {
+      setIsDeleting(true);
 
-                // Delete user's profile data
-                await supabase.from("profiles").delete().eq("id", user.id);
-                await supabase.from("users").delete().eq("id", user.id);
+      if (!supabase) {
+        console.error("Supabase client is not initialized");
+        setIsDeleting(false);
+        return;
+      }
 
-                // Delete user's storage files
-                const { data: storageData } = await supabase.storage
-                  .from("avatars")
-                  .list(`user_avatars/${user.id}`);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-                if (storageData) {
-                  await Promise.all(
-                    storageData.map((file) =>
-                      supabase.storage
-                        .from("avatars")
-                        .remove([`user_avatars/${user.id}/${file.name}`])
-                    )
-                  );
-                }
+      if (user?.id) {
+        // Get user's posts for storage cleanup
+        const { data: userPosts } = await supabase
+          .from("posts")
+          .select("id, image_urls")
+          .eq("user_id", user.id);
 
-                // Finally delete the authentication user
-                await supabase.auth.signOut();
-              }
-              router.replace("/sign-in");
-            } catch (error) {
-              console.error("Error deleting account:", error);
-              Alert.alert(
-                "Error",
-                "Failed to delete account. Please try again."
+        // Get user's reels for storage cleanup
+        const { data: userReels } = await supabase
+          .from("reels")
+          .select("id, video_url, thumbnail_url")
+          .eq("user_id", user.id);
+
+        // Get user's stories for storage cleanup
+        const { data: userStories } = await supabase
+          .from("stories")
+          .select("id, image_url")
+          .eq("user_id", user.id);
+
+        // Delete all user's reels and associated data
+        await supabase.from("reel_comments").delete().eq("user_id", user.id);
+        await supabase.from("reel_likes").delete().eq("user_id", user.id);
+        await supabase.from("reel_likes").delete().eq("reel_id", userReels?.map(reel => reel.id) || []);
+        await supabase.from("reel_comments").delete().eq("reel_id", userReels?.map(reel => reel.id) || []);
+        await supabase.from("reels").delete().eq("user_id", user.id);
+
+        // Delete all user's stories
+        await supabase.from("stories").delete().eq("user_id", user.id);
+
+        // Delete all user's posts and associated data
+        await supabase.from("comments").delete().eq("user_id", user.id);
+        await supabase.from("likes").delete().eq("user_id", user.id);
+        await supabase.from("bookmarks").delete().eq("user_id", user.id);
+        await supabase.from("bookmarks").delete().eq("post_id", userPosts?.map(post => post.id) || []);
+        await supabase.from("comments").delete().eq("post_id", userPosts?.map(post => post.id) || []);
+        await supabase.from("likes").delete().eq("post_id", userPosts?.map(post => post.id) || []);
+        await supabase.from("posts").delete().eq("user_id", user.id);
+
+        // Delete all user's messages and chat rooms
+        await supabase.from("messages").delete().eq("sender_id", user.id);
+        await supabase.from("messages").delete().eq("receiver_id", user.id);
+        await supabase.from("room_participants").delete().eq("user_id", user.id);
+
+        // Delete all user's notifications
+        await supabase.from("notifications").delete().eq("recipient_id", user.id);
+        await supabase.from("notifications").delete().eq("sender_id", user.id);
+
+        // Delete user's profile data
+        await supabase.from("profiles").delete().eq("id", user.id);
+
+        // Try to delete from users table if it exists
+        try {
+          await supabase.from("users").delete().eq("id", user.id);
+        } catch (error) {
+          console.log("Users table might not exist, continuing with deletion process");
+        }
+
+        // Delete user's avatar storage files
+        const { data: avatarStorageData } = await supabase.storage
+          .from("avatars")
+          .list(`user_avatars/${user.id}`);
+
+        if (avatarStorageData && avatarStorageData.length > 0) {
+          await Promise.all(
+            avatarStorageData.map((file) =>
+              supabase.storage
+                .from("avatars")
+                .remove([`user_avatars/${user.id}/${file.name}`])
+            )
+          );
+        }
+
+        // Delete user's post media files
+        if (userPosts && userPosts.length > 0) {
+          for (const post of userPosts) {
+            if (post.image_urls && Array.isArray(post.image_urls)) {
+              await Promise.all(
+                post.image_urls.map(async (imageUrl: string) => {
+                  try {
+                    const filePath = imageUrl.split("/").slice(-2).join("/");
+                    await supabase.storage.from("media").remove([filePath]);
+                  } catch (error) {
+                    console.error(`Failed to delete image ${imageUrl}:`, error);
+                  }
+                })
               );
-            } finally {
-              setIsDeleting(false);
             }
-          },
-        },
-      ]
-    );
+          }
+        }
+
+        // Delete user's reel media files
+        if (userReels && userReels.length > 0) {
+          for (const reel of userReels) {
+            try {
+              if (reel.video_url) {
+                const videoPath = reel.video_url.split("/").slice(-2).join("/");
+                await supabase.storage.from("media").remove([videoPath]);
+              }
+              if (reel.thumbnail_url) {
+                const thumbnailPath = reel.thumbnail_url.split("/").slice(-2).join("/");
+                await supabase.storage.from("media").remove([thumbnailPath]);
+              }
+            } catch (error) {
+              console.error(`Failed to delete reel media:`, error);
+            }
+          }
+        }
+
+        // Delete user's story media files
+        if (userStories && userStories.length > 0) {
+          for (const story of userStories) {
+            try {
+              if (story.image_url) {
+                const imagePath = story.image_url.split("/").slice(-2).join("/");
+                await supabase.storage.from("stories").remove([imagePath]);
+              }
+            } catch (error) {
+              console.error(`Failed to delete story media:`, error);
+            }
+          }
+        }
+
+        // Finally delete the authentication user using our Edge Function
+        try {
+          // Get the current session for the auth token
+          const { data: sessionData } = await supabase.auth.getSession();
+
+          if (!sessionData?.session?.access_token) {
+            throw new Error("No valid session found");
+          }
+
+          console.log("Calling delete-user Edge Function");
+          // Call our Edge Function to delete the user
+          const { data: deleteData, error: deleteError } = await supabase.functions.invoke('delete-user', {
+            headers: {
+              Authorization: `Bearer ${sessionData.session.access_token}`
+            }
+          });
+
+          if (deleteError) {
+            console.error("Error calling delete-user function:", deleteError);
+
+            // Show a more specific error message
+            Alert.alert(
+              "Account Deletion Issue",
+              "There was a problem with the account deletion service. Your account data has been removed, but you'll need to sign out manually.",
+              [{ text: "OK" }]
+            );
+
+            // Sign out the user anyway since their data is gone
+            await supabase.auth.signOut();
+            router.replace("/sign-in");
+            return;
+          }
+
+          if (!deleteData?.success) {
+            console.error("Delete user function did not return success:", deleteData);
+            const errorDetails = deleteData?.details ? `: ${deleteData.details}` : '';
+
+            // Show a more specific error message
+            Alert.alert(
+              "Account Deletion Issue",
+              `There was a problem with the account deletion service${errorDetails}. Your account data has been removed, but you'll need to sign out manually.`,
+              [{ text: "OK" }]
+            );
+
+            // Sign out the user anyway since their data is gone
+            await supabase.auth.signOut();
+            router.replace("/sign-in");
+            return;
+          }
+
+          console.log("User deleted successfully via Edge Function");
+
+          // Show success message only if we get here (successful deletion)
+          Alert.alert(
+            "Account Deleted",
+            "Your account has been successfully deleted.",
+            [
+              {
+                text: "OK",
+                onPress: () => router.replace("/sign-in")
+              }
+            ]
+          );
+          return;
+        } catch (error) {
+          console.error("Error attempting to delete auth user:", error);
+
+          // Show a more specific error message
+          Alert.alert(
+            "Account Deletion Issue",
+            "There was a problem with the account deletion service. Your account data has been removed, but you'll need to sign out manually.",
+            [{ text: "OK" }]
+          );
+
+          // Fallback to sign out if delete fails
+          await supabase.auth.signOut();
+          router.replace("/sign-in");
+          return;
+        }
+      }
+    } catch (error) {
+      console.error("Error deleting account:", error);
+      Alert.alert(
+        "Error",
+        "Failed to delete account. Please try again."
+      );
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteModalVisible(false);
+    }
   };
 
   const handleSignOut = async () => {
@@ -107,29 +289,36 @@ export default function SettingsScreen() {
       {
         text: "Sign Out",
         onPress: async () => {
-          await supabase.auth.signOut();
-          router.replace("/sign-in");
+          try {
+            if (!supabase) {
+              console.error("Supabase client is not initialized");
+              return;
+            }
+            await supabase.auth.signOut();
+            router.replace("/sign-in");
+          } catch (error) {
+            console.error("Error signing out:", error);
+            Alert.alert("Error", "Failed to sign out. Please try again.");
+          }
         },
       },
     ]);
   };
 
   return (
-    <LinearGradient
-      colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={{ flex: 1 }}
-    >
+    <ThemedGradient style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1 }}>
-        <View style={styles.header}>
+        <View style={[styles.header, { backgroundColor: `${colors.primary}05` }]}>
           <TouchableOpacity
             onPress={() => router.back()}
-            style={styles.backButton}
+            style={[styles.backButton, {
+              backgroundColor: `${colors.primary}20`,
+              borderColor: `${colors.primary}30`
+            }]}
           >
-            <Feather name="arrow-left" size={24} color="#FFD700" />
+            <Feather name="arrow-left" size={24} color={colors.primary} />
           </TouchableOpacity>
-          <Text className="font-rubik-bold" style={styles.title}>
+          <Text className="font-rubik-bold" style={[styles.title, { color: colors.text }]}>
             Settings
           </Text>
         </View>
@@ -139,21 +328,24 @@ export default function SettingsScreen() {
           contentContainerStyle={{ paddingBottom: 40 }}
         >
           <View style={styles.section}>
-            <Text className="font-rubik-bold" style={styles.sectionTitle}>
+            <Text className="font-rubik-bold" style={[styles.sectionTitle, { color: colors.text }]}>
               Account
             </Text>
             <TouchableOpacity
-              style={styles.settingItem}
+              style={[styles.settingItem, {
+                backgroundColor: `${colors.primary}10`,
+                borderColor: `${colors.primary}20`
+              }]}
               onPress={() => router.push("/edit-profile")}
             >
-              <Feather name="user" size={22} color="#FFD700" />
-              <Text className="font-rubik-regular" style={styles.settingText}>
+              <Feather name="user" size={22} color={colors.primary} />
+              <Text className="font-rubik-regular" style={[styles.settingText, { color: colors.text }]}>
                 Edit Profile
               </Text>
               <Feather
                 name="chevron-right"
                 size={22}
-                color="rgba(255, 215, 0, 0.7)"
+                color={`${colors.primary}70`}
               />
             </TouchableOpacity>
             {/* <TouchableOpacity style={styles.settingItem}>
@@ -164,109 +356,149 @@ export default function SettingsScreen() {
           </View>
 
           <View style={styles.section}>
-            <Text className="font-rubik-bold" style={styles.sectionTitle}>
+            <Text className="font-rubik-bold" style={[styles.sectionTitle, { color: colors.text }]}>
               Preferences
             </Text>
             <TouchableOpacity
-              style={styles.settingItem}
+              style={[styles.settingItem, {
+                backgroundColor: `${colors.primary}10`,
+                borderColor: `${colors.primary}20`
+              }]}
               onPress={() => router.push("/notifications")}
             >
-              <Feather name="bell" size={22} color="#FFD700" />
-              <Text className="font-rubik-regular" style={styles.settingText}>
+              <Feather name="bell" size={22} color={colors.primary} />
+              <Text className="font-rubik-regular" style={[styles.settingText, { color: colors.text }]}>
                 Notifications
               </Text>
               <Feather
                 name="chevron-right"
                 size={22}
-                color="rgba(255, 215, 0, 0.7)"
+                color={`${colors.primary}70`}
               />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.settingItem}>
-              <Feather name="eye" size={22} color="#FFD700" />
-              <Text className="font-rubik-regular" style={styles.settingText}>
+            <TouchableOpacity
+              style={[styles.settingItem, {
+                backgroundColor: `${colors.primary}10`,
+                borderColor: `${colors.primary}20`
+              }]}
+              onPress={() => router.push("/appearance")}
+            >
+              <Feather name="eye" size={22} color={colors.primary} />
+              <Text className="font-rubik-regular" style={[styles.settingText, { color: colors.text }]}>
                 Appearance
               </Text>
               <Feather
                 name="chevron-right"
                 size={22}
-                color="rgba(255, 215, 0, 0.7)"
+                color={`${colors.primary}70`}
               />
             </TouchableOpacity>
           </View>
 
           <View style={styles.section}>
-            <Text className="font-rubik-bold" style={styles.sectionTitle}>
+            <Text className="font-rubik-bold" style={[styles.sectionTitle, { color: colors.text }]}>
               Support
             </Text>
-            <TouchableOpacity style={styles.settingItem}>
-              <Feather name="help-circle" size={22} color="#FFD700" />
-              <Text className="font-rubik-regular" style={styles.settingText}>
+            <TouchableOpacity style={[styles.settingItem, {
+              backgroundColor: `${colors.primary}10`,
+              borderColor: `${colors.primary}20`
+            }]}>
+              <Feather name="help-circle" size={22} color={colors.primary} />
+              <Text className="font-rubik-regular" style={[styles.settingText, { color: colors.text }]}>
                 Help Center
               </Text>
               <Feather
                 name="chevron-right"
                 size={22}
-                color="rgba(255, 215, 0, 0.7)"
+                color={`${colors.primary}70`}
               />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.settingItem}>
-              <Feather name="file-text" size={22} color="#FFD700" />
-              <Text className="font-rubik-regular" style={styles.settingText}>
+            <TouchableOpacity style={[styles.settingItem, {
+              backgroundColor: `${colors.primary}10`,
+              borderColor: `${colors.primary}20`
+            }]}>
+              <Feather name="file-text" size={22} color={colors.primary} />
+              <Text className="font-rubik-regular" style={[styles.settingText, { color: colors.text }]}>
                 Terms of Service
               </Text>
               <Feather
                 name="chevron-right"
                 size={22}
-                color="rgba(255, 215, 0, 0.7)"
+                color={`${colors.primary}70`}
               />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.settingItem}>
-              <Feather name="shield" size={22} color="#FFD700" />
-              <Text className="font-rubik-regular" style={styles.settingText}>
+            <TouchableOpacity style={[styles.settingItem, {
+              backgroundColor: `${colors.primary}10`,
+              borderColor: `${colors.primary}20`
+            }]}>
+              <Feather name="shield" size={22} color={colors.primary} />
+              <Text className="font-rubik-regular" style={[styles.settingText, { color: colors.text }]}>
                 Privacy Policy
               </Text>
               <Feather
                 name="chevron-right"
                 size={22}
-                color="rgba(255, 215, 0, 0.7)"
+                color={`${colors.primary}70`}
               />
             </TouchableOpacity>
           </View>
 
           <View style={styles.section}>
-            <Text className="font-rubik-bold" style={styles.sectionTitle}>
+            <Text className="font-rubik-bold" style={[styles.sectionTitle, { color: colors.text }]}>
               Account Actions
             </Text>
             <TouchableOpacity
-              style={styles.signOutButton}
+              style={[styles.signOutButton, {
+                backgroundColor: `${colors.primary}10`,
+                borderColor: `${colors.primary}20`
+              }]}
               onPress={handleSignOut}
             >
-              <Feather name="log-out" size={22} color="#FFD700" />
-              <Text className="font-rubik-medium" style={styles.signOutText}>
+              <Feather name="log-out" size={22} color={colors.primary} />
+              <Text className="font-rubik-medium" style={[styles.signOutText, { color: colors.text }]}>
                 Sign Out
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.deleteButton}
+              style={[styles.deleteButton, {
+                backgroundColor: `${colors.primary}10`,
+                borderColor: `${colors.primary}20`
+              }]}
               onPress={handleDeleteAccount}
               disabled={isDeleting}
             >
-              <Feather name="trash-2" size={22} color="#FFD700" />
+              <Feather name="trash-2" size={22} color={colors.primary} />
               <Text
                 className="font-rubik-medium"
-                style={styles.deleteButtonText}
+                style={[styles.deleteButtonText, { color: colors.text }]}
               >
                 {isDeleting ? "Deleting Account..." : "Delete Account"}
               </Text>
+              {isDeleting && (
+                <ActivityIndicator
+                  size="small"
+                  color={colors.primary}
+                  style={{ marginLeft: 10 }}
+                />
+              )}
             </TouchableOpacity>
           </View>
 
-          <Text className="font-rubik-regular" style={styles.versionText}>
+          <Text className="font-rubik-regular" style={[styles.versionText, { color: colors.textTertiary }]}>
             Version 1.0.0
           </Text>
         </ScrollView>
       </SafeAreaView>
-    </LinearGradient>
+
+      {/* Delete Account Confirmation Modal */}
+      <DeleteModal
+        isVisible={isDeleteModalVisible}
+        title="Delete Account"
+        desc="account"
+        cancel={handleCancelDelete}
+        confirm={handleConfirmDelete}
+      />
+    </ThemedGradient>
   );
 }
 

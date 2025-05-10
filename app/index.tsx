@@ -6,13 +6,37 @@ import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
 import { useDispatch } from "react-redux";
 import { setUser } from "@/src/store/slices/authSlice";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import SplashScreen from "@/components/SplashScreen";
 
 const Page = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [hasProfile, setHasProfile] = useState(false);
+  const [showSplash, setShowSplash] = useState(false);
   const { checkProfile } = useSupabaseFetch();
   const dispatch = useDispatch();
+
+  // Function to initialize authentication
+  const initializeAuth = async () => {
+    if (!supabase) {
+      console.error("Supabase client is not initialized");
+      setIsLoading(false);
+      return;
+    }
+
+    // First check existing session
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    await verifyAuthState(session);
+
+    // Then subscribe to auth changes
+    supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        await verifyAuthState(session);
+      }
+    );
+  };
 
   const verifyAuthState = async (session: any) => {
     const signedIn = !!session;
@@ -21,6 +45,12 @@ const Page = () => {
     if (signedIn && session?.user?.email) {
       // Get user profile data and store in Redux and AsyncStorage
       try {
+        if (!supabase) {
+          console.error("Supabase client is not initialized");
+          setIsLoading(false);
+          return;
+        }
+
         const { data: userProfile, error } = await supabase
           .from("profiles")
           .select("id, username, avatar_url")
@@ -57,32 +87,24 @@ const Page = () => {
   };
 
   useEffect(() => {
-    let isMounted = true;
-    let authSubscription: any;
-
-    const initializeAuth = async () => {
-      // First check existing session
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (isMounted) await verifyAuthState(session);
-
-      // Then subscribe to auth changes
-      authSubscription = supabase.auth.onAuthStateChange(
-        async (event, session) => {
-          if (isMounted) await verifyAuthState(session);
-        }
-      ).data.subscription;
-    };
-
-    initializeAuth();
-
-    return () => {
-      isMounted = false;
-      authSubscription?.unsubscribe();
-    };
+    // Always show splash screen on app launch
+    setShowSplash(true);
   }, []);
 
+  // Handle splash screen display
+  if (showSplash) {
+    return (
+      <SplashScreen
+        onFinish={() => {
+          setShowSplash(false);
+          setIsLoading(true);
+          initializeAuth();
+        }}
+      />
+    );
+  }
+
+  // Handle loading state
   if (isLoading) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
@@ -91,6 +113,7 @@ const Page = () => {
     );
   }
 
+  // Handle authentication routing
   if (!isSignedIn) {
     return <Redirect href="/(auth)/sign-in" />;
   }

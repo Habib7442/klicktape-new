@@ -15,8 +15,6 @@ import {
   StatusBar,
   SafeAreaView,
   Modal,
-  Image,
-  Easing,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useVideoPlayer, VideoView } from "expo-video";
@@ -26,8 +24,7 @@ import {
   Feather,
   FontAwesome5,
   MaterialIcons,
-  Ionicons,
-  MaterialCommunityIcons,
+
 } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import { reelsAPI } from "../lib/reelsApi";
@@ -44,12 +41,16 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import NetInfo from "@react-native-community/netinfo";
 import * as Linking from "expo-linking";
 import * as Haptics from 'expo-haptics';
+import ThemedGradient from "@/components/ThemedGradient";
+import { useTheme } from "@/src/context/ThemeContext";
 
 const { width } = Dimensions.get("window");
 const VIDEO_ASPECT_RATIO = 9 / 16;
-const MAX_FILE_SIZE_MB = 10; // 10MB file size limit
+const MAX_FILE_SIZE_MB = 30; // 30MB file size limit
 
 const CreateReel = () => {
+  const { colors, isDarkMode } = useTheme();
+
   // Content state
   const [video, setVideo] = useState<string | null>(null);
   const [thumbnail, setThumbnail] = useState<string | null>(null);
@@ -71,10 +72,8 @@ const CreateReel = () => {
   const [microphonePermission, requestMicrophonePermission] =
     useMicrophonePermissions();
   const [isRecording, setIsRecording] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0);
   const cameraRef = useRef<CameraView>(null);
   const [permissionsGranted, setPermissionsGranted] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [flashMode, setFlashMode] = useState<'off' | 'on'>('off');
 
@@ -83,8 +82,18 @@ const CreateReel = () => {
     if (video) {
       player.loop = true;
       player.play();
+      console.log("Video player initialized with source:", video);
     }
   });
+
+  // Effect to update player when video changes
+  useEffect(() => {
+    if (video && player) {
+      console.log("Video source changed, updating player");
+      player.replace(video);
+      player.play();
+    }
+  }, [video]);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -126,35 +135,9 @@ const CreateReel = () => {
 
     checkPermissions();
 
-    // Clean up function
-    return () => {
-      // Clear any timers when component unmounts
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
+    // No cleanup needed
+    return () => {};
   }, []);
-
-  useEffect(() => {
-    if (isRecording) {
-      timerRef.current = setInterval(() => {
-        setRecordingTime((prev) => prev + 1);
-      }, 1000);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-      setRecordingTime(0);
-    }
-
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    };
-  }, [isRecording]);
 
   useEffect(() => {
     if (cameraMode) {
@@ -255,56 +238,72 @@ const CreateReel = () => {
     try {
       // Set recording state first
       setIsRecording(true);
-      setRecordingTime(0);
 
-      // Start a timer to track recording duration
-      timerRef.current = setInterval(() => {
-        setRecordingTime((prev) => prev + 1);
-      }, 1000);
+      // Add haptic feedback when starting recording
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       console.log("Starting recording...");
 
-      // Wait a moment before starting recording to ensure camera is ready
-      setTimeout(async () => {
-        try {
-          if (cameraRef.current && isRecording) {
-            const recording = await cameraRef.current.recordAsync();
-            console.log("Recording completed:", recording);
+      // Start recording immediately
+      if (cameraRef.current) {
+        // Use a promise to handle the recording
+        cameraRef.current.recordAsync({
+          maxDuration: 30, // Limit to 30 seconds
+        })
+        .then(async (recording) => {
+          console.log("Recording completed:", recording);
 
-            if (recording?.uri) {
+          if (recording?.uri) {
+            try {
               setLoading(true);
               const videoUri = recording.uri;
+
+              // Process the video in the background
+              console.log("Processing video:", videoUri);
+
+              // Check file size first
               await checkFileSize(videoUri);
+
+              // Generate thumbnail
               const thumbnailUri = await generateThumbnail(videoUri);
               await checkFileSize(thumbnailUri);
 
+              console.log("Video processed successfully");
+
+              // Set video and thumbnail
               setVideo(videoUri);
               setThumbnail(thumbnailUri);
+
+              // Exit camera mode immediately to show preview
               setCameraMode(false);
-              if (player) {
-                player.replace(videoUri);
-                player.play();
-              }
-            } else {
-              throw new Error("No video data received");
+
+              // The video will be played automatically due to the useEffect we added
+            } catch (error) {
+              console.error("Error processing recording:", error);
+              Alert.alert(
+                "Error",
+                error instanceof Error
+                  ? error.message
+                  : "Failed to process video. Please try again."
+              );
+            } finally {
+              setLoading(false);
             }
+          } else {
+            throw new Error("No video data received");
           }
-        } catch (error) {
-          console.error("Recording error inside timeout:", error);
+        })
+        .catch((error) => {
+          console.error("Recording error:", error);
           Alert.alert("Error", "Failed to record video. Please try again.");
-          setIsRecording(false);
-        } finally {
           setLoading(false);
-        }
-      }, 300);
+        });
+      }
     } catch (error) {
       console.error("Recording error:", error);
       Alert.alert("Error", "Failed to record video. Please try again.");
       setIsRecording(false);
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+      setLoading(false);
     }
   };
 
@@ -312,16 +311,26 @@ const CreateReel = () => {
     if (cameraRef.current && isRecording) {
       try {
         console.log("Stopping recording...");
+        // Show loading indicator while processing the video
+        setLoading(true);
+
+        // Add haptic feedback when stopping recording
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+        // Stop the recording
         cameraRef.current.stopRecording();
+
+        // Reset recording state
+        setIsRecording(false);
+
+        // Add a small timeout to ensure the recording is properly stopped
+        // before the camera mode is exited (this will be handled in the recordAsync promise)
+        console.log("Recording stopped, waiting for processing...");
       } catch (error) {
         console.error("Error stopping recording:", error);
         Alert.alert("Error", "Failed to stop recording.");
-      } finally {
+        setLoading(false);
         setIsRecording(false);
-        if (timerRef.current) {
-          clearInterval(timerRef.current);
-          timerRef.current = null;
-        }
       }
     }
   };
@@ -358,12 +367,7 @@ const CreateReel = () => {
     setCameraMode(false);
     setFacing("back");
     setIsRecording(false);
-    setRecordingTime(0);
     setUploadProgress(0);
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
     router.back();
   };
 
@@ -434,22 +438,28 @@ const CreateReel = () => {
 
   if (!permissionsGranted) {
     return (
-      <LinearGradient
-        colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-        style={styles.permissionScreen}
-      >
-        <View style={styles.permissionContainer}>
-          <Text style={styles.permissionTitle}>Permissions Required</Text>
-          <Text style={styles.permissionText}>
+      <ThemedGradient style={styles.permissionScreen}>
+        <View style={[styles.permissionContainer, {
+          backgroundColor: `${colors.backgroundSecondary}90`,
+          borderColor: `${colors.primary}30`
+        }]}>
+          <Text style={[styles.permissionTitle, { color: colors.primary }]}>Permissions Required</Text>
+          <Text style={[styles.permissionText, { color: colors.text }]}>
             To create reels, we need access to:
           </Text>
-          <View style={styles.permissionList}>
-            <Text style={styles.permissionItem}>• Camera</Text>
-            <Text style={styles.permissionItem}>• Microphone</Text>
-            <Text style={styles.permissionItem}>• Media Library</Text>
+          <View style={[styles.permissionList, {
+            backgroundColor: `${colors.primary}10`,
+            borderColor: `${colors.primary}20`
+          }]}>
+            <Text style={[styles.permissionItem, { color: colors.text }]}>• Camera</Text>
+            <Text style={[styles.permissionItem, { color: colors.text }]}>• Microphone</Text>
+            <Text style={[styles.permissionItem, { color: colors.text }]}>• Media Library</Text>
           </View>
           <TouchableOpacity
-            style={styles.permissionButton}
+            style={[styles.permissionButton, {
+              backgroundColor: colors.primary,
+              shadowOpacity: 0
+            }]}
             onPress={() => {
               if (Platform.OS === "ios") {
                 requestCameraPermission();
@@ -460,10 +470,10 @@ const CreateReel = () => {
               }
             }}
           >
-            <Text style={styles.permissionButtonText}>Grant Permissions</Text>
+            <Text style={[styles.permissionButtonText, { color: isDarkMode ? "#000" : "#FFF" }]}>Grant Permissions</Text>
           </TouchableOpacity>
         </View>
-      </LinearGradient>
+      </ThemedGradient>
     );
   }
 
@@ -495,38 +505,56 @@ const CreateReel = () => {
       onRequestClose={() => setShowTips(false)}
     >
       <TouchableOpacity
-        style={styles.modalOverlay}
+        style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}
         activeOpacity={1}
         onPress={() => setShowTips(false)}
       >
-        <View style={styles.tipsContainer}>
-          <Text style={styles.tipsTitle}>Tips for Great Reels</Text>
+        <View style={[styles.tipsContainer, {
+          backgroundColor: colors.backgroundSecondary,
+          borderColor: `${colors.primary}30`
+        }]}>
+          <Text style={[styles.tipsTitle, { color: colors.primary }]}>Tips for Great Reels</Text>
 
-          <View style={styles.tipItem}>
-            <FontAwesome5 name="lightbulb" size={20} color="#FFD700" />
-            <Text style={styles.tipText}>Keep videos short and engaging (15-30 seconds)</Text>
+          <View style={[styles.tipItem, {
+            backgroundColor: `${colors.primary}10`,
+            borderColor: `${colors.primary}20`
+          }]}>
+            <FontAwesome5 name="lightbulb" size={20} color={colors.primary} />
+            <Text style={[styles.tipText, { color: colors.text }]}>Keep videos short and engaging (15-30 seconds)</Text>
           </View>
 
-          <View style={styles.tipItem}>
-            <FontAwesome5 name="music" size={20} color="#FFD700" />
-            <Text style={styles.tipText}>Add trending music to increase visibility</Text>
+          <View style={[styles.tipItem, {
+            backgroundColor: `${colors.primary}10`,
+            borderColor: `${colors.primary}20`
+          }]}>
+            <FontAwesome5 name="music" size={20} color={colors.primary} />
+            <Text style={[styles.tipText, { color: colors.text }]}>Add trending music to increase visibility</Text>
           </View>
 
-          <View style={styles.tipItem}>
-            <FontAwesome5 name="hashtag" size={20} color="#FFD700" />
-            <Text style={styles.tipText}>Use relevant hashtags in your caption</Text>
+          <View style={[styles.tipItem, {
+            backgroundColor: `${colors.primary}10`,
+            borderColor: `${colors.primary}20`
+          }]}>
+            <FontAwesome5 name="hashtag" size={20} color={colors.primary} />
+            <Text style={[styles.tipText, { color: colors.text }]}>Use relevant hashtags in your caption</Text>
           </View>
 
-          <View style={styles.tipItem}>
-            <FontAwesome5 name="sun" size={20} color="#FFD700" />
-            <Text style={styles.tipText}>Ensure good lighting for better quality</Text>
+          <View style={[styles.tipItem, {
+            backgroundColor: `${colors.primary}10`,
+            borderColor: `${colors.primary}20`
+          }]}>
+            <FontAwesome5 name="sun" size={20} color={colors.primary} />
+            <Text style={[styles.tipText, { color: colors.text }]}>Ensure good lighting for better quality</Text>
           </View>
 
           <TouchableOpacity
-            style={styles.closeTipsButton}
+            style={[styles.closeTipsButton, {
+              backgroundColor: colors.primary,
+              shadowOpacity: 0
+            }]}
             onPress={() => setShowTips(false)}
           >
-            <Text style={styles.closeTipsText}>Got it</Text>
+            <Text style={[styles.closeTipsText, { color: isDarkMode ? "#000" : "#FFF" }]}>Got it</Text>
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
@@ -541,29 +569,38 @@ const CreateReel = () => {
       animationType="fade"
       onRequestClose={() => setShowConfirmation(false)}
     >
-      <View style={styles.modalOverlay}>
-        <View style={styles.confirmationContainer}>
-          <Text style={styles.confirmationTitle}>Share Reel?</Text>
-          <Text style={styles.confirmationText}>
+      <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
+        <View style={[styles.confirmationContainer, {
+          backgroundColor: colors.backgroundSecondary,
+          borderColor: `${colors.primary}30`
+        }]}>
+          <Text style={[styles.confirmationTitle, { color: colors.primary }]}>Share Reel?</Text>
+          <Text style={[styles.confirmationText, { color: colors.text }]}>
             Your reel will be visible to all users. Continue?
           </Text>
 
           <View style={styles.confirmationButtons}>
             <TouchableOpacity
-              style={styles.cancelButton}
+              style={[styles.cancelButton, {
+                backgroundColor: `${colors.backgroundTertiary}`,
+                borderColor: `${colors.primary}30`
+              }]}
               onPress={() => setShowConfirmation(false)}
             >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
+              <Text style={[styles.cancelButtonText, { color: colors.text }]}>Cancel</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.confirmButton}
+              style={[styles.confirmButton, {
+                backgroundColor: colors.primary,
+                shadowOpacity: 0
+              }]}
               onPress={() => {
                 setShowConfirmation(false);
                 handlePost();
               }}
             >
-              <Text style={styles.confirmButtonText}>Share</Text>
+              <Text style={[styles.confirmButtonText, { color: isDarkMode ? "#000" : "#FFF" }]}>Share</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -571,33 +608,26 @@ const CreateReel = () => {
     </Modal>
   );
 
-  // Render the recording timer
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
+
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" />
-      <LinearGradient
-        colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.container}
-      >
-        <View style={styles.header}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
+      <ThemedGradient style={styles.container}>
+        <View style={[styles.header, {
+          borderBottomColor: `${colors.primary}20`,
+          backgroundColor: `${colors.backgroundSecondary}90`
+        }]}>
           <TouchableOpacity
             style={styles.headerButton}
             onPress={handleClose}
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
           >
-            <AntDesign name="close" size={24} color="#FFD700" />
+            <AntDesign name="close" size={24} color={colors.primary} />
           </TouchableOpacity>
 
-          <Text style={styles.headerTitle}>New Reel</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>New Reel</Text>
 
           <TouchableOpacity
             onPress={() => {
@@ -611,12 +641,16 @@ const CreateReel = () => {
             disabled={!video || !thumbnail || loading}
             style={[
               styles.postButton,
-              (!video || !thumbnail || loading) && styles.disabledButton,
+              {
+                backgroundColor: colors.primary,
+                shadowOpacity: 0
+              },
+              (!video || !thumbnail || loading) && [styles.disabledButton, { opacity: 0.5 }],
             ]}
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
           >
-            <Text style={styles.postButtonText}>
+            <Text style={[styles.postButtonText, { color: isDarkMode ? "#000" : "#FFF" }]}>
               {loading ? "Uploading..." : "Share"}
             </Text>
           </TouchableOpacity>
@@ -637,7 +671,7 @@ const CreateReel = () => {
                 {isRecording && (
                   <View style={styles.recordingIndicator}>
                     <View style={styles.recordingDot} />
-                    <Text style={styles.recordingTime}>{formatTime(recordingTime)}</Text>
+                    <Text style={styles.recordingTime}>Recording...</Text>
                   </View>
                 )}
 
@@ -648,6 +682,7 @@ const CreateReel = () => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       toggleCameraFacing();
                     }}
+                    disabled={loading || isRecording}
                   >
                     <MaterialIcons
                       name="flip-camera-ios"
@@ -656,29 +691,35 @@ const CreateReel = () => {
                     />
                   </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={[
-                      styles.recordButton,
-                      {
-                        borderColor: isRecording ? "#00FF00" : "#FF0000",
-                        backgroundColor: isRecording
-                          ? "rgba(0, 255, 0, 0.2)"
-                          : "rgba(255, 0, 0, 0.2)",
-                      },
-                    ]}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      isRecording ? stopRecording() : startRecording();
-                    }}
-                    disabled={loading || !cameraReady}
-                  >
-                    <View
+                  {loading ? (
+                    <View style={styles.recordButton}>
+                      <ActivityIndicator size="large" color="#FFD700" />
+                    </View>
+                  ) : (
+                    <TouchableOpacity
                       style={[
-                        styles.innerRecordButton,
-                        { backgroundColor: isRecording ? "#00FF00" : "#FF0000" },
+                        styles.recordButton,
+                        {
+                          borderColor: isRecording ? "#00FF00" : "#FF0000",
+                          backgroundColor: isRecording
+                            ? "rgba(0, 255, 0, 0.2)"
+                            : "rgba(255, 0, 0, 0.2)",
+                        },
                       ]}
-                    />
-                  </TouchableOpacity>
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        isRecording ? stopRecording() : startRecording();
+                      }}
+                      disabled={loading || !cameraReady}
+                    >
+                      <View
+                        style={[
+                          styles.innerRecordButton,
+                          { backgroundColor: isRecording ? "#00FF00" : "#FF0000" },
+                        ]}
+                      />
+                    </TouchableOpacity>
+                  )}
 
                   <TouchableOpacity
                     style={styles.exitCameraButton}
@@ -686,6 +727,7 @@ const CreateReel = () => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       setCameraMode(false);
                     }}
+                    disabled={loading || isRecording}
                   >
                     <AntDesign name="close" size={24} color="white" />
                   </TouchableOpacity>
@@ -707,18 +749,16 @@ const CreateReel = () => {
                   onPressIn={handlePressIn}
                   onPressOut={handlePressOut}
                 >
-                  <LinearGradient
-                    colors={["#1a1a1a", "#2a2a2a"]}
-                    style={styles.uploadGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    <FontAwesome5 name="video" size={32} color="#FFD700" />
-                    <Text style={styles.uploadText}>Select Video</Text>
-                    <Text style={styles.fileSizeText}>
+                  <View style={[styles.uploadGradient, {
+                    backgroundColor: colors.backgroundSecondary,
+                    borderColor: `${colors.primary}30`
+                  }]}>
+                    <FontAwesome5 name="video" size={32} color={colors.primary} />
+                    <Text style={[styles.uploadText, { color: colors.primary }]}>Select Video</Text>
+                    <Text style={[styles.fileSizeText, { color: `${colors.text}70` }]}>
                       Max {MAX_FILE_SIZE_MB}MB
                     </Text>
-                  </LinearGradient>
+                  </View>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -730,16 +770,14 @@ const CreateReel = () => {
                   onPressIn={handlePressIn}
                   onPressOut={handlePressOut}
                 >
-                  <LinearGradient
-                    colors={["#1a1a1a", "#2a2a2a"]}
-                    style={styles.uploadGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    <FontAwesome5 name="camera" size={32} color="#FFD700" />
-                    <Text style={styles.uploadText}>Record Video</Text>
-                    <Text style={styles.fileSizeText}>Max 30 seconds</Text>
-                  </LinearGradient>
+                  <View style={[styles.uploadGradient, {
+                    backgroundColor: colors.backgroundSecondary,
+                    borderColor: `${colors.primary}30`
+                  }]}>
+                    <FontAwesome5 name="camera" size={32} color={colors.primary} />
+                    <Text style={[styles.uploadText, { color: colors.primary }]}>Record Video</Text>
+                    <Text style={[styles.fileSizeText, { color: `${colors.text}70` }]}>Max 30 seconds</Text>
+                  </View>
                 </TouchableOpacity>
               </View>
             </View>
@@ -750,27 +788,39 @@ const CreateReel = () => {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            <View style={styles.videoContainer}>
+            <View style={[styles.videoContainer, {
+              backgroundColor: `${colors.backgroundSecondary}90`,
+              borderColor: `${colors.primary}20`
+            }]}>
               <View style={styles.previewContainer}>
                 <VideoView
                   player={player}
                   style={styles.preview}
                   contentFit="contain"
                 />
-                <View style={styles.videoControls}>
+                <View style={[styles.videoControls, {
+                  backgroundColor: `${colors.backgroundTertiary}90`,
+                  borderTopColor: `${colors.primary}20`
+                }]}>
                   <TouchableOpacity
-                    style={styles.videoControlButton}
+                    style={[styles.videoControlButton, {
+                      backgroundColor: `${colors.primary}10`,
+                      borderColor: `${colors.primary}30`
+                    }]}
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       pickVideo();
                     }}
                   >
-                    <Feather name="refresh-ccw" size={20} color="#FFD700" />
-                    <Text style={styles.videoControlText}>Change</Text>
+                    <Feather name="refresh-ccw" size={20} color={colors.primary} />
+                    <Text style={[styles.videoControlText, { color: colors.primary }]}>Change</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={styles.videoControlButton}
+                    style={[styles.videoControlButton, {
+                      backgroundColor: `${colors.primary}10`,
+                      borderColor: `${colors.primary}30`
+                    }]}
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       if (player) {
@@ -781,9 +831,9 @@ const CreateReel = () => {
                     <Feather
                       name="play"
                       size={20}
-                      color="#FFD700"
+                      color={colors.primary}
                     />
-                    <Text style={styles.videoControlText}>
+                    <Text style={[styles.videoControlText, { color: colors.primary }]}>
                       Play
                     </Text>
                   </TouchableOpacity>
@@ -791,45 +841,71 @@ const CreateReel = () => {
               </View>
             </View>
 
-            <View style={styles.formContainer}>
-              <Text style={styles.sectionTitle}>Caption</Text>
+            <View style={[styles.formContainer, {
+              backgroundColor: `${colors.backgroundSecondary}90`,
+              borderColor: `${colors.primary}20`
+            }]}>
+              <Text style={[styles.sectionTitle, { color: colors.primary }]}>Caption</Text>
               <View style={styles.inputContainer}>
                 <TextInput
                   placeholder="Write a caption..."
                   value={caption}
                   onChangeText={setCaption}
                   multiline
-                  style={styles.input}
-                  placeholderTextColor="rgba(255, 215, 0, 0.5)"
+                  style={[styles.input, {
+                    backgroundColor: `${colors.primary}10`,
+                    borderColor: `${colors.primary}30`,
+                    color: colors.text
+                  }]}
+                  placeholderTextColor={`${colors.primary}50`}
                   maxLength={150}
                 />
-                <Text style={styles.characterCount}>{caption.length}/150</Text>
+                <Text style={[styles.characterCount, { color: `${colors.text}70` }]}>
+                  {caption.length}/150
+                </Text>
               </View>
 
               <TouchableOpacity
-                style={styles.tipsButton}
+                style={[styles.tipsButton, {
+                  backgroundColor: `${colors.primary}10`,
+                  borderColor: `${colors.primary}30`
+                }]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setShowTips(true);
                 }}
               >
-                <Feather name="info" size={16} color="#FFD700" />
-                <Text style={styles.tipsButtonText}>Tips for great reels</Text>
+                <Feather name="info" size={16} color={colors.primary} />
+                <Text style={[styles.tipsButtonText, { color: colors.primary }]}>Tips for great reels</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
         )}
 
         {loading && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#FFD700" />
-            <Text style={styles.loadingText}>Creating your reel...</Text>
+          <View style={[styles.loadingOverlay, { backgroundColor: colors.overlay }]}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={[styles.loadingText, { color: colors.primary }]}>
+              {uploadProgress > 0
+                ? "Creating your reel..."
+                : cameraMode
+                  ? "Processing video..."
+                  : "Loading..."}
+            </Text>
             {uploadProgress > 0 && (
-              <View style={styles.progressContainer}>
+              <View style={[styles.progressContainer, {
+                backgroundColor: `${colors.backgroundTertiary}`,
+                borderColor: `${colors.primary}30`
+              }]}>
                 <View
-                  style={[styles.progressBar, { width: `${uploadProgress}%` }]}
+                  style={[styles.progressBar, {
+                    width: `${uploadProgress}%`,
+                    backgroundColor: colors.primary
+                  }]}
                 />
-                <Text style={styles.progressText}>{uploadProgress}%</Text>
+                <Text style={[styles.progressText, { color: isDarkMode ? "#000" : colors.text }]}>
+                  {uploadProgress}%
+                </Text>
               </View>
             )}
           </View>
@@ -837,7 +913,7 @@ const CreateReel = () => {
 
         {renderTipsModal()}
         {renderConfirmationModal()}
-      </LinearGradient>
+      </ThemedGradient>
     </SafeAreaView>
   );
 };
@@ -1032,7 +1108,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-around",
     width: "100%",
-    paddingHorizontal: 20,
     alignItems: "center",
     height: "100%",
   },

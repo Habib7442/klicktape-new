@@ -32,17 +32,21 @@ import {
   selectLoading,
   selectReels,
   toggleLike,
+  optimisticToggleLike,
 } from "@/src/store/slices/reelsSlice";
 import { Reel } from "@/types/type";
 import { AppDispatch } from "@/src/store/store";
 import { useDispatch as useReduxDispatch } from "react-redux";
 import { router } from "expo-router";
 import { useNavigation } from "@react-navigation/native";
+import { useTheme } from "@/src/context/ThemeContext";
+import ThemedGradient from "@/components/ThemedGradient";
 
 const { width, height } = Dimensions.get("window");
 const REELS_PER_PAGE = 5;
 
 const Reels = () => {
+  const { colors } = useTheme();
   const dispatch = useReduxDispatch<AppDispatch>();
   const reels = useSelector(selectReels);
   const loading = useSelector(selectLoading);
@@ -128,14 +132,11 @@ const Reels = () => {
 
   if (!loading && reels.length === 0) {
     return (
-      <LinearGradient
-        colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-        style={styles.container}
-      >
+      <ThemedGradient style={styles.container}>
         <SafeAreaView style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No reels available</Text>
+          <Text style={[styles.emptyText, { color: colors.text }]}>No reels available</Text>
           <TouchableOpacity
-            style={styles.retryButton}
+            style={[styles.retryButton, { backgroundColor: colors.primary }]}
             onPress={() =>
               dispatch(
                 fetchReels({
@@ -146,15 +147,15 @@ const Reels = () => {
               )
             }
           >
-            <Text style={styles.retryButtonText}>Retry</Text>
+            <Text style={[styles.retryButtonText, { color: colors.background }]}>Retry</Text>
           </TouchableOpacity>
         </SafeAreaView>
-      </LinearGradient>
+      </ThemedGradient>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <FlatList
         ref={flatListRef}
         data={reels}
@@ -174,7 +175,7 @@ const Reels = () => {
           loading && reels.length > 0 ? (
             <ActivityIndicator
               size="large"
-              color="#FFD700"
+              color={colors.primary}
               style={styles.loader}
             />
           ) : null
@@ -183,13 +184,13 @@ const Reels = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor="#FFD700"
+            tintColor={colors.primary}
           />
         }
       />
       {loading && reels.length === 0 && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#FFD700" />
+        <View style={[styles.loadingOverlay, { backgroundColor: `${colors.background}CC` }]}>
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       )}
     </View>
@@ -200,6 +201,7 @@ const ReelItem: React.FC<{
   reel: Reel;
   isVisible: boolean;
 }> = ({ reel, isVisible }) => {
+  const { colors } = useTheme();
   const navigation = useNavigation();
   const dispatch = useReduxDispatch<AppDispatch>();
   const [isPlaying, setIsPlaying] = useState(false);
@@ -302,47 +304,45 @@ const ReelItem: React.FC<{
       return;
     }
 
-    // Calculate new state
+    // Calculate new state for optimistic update
     const newIsLiked = !reel.is_liked;
     const newLikesCount = reel.is_liked ? reel.likes_count - 1 : reel.likes_count + 1;
-    
-    // Dispatch optimistic update first
-    dispatch({
-      type: "reels/toggleLike/fulfilled",
-      payload: {
-        reelId: reel.id,
-        is_liked: newIsLiked,
-        likes_count: newLikesCount,
-      },
-    });
-    
+
     // Animate the like button
     scaleValues.like.value = withSpring(1.2, {}, () => {
       scaleValues.like.value = withSpring(1);
     });
 
+    // Store original values in case we need to revert
+    const originalIsLiked = reel.is_liked;
+    const originalLikesCount = reel.likes_count;
+
+    // Apply optimistic update
+    dispatch(optimisticToggleLike({
+      reelId: reel.id,
+      is_liked: newIsLiked,
+      likes_count: newLikesCount,
+    }));
+
     try {
-      // Make the API call but don't use its response to update UI
+      // Make the actual API call
       await dispatch(
-        toggleLike({ 
-          reelId: reel.id, 
-          isLiked: !newIsLiked // Pass the opposite because we're toggling from the current state
+        toggleLike({
+          reelId: reel.id,
+          isLiked: originalIsLiked // Pass the original state, not the optimistically updated one
         })
-      );
+      ).unwrap();
 
       console.log("Like toggled successfully for reel:", reel.id);
     } catch (error: any) {
       console.error("Error toggling like:", error);
-      
+
       // Revert the optimistic update if the API call fails
-      dispatch({
-        type: "reels/toggleLike/fulfilled",
-        payload: {
-          reelId: reel.id,
-          is_liked: reel.is_liked, // Original value before our change
-          likes_count: reel.likes_count, // Original value before our change
-        },
-      });
+      dispatch(optimisticToggleLike({
+        reelId: reel.id,
+        is_liked: originalIsLiked,
+        likes_count: originalLikesCount,
+      }));
 
       if (!error.message?.includes("duplicate key value")) {
         Alert.alert(
@@ -431,7 +431,7 @@ const ReelItem: React.FC<{
   const handleProfilePress = () => {
     if (!isMounted.current) return;
 
-    console.log("Navigating to user profile with ID:", reel.userId);
+    console.log("Navigating to user profile with ID:", reel.user_id);
     if (playerRef.current) {
       try {
         playerRef.current.pause();
@@ -440,7 +440,7 @@ const ReelItem: React.FC<{
         console.warn("Error pausing video before profile navigation:", error);
       }
     }
-    router.push(`/userProfile/${reel.userId}`);
+    router.push(`/userProfile/${reel.user_id}`);
   };
 
   const animatedStyles = {
@@ -467,9 +467,9 @@ const ReelItem: React.FC<{
       : reel.caption;
 
   return (
-    <View style={styles.reelContainer}>
+    <View style={[styles.reelContainer, { backgroundColor: colors.background }]}>
       <LinearGradient
-        colors={["rgba(0,0,0,0.8)", "transparent"]}
+        colors={["rgba(0,0,0,0.4)", "transparent"]}
         style={styles.headerGradient}
       >
         <SafeAreaView style={styles.header}>
@@ -485,11 +485,17 @@ const ReelItem: React.FC<{
               }
               router.back();
             }}
-            style={styles.backButton}
+            style={[
+              styles.backButton,
+              {
+                backgroundColor: `${colors.primary}10`,
+                borderColor: `${colors.primary}30`
+              }
+            ]}
           >
-            <Feather name="arrow-left" size={24} color="#FFD700" />
+            <Feather name="arrow-left" size={24} color={colors.primary} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Reels</Text>
+          <Text style={[styles.headerTitle, { color: colors.primary }]}>Reels</Text>
           <View style={styles.headerRightPlaceholder} />
         </SafeAreaView>
       </LinearGradient>
@@ -498,30 +504,36 @@ const ReelItem: React.FC<{
         player={player}
         style={styles.video}
         nativeControls={false}
-        contentFit="cover"
-        posterSource={
-          reel.thumbnail_url ? { uri: reel.thumbnail_url } : undefined
-        }
+        contentFit="contain"
       />
 
       <LinearGradient
-        colors={["transparent", "rgba(0, 0, 0, 0.9)"]}
+        colors={["transparent", "rgba(0, 0, 0, 0.5)"]}
         style={styles.gradientOverlay}
       >
         <View style={styles.contentContainer}>
           <View style={styles.mainContent}>
-            <Pressable style={styles.userInfo} onPress={handleProfilePress}>
-              <Image source={{ uri: reel.user.avatar }} style={styles.avatar} />
-              <Text style={styles.username}>@{reel.user.username}</Text>
+            <Pressable
+              style={[
+                styles.userInfo,
+                {
+                  backgroundColor: `${colors.primary}05`,
+                  borderColor: `${colors.primary}20`
+                }
+              ]}
+              onPress={handleProfilePress}
+            >
+              <Image source={{ uri: reel.user.avatar_url || "https://via.placeholder.com/150" }} style={styles.avatar} />
+              <Text style={[styles.username, { color: colors.primary }]}>@{reel.user.username}</Text>
             </Pressable>
 
             <View style={styles.captionContainer}>
-              <Text style={styles.caption}>{caption}</Text>
+              <Text style={[styles.caption, { color: colors.text }]}>{caption}</Text>
               {reel.caption.length > 100 && (
                 <TouchableOpacity
                   onPress={() => setShowFullCaption(!showFullCaption)}
                 >
-                  <Text style={styles.showMore}>
+                  <Text style={[styles.showMore, { color: colors.primary }]}>
                     {showFullCaption ? "Show less" : "Show more"}
                   </Text>
                 </TouchableOpacity>
@@ -531,7 +543,14 @@ const ReelItem: React.FC<{
 
           <View style={styles.actions}>
             <View style={styles.actionWrapper}>
-              <Animated.View style={[styles.actionButton, animatedStyles.like]}>
+              <Animated.View style={[
+                styles.actionButton,
+                {
+                  backgroundColor: `${colors.primary}05`,
+                  borderColor: `${colors.primary}20`
+                },
+                animatedStyles.like
+              ]}>
                 <TouchableOpacity
                   onPress={handleToggleLike}
                   accessibilityLabel={`Like reel, ${reel.likes_count} likes`}
@@ -539,48 +558,76 @@ const ReelItem: React.FC<{
                   <AntDesign
                     name={reel.is_liked ? "heart" : "hearto"}
                     size={28}
-                    color={reel.is_liked ? "#FF0000" : "#ffffff"}
+                    color={reel.is_liked ? colors.error : colors.text}
                   />
                 </TouchableOpacity>
               </Animated.View>
-              <Text style={styles.actionCount}>{reel.likes_count}</Text>
+              <Text style={[styles.actionCount, { color: colors.text }]}>{reel.likes_count}</Text>
             </View>
 
             <View style={styles.actionWrapper}>
               <Animated.View
-                style={[styles.actionButton, animatedStyles.comment]}
+                style={[
+                  styles.actionButton,
+                  {
+                    backgroundColor: `${colors.primary}05`,
+                    borderColor: `${colors.primary}20`
+                  },
+                  animatedStyles.comment
+                ]}
               >
                 <TouchableOpacity onPress={handleComment}>
-                  <Feather name="message-circle" size={28} color="#FFD700" />
+                  <Feather name="message-circle" size={28} color={colors.primary} />
                 </TouchableOpacity>
               </Animated.View>
-              <Text style={styles.actionCount}>{reel.comments_count}</Text>
+              <Text style={[styles.actionCount, { color: colors.text }]}>{reel.comments_count}</Text>
             </View>
 
-            <Animated.View style={[styles.actionButton, animatedStyles.share]}>
+            <Animated.View style={[
+              styles.actionButton,
+              {
+                backgroundColor: `${colors.primary}05`,
+                borderColor: `${colors.primary}20`
+              },
+              animatedStyles.share
+            ]}>
               <TouchableOpacity onPress={handleShare}>
-                <Feather name="share" size={28} color="#FFD700" />
+                <Feather name="share" size={28} color={colors.primary} />
               </TouchableOpacity>
             </Animated.View>
 
-            <Animated.View style={[styles.actionButton, animatedStyles.mute]}>
+            <Animated.View style={[
+              styles.actionButton,
+              {
+                backgroundColor: `${colors.primary}05`,
+                borderColor: `${colors.primary}20`
+              },
+              animatedStyles.mute
+            ]}>
               <TouchableOpacity onPress={handleMute}>
                 <Feather
                   name={isMuted ? "volume-x" : "volume-2"}
                   size={28}
-                  color="#FFD700"
+                  color={colors.primary}
                 />
               </TouchableOpacity>
             </Animated.View>
 
             <Animated.View
-              style={[styles.actionButton, animatedStyles.playPause]}
+              style={[
+                styles.actionButton,
+                {
+                  backgroundColor: `${colors.primary}05`,
+                  borderColor: `${colors.primary}20`
+                },
+                animatedStyles.playPause
+              ]}
             >
               <TouchableOpacity onPress={handlePlayPause}>
                 <Feather
                   name={isPlaying ? "pause" : "play"}
                   size={28}
-                  color="#FFD700"
+                  color={colors.primary}
                 />
               </TouchableOpacity>
             </Animated.View>
@@ -594,12 +641,12 @@ const ReelItem: React.FC<{
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000",
   },
   reelContainer: {
     width,
     height,
-    backgroundColor: "#000",
+    justifyContent: "center",
+    alignItems: "center",
   },
   headerGradient: {
     position: "absolute",
@@ -617,19 +664,16 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   backButton: {
-    backgroundColor: "rgba(255, 215, 0, 0.2)",
     width: 36,
     height: 36,
     borderRadius: 18,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.5)",
   },
   headerTitle: {
     fontSize: 20,
     fontFamily: "Rubik-Bold",
-    color: "#FFD700",
     textShadowColor: "rgba(0, 0, 0, 0.5)",
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 2,
@@ -641,6 +685,8 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     backgroundColor: "black",
+    justifyContent: "center",
+    alignItems: "center",
   },
   gradientOverlay: {
     position: "absolute",
@@ -665,11 +711,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 16,
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
     padding: 8,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
     alignSelf: "flex-start",
   },
   avatar: {
@@ -680,7 +724,6 @@ const styles = StyleSheet.create({
   username: {
     fontSize: 16,
     fontFamily: "Rubik-Bold",
-    color: "#20B2AA",
     marginLeft: 8,
   },
   captionContainer: {
@@ -689,13 +732,11 @@ const styles = StyleSheet.create({
   caption: {
     fontSize: 16,
     fontFamily: "Rubik-Regular",
-    color: "#ffffff",
     lineHeight: 22,
   },
   showMore: {
     fontSize: 14,
     fontFamily: "Rubik-Medium",
-    color: "#FFD700",
     marginTop: 4,
   },
   actions: {
@@ -710,16 +751,13 @@ const styles = StyleSheet.create({
   actionButton: {
     alignItems: "center",
     padding: 8,
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
     width: 48,
     height: 48,
     justifyContent: "center",
   },
   actionCount: {
-    color: "#ffffff",
     fontSize: 14,
     fontFamily: "Rubik-Medium",
     textShadowColor: "rgba(0, 0, 0, 0.5)",
@@ -728,7 +766,6 @@ const styles = StyleSheet.create({
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -743,11 +780,9 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 18,
     fontFamily: "Rubik-Medium",
-    color: "#ffffff",
     marginBottom: 16,
   },
   retryButton: {
-    backgroundColor: "#FFD700",
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,
@@ -755,7 +790,6 @@ const styles = StyleSheet.create({
   retryButtonText: {
     fontSize: 16,
     fontFamily: "Rubik-Medium",
-    color: "#000000",
   },
 });
 

@@ -8,7 +8,6 @@ import {
 } from "react-native";
 import React, { useEffect, useState } from "react";
 import { Feather, Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "@/lib/supabase";
 import { router, useFocusEffect } from "expo-router";
 import { useDispatch, useSelector } from "react-redux";
@@ -29,6 +28,8 @@ import {
 import Stories from "@/components/Stories";
 import Posts from "@/components/Posts";
 import { openSidebar } from "@/src/store/slices/sidebarSlice";
+import ThemedGradient from "@/components/ThemedGradient";
+import { useTheme } from "@/src/context/ThemeContext";
 
 const Home = () => {
   const dispatch = useDispatch();
@@ -232,26 +233,29 @@ const Home = () => {
     }, [userId, supabase, fetchInitialData])
   );
 
+  const { colors } = useTheme();
+
   return (
     <>
-      <LinearGradient
-        colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.container}
-      >
+      <ThemedGradient style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
-          <View style={styles.header}>
+          <View style={[styles.header, {
+            backgroundColor: colors.backgroundSecondary,
+            borderBottomColor: `${colors.primary}20`
+          }]}>
             <View style={styles.leftSection}>
               <TouchableOpacity
                 onPress={() => dispatch(openSidebar())}
-                style={styles.menuButton}
+                style={[styles.menuButton, {
+                  backgroundColor: `${colors.primary}10`,
+                  borderColor: `${colors.primary}30`
+                }]}
               >
-                <Feather name="menu" size={24} color="#ffffff" />
+                <Feather name="menu" size={24} color={colors.text} />
               </TouchableOpacity>
               <View>
-                <Text style={styles.appName}>Klicktape</Text>
-                <Text style={styles.tagline}>
+                <Text style={[styles.appName, { color: colors.primary }]}>Klicktape</Text>
+                <Text style={[styles.tagline, { color: colors.textSecondary }]}>
                   First Privacy Secured Network
                 </Text>
               </View>
@@ -265,10 +269,10 @@ const Home = () => {
                 }}
                 style={styles.iconButton}
               >
-                <Ionicons name="chatbubble-outline" size={20} color="#FFD700" />
+                <Ionicons name="chatbubble-outline" size={20} color={colors.primary} />
                 {unreadMessageCount > 0 && (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>
+                  <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+                    <Text style={[styles.badgeText, { color: colors.background }]}>
                       {unreadMessageCount > 99 ? "99+" : unreadMessageCount}
                     </Text>
                   </View>
@@ -284,11 +288,11 @@ const Home = () => {
                 <Ionicons
                   name="notifications-outline"
                   size={20}
-                  color="#FFD700"
+                  color={colors.primary}
                 />
                 {unreadCount > 0 && (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>
+                  <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+                    <Text style={[styles.badgeText, { color: colors.background }]}>
                       {unreadCount > 99 ? "99+" : unreadCount}
                     </Text>
                   </View>
@@ -302,7 +306,7 @@ const Home = () => {
             <Posts />
           </View>
         </SafeAreaView>
-      </LinearGradient>
+      </ThemedGradient>
       <Sidebar />
     </>
   );
@@ -322,9 +326,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: Platform.OS === "ios" ? 10 : 20,
     paddingBottom: 10,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 215, 0, 0.2)",
   },
   leftSection: {
     flexDirection: "row",
@@ -336,20 +338,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 20,
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
     marginRight: 12,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   appName: {
     fontSize: 24,
     fontFamily: "Rubik-Bold",
-    color: "#FFD700",
   },
   tagline: {
     fontSize: 12,
     fontFamily: "Rubik-Medium",
-    color: "rgba(255, 215, 0, 0.8)",
     marginTop: 2,
   },
   rightSection: {
@@ -371,7 +369,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 4,
     right: 4,
-    backgroundColor: "#D4AF37",
     borderRadius: 10,
     minWidth: 18,
     height: 18,
@@ -386,7 +383,6 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 10,
     fontFamily: "Rubik-Medium",
-    color: "#000000",
     lineHeight: 12,
   },
   content: {

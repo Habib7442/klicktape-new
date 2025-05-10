@@ -1,11 +1,13 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { StyleSheet, View } from "react-native";
 import CommentsModal from "@/components/Comments";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useTheme } from "@/src/context/ThemeContext";
 
 const PostsCommentScreen = () => {
   const { postId, postOwnerUsername } = useLocalSearchParams();
   const router = useRouter();
+  const { colors } = useTheme();
 
   // Ensure postId is a string
   if (!postId || typeof postId !== "string") {
@@ -13,7 +15,7 @@ const PostsCommentScreen = () => {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <CommentsModal
         entityType="post"
         entityId={postId}
@@ -29,6 +31,5 @@ export default PostsCommentScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#121212",
   },
 });

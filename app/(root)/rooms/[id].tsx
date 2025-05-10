@@ -9,12 +9,16 @@ import {
   Platform,
   ActivityIndicator,
   StyleSheet,
+  Keyboard,
+  RefreshControl,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { Feather } from "@expo/vector-icons";
-// Add this interface at the top of your file, after the imports
+import { RealtimeChannel } from "@supabase/supabase-js";
+
 interface RoomMessage {
   id: string;
   room_id: string;
@@ -24,23 +28,40 @@ interface RoomMessage {
   username?: string;
   profiles?: {
     username: string;
+    anonymous_room_name?: string;
   };
 }
+
+interface Room {
+  id: string;
+  name: string;
+  created_at: string;
+  created_by: string;
+  description?: string;
+}
+
 export default function RoomChat() {
   const { id } = useLocalSearchParams();
-  
-  
+
   const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
-  const [room, setRoom] = useState(null);
+  const [room, setRoom] = useState<Room | null>(null);
   const [isLeaving, setIsLeaving] = useState(false);
   const [isJoined, setIsJoined] = useState(false);
-  const [userId, setUserId] = useState(null);
-  const textInputRef = useRef(null);
-  const flatListRef = useRef(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const textInputRef = useRef<TextInput | null>(null);
+  const flatListRef = useRef<FlatList | null>(null);
+  const subscriptionRef = useRef<RealtimeChannel | null>(null);
 
   useEffect(() => {
     const getUser = async () => {
+      if (!supabase) {
+        console.error("Supabase client not available");
+        router.replace("/sign-in");
+        return;
+      }
+
       try {
         const {
           data: { user },
@@ -59,141 +80,301 @@ export default function RoomChat() {
     };
 
     getUser();
-  }, []);
+  }, [supabase]); // Add supabase to dependency array to re-run if it becomes available
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !supabase || !id) {
+      console.log("Waiting for userId, supabase client, and room id to be available before checking join status");
+      return;
+    }
 
     const checkJoinStatus = async () => {
-      const { data, error } = await supabase
-        .from("room_participants")
-        .select("*")
-        .eq("room_id", id)
-        .eq("user_id", userId);
-
-      if (error) {
-        console.error("Error checking join status:", error);
-        return;
-      }
-      setIsJoined(data?.length > 0);
-    };
-    checkJoinStatus();
-  }, [id, userId]);
-
-  useEffect(() => {
-    if (!userId) return;
-
-    const loadInitialData = async () => {
       try {
-        // Load room data
-        const { data: roomData, error: roomError } = await supabase
-          .from("rooms")
+        const { data, error } = await supabase
+          .from("room_participants")
           .select("*")
-          .eq("id", id)
-          .single();
-
-        if (roomError) throw roomError;
-
-        // Load messages with sender usernames using an explicit join
-        const { data: messagesData, error: messagesError } = await supabase
-          .from("room_messages")
-          .select(`
-            id,
-            room_id,
-            sender_id,
-            encrypted_content,
-            created_at,
-            profiles!fk_room_messages_sender_id (
-              username
-            )
-          `)
           .eq("room_id", id)
-          .order("created_at", { ascending: false })
-          .limit(50);
+          .eq("user_id", userId);
 
-        if (messagesError) throw messagesError;
+        if (error) {
+          console.error("Error checking join status:", error);
+          return;
+        }
 
-        setRoom(roomData);
-        setMessages(
-          messagesData?.map((msg) => ({
-            ...msg,
-            username: msg.profiles?.username || "Deleted User",
-          })) || []
-        );
-      } catch (error) {
-        console.error("Error loading initial data:", error);
+        setIsJoined(data?.length > 0);
+        console.log("Join status checked. User is", data?.length > 0 ? "joined" : "not joined");
+      } catch (err) {
+        console.error("Exception checking join status:", err);
       }
     };
 
-    loadInitialData();
+    checkJoinStatus();
+  }, [id, userId, supabase]);
 
-    const subscription = supabase
-      .channel(`room_messages:room_id=${id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "room_messages",
-          filter: `room_id=eq.${id}`,
-        },
-        async (payload) => {
-          const newMessage = payload.new;
-          const { data: sender, error } = await supabase
-            .from("profiles")
-            .select("username")
-            .eq("id", newMessage.sender_id)
-            .single();
+  // Function to load initial data
+  const loadInitialData = async () => {
+    if (!userId || !supabase) {
+      console.error("User ID or Supabase client not available");
+      return;
+    }
 
-          if (error) {
-            console.error("Error fetching sender:", error);
-            return;
-          }
+    try {
+      // Load room data
+      const { data: roomData, error: roomError } = await supabase
+        .from("rooms")
+        .select("*")
+        .eq("id", id)
+        .single();
 
-          setMessages((prev) => [
-            {
-              ...newMessage,
-              username: sender?.username || "Deleted User",
-            },
-            ...prev,
-          ]);
+      if (roomError) throw roomError;
+
+      // Load messages with sender anonymous_room_name using an explicit join
+      const { data: messagesData, error: messagesError } = await supabase
+        .from("room_messages")
+        .select(`
+          id,
+          room_id,
+          sender_id,
+          encrypted_content,
+          created_at,
+          profiles!fk_room_messages_sender_id (
+            username,
+            anonymous_room_name
+          )
+        `)
+        .eq("room_id", id)
+        .order("created_at", { ascending: true })
+        .limit(50);
+
+      if (messagesError) throw messagesError;
+
+      setRoom(roomData);
+      setMessages(
+        messagesData?.map((msg) => ({
+          ...msg,
+          // Use anonymous_room_name if available, otherwise fall back to username or "Anonymous User"
+          username: msg.profiles?.anonymous_room_name || msg.profiles?.username || "Anonymous User",
+        })) || []
+      );
+
+      // Scroll to the bottom after loading messages
+      setTimeout(() => {
+        if (flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: false });
         }
-      )
-      .subscribe();
+      }, 200);
+    } catch (error) {
+      console.error("Error loading initial data:", error);
+    }
+  };
 
+  // Function to establish real-time subscription
+  const setupRealtimeSubscription = () => {
+    if (!userId || !id || subscriptionRef.current || !supabase) {
+      console.error("Cannot setup subscription: missing userId, id, or supabase client, or subscription already exists");
+      return;
+    }
+
+    try {
+      console.log("Setting up real-time subscription for room:", id);
+
+      // Create subscription for new messages
+      const subscription = supabase
+        .channel(`room_messages:room_id=${id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "room_messages",
+            filter: `room_id=eq.${id}`,
+          },
+          async (payload) => {
+            console.log("Received new message:", payload);
+            const newMessage = payload.new;
+
+            if (!supabase) {
+              console.error("Supabase client not available for fetching sender");
+              return;
+            }
+
+            // Fetch sender profile with anonymous_room_name
+            const { data: sender, error } = await supabase
+              .from("profiles")
+              .select("username, anonymous_room_name")
+              .eq("id", newMessage.sender_id)
+              .single();
+
+            if (error) {
+              console.error("Error fetching sender:", error);
+              return;
+            }
+
+            // Update messages state with new message
+            setMessages((prev) => [
+              ...prev,
+              {
+                ...newMessage,
+                username: sender?.anonymous_room_name || sender?.username || "Anonymous User",
+              } as RoomMessage,
+            ]);
+
+            // Scroll to the bottom after receiving a new message
+            setTimeout(() => {
+              if (flatListRef.current) {
+                flatListRef.current.scrollToEnd({ animated: true });
+              }
+            }, 100);
+          }
+        )
+        // Also listen for message deletions
+        .on(
+          "postgres_changes",
+          {
+            event: "DELETE",
+            schema: "public",
+            table: "room_messages",
+            filter: `room_id=eq.${id}`,
+          },
+          (payload) => {
+            console.log("Message deleted:", payload);
+            // Remove the deleted message from state
+            setMessages((prev) =>
+              prev.filter((msg) => msg.id !== payload.old.id)
+            );
+          }
+        )
+        // Also listen for message updates
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "room_messages",
+            filter: `room_id=eq.${id}`,
+          },
+          async (payload) => {
+            console.log("Message updated:", payload);
+            const updatedMessage = payload.new;
+
+            if (!supabase) {
+              console.error("Supabase client not available for fetching sender of updated message");
+              return;
+            }
+
+            // Fetch sender profile with anonymous_room_name
+            const { data: sender, error } = await supabase
+              .from("profiles")
+              .select("username, anonymous_room_name")
+              .eq("id", updatedMessage.sender_id)
+              .single();
+
+            if (error) {
+              console.error("Error fetching sender for updated message:", error);
+              return;
+            }
+
+            // Update the specific message in state
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === updatedMessage.id
+                  ? { ...updatedMessage, username: sender?.anonymous_room_name || sender?.username || "Anonymous User" } as RoomMessage
+                  : msg
+              )
+            );
+          }
+        )
+        .subscribe((status) => {
+          console.log("Subscription status:", status);
+          if (status === 'SUBSCRIBED') {
+            console.log("Successfully subscribed to real-time updates for room:", id);
+          }
+        });
+
+      // Store subscription reference for cleanup
+      subscriptionRef.current = subscription;
+
+    } catch (error) {
+      console.error("Error setting up real-time subscription:", error);
+    }
+  };
+
+  // Load initial data when component mounts or userId/id changes
+  useEffect(() => {
+    // Only load data when both userId and supabase are available
+    if (userId && supabase && id) {
+      loadInitialData();
+    } else {
+      console.log("Waiting for userId, supabase client, and room id to be available before loading data");
+    }
+  }, [id, userId, supabase]); // Add supabase to dependency array
+
+  // Setup real-time subscription once when component mounts
+  useEffect(() => {
+    // Only set up subscription when both userId and supabase are available
+    if (userId && supabase && id) {
+      setupRealtimeSubscription();
+    } else {
+      console.log("Waiting for userId, supabase client, and room id to be available before setting up subscription");
+    }
+
+    // Cleanup function to unsubscribe when component unmounts
     return () => {
-      subscription.unsubscribe();
+      if (subscriptionRef.current) {
+        console.log("Cleaning up subscription for room:", id);
+        subscriptionRef.current.unsubscribe();
+        subscriptionRef.current = null;
+      }
     };
-  }, [id, userId]);
+  }, [id, userId, supabase]); // Add supabase to dependency array
 
   const sendMessage = async () => {
     if (!newMessage.trim()) return;
+    if (!supabase) {
+      console.error("Supabase client not available for sending message");
+      return;
+    }
 
     try {
-      const { data, error } = await supabase.from("room_messages").insert({
-        room_id: id,
-        sender_id: userId,
-        encrypted_content: newMessage.trim(),
-      }).select('*, profiles!fk_room_messages_sender_id (username)').single();
+      const { data, error } = await supabase
+        .from("room_messages")
+        .insert({
+          room_id: id,
+          sender_id: userId,
+          encrypted_content: newMessage.trim(),
+        })
+        .select("*, profiles!fk_room_messages_sender_id (username, anonymous_room_name)")
+        .single();
 
       if (error) throw error;
 
       // Update local state immediately with proper typing
       setMessages((prev: RoomMessage[]) => [
+        ...prev,
         {
           ...data,
-          username: data.profiles?.username || "Deleted User",
+          username: data.profiles?.anonymous_room_name || data.profiles?.username || "Anonymous User",
         },
-        ...prev,
       ]);
 
       setNewMessage("");
+      // Scroll to the bottom after sending a message
+      setTimeout(() => {
+        if (flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: true });
+        }
+      }, 100);
     } catch (error) {
       console.error("Error sending message:", error);
     }
   };
 
-  const handleDeleteMessage = async (messageId) => {
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!supabase) {
+      console.error("Supabase client not available for deleting message");
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from("room_messages")
@@ -209,6 +390,11 @@ export default function RoomChat() {
   };
 
   const handleLeaveRoom = async () => {
+    if (!supabase) {
+      console.error("Supabase client not available for leaving room");
+      return;
+    }
+
     setIsLeaving(true);
     try {
       const { error } = await supabase
@@ -227,7 +413,7 @@ export default function RoomChat() {
     }
   };
 
-  const renderMessage = ({ item }) => {
+  const renderMessage = ({ item }: { item: RoomMessage }) => {
     const bubbleStyle = {
       ...styles.messageBubble,
       backgroundColor:
@@ -290,6 +476,40 @@ export default function RoomChat() {
     );
   };
 
+  // Handle keyboard behavior and ensure input is visible
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      "keyboardDidShow",
+      () => {
+        // Ensure the input is focused when keyboard appears
+        if (textInputRef.current) {
+          textInputRef.current.focus();
+        }
+
+        // Scroll to the bottom to ensure the input is visible
+        if (flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: true });
+        }
+      }
+    );
+
+    // Handle keyboard hiding
+    const keyboardDidHideListener = Keyboard.addListener(
+      "keyboardDidHide",
+      () => {
+        // Optional: blur the input when keyboard hides
+        if (textInputRef.current) {
+          textInputRef.current.blur();
+        }
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+
   return (
     <LinearGradient
       colors={["#000000", "#1a1a1a", "#2a2a2a"]}
@@ -299,7 +519,9 @@ export default function RoomChat() {
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 20}
         style={styles.keyboardAvoidingView}
+        enabled
       >
         <View style={styles.content}>
           <View style={styles.header}>
@@ -329,35 +551,52 @@ export default function RoomChat() {
             data={messages}
             renderItem={renderMessage}
             keyExtractor={(item) => item.id}
-            inverted
-            contentContainerStyle={styles.messageList}
-            style={styles.flatList}
-          />
-        </View>
-
-        <View style={styles.inputContainer}>
-          {isJoined ? (
-            <View style={styles.inputWrapper}>
-              <TextInput
-                ref={textInputRef}
-                style={styles.textInput}
-                placeholder="Type a message..."
-                placeholderTextColor="rgba(255, 229, 92, 0.7)"
-                value={newMessage}
-                onChangeText={setNewMessage}
-                multiline
+            contentContainerStyle={[styles.messageList, { justifyContent: 'flex-end' }]}
+            style={[styles.flatList, { flexGrow: 1 }]}
+            keyboardShouldPersistTaps="handled"
+            inverted={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={async () => {
+                  setRefreshing(true);
+                  await loadInitialData();
+                  setRefreshing(false);
+                }}
+                tintColor="#FFE55C"
+                colors={["#FFE55C"]}
+                progressBackgroundColor="rgba(0,0,0,0.5)"
               />
-              <TouchableOpacity onPress={sendMessage} style={styles.sendButton}>
-                <Feather name="send" size={20} color="#FFE55C" />
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.notJoinedMessage}>
-              <Text style={styles.notJoinedText}>
-                Join room to participate in chat
-              </Text>
-            </View>
-          )}
+            }
+          />
+
+          <View style={styles.inputContainer}>
+            {isJoined ? (
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  ref={textInputRef}
+                  style={styles.textInput}
+                  placeholder="Type a message..."
+                  placeholderTextColor="rgba(255, 229, 92, 0.7)"
+                  value={newMessage}
+                  onChangeText={setNewMessage}
+                  multiline
+                />
+                <TouchableOpacity
+                  onPress={sendMessage}
+                  style={styles.sendButton}
+                >
+                  <Feather name="send" size={20} color="#FFE55C" />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.notJoinedMessage}>
+                <Text style={styles.notJoinedText}>
+                  Join room to participate in chat
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
       </KeyboardAvoidingView>
     </LinearGradient>
@@ -370,9 +609,11 @@ const styles = StyleSheet.create({
   },
   keyboardAvoidingView: {
     flex: 1,
+    width: '100%',
   },
   content: {
     flex: 1,
+    flexDirection: "column",
   },
   header: {
     flexDirection: "row",
@@ -392,7 +633,7 @@ const styles = StyleSheet.create({
   },
   leaveButton: {
     borderWidth: 1,
-    borderColor: "rgba(255, 229 at 92, 0.3)",
+    borderColor: "rgba(255, 229, 92, 0.3)",
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 25,
@@ -407,12 +648,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   messageList: {
-    paddingVertical: 16,
+    paddingTop: 20,
+    paddingBottom: 10,
+    paddingHorizontal: 4,
+    flexGrow: 1,
+    justifyContent: 'flex-end',
   },
   messageContainer: {
-    marginBottom: 12,
-    marginHorizontal: 16,
-    maxWidth: "85%",
+    marginBottom: 8, // Reduced bottom margin
+    marginHorizontal: 4, // Reduced horizontal margin
+    maxWidth: "100%", // Increased max width to use more screen space
     borderRadius: 16,
   },
   messageLeft: {
@@ -467,10 +712,17 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   inputContainer: {
-    padding: 16,
+    padding: 8, // Reduced padding
+    paddingHorizontal: 4, // Reduced horizontal padding
     borderTopWidth: 1,
     borderTopColor: "rgba(255, 229, 92, 0.2)",
     backgroundColor: "rgba(40, 50, 50, 0.5)",
+    position: 'relative',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    minHeight: 60, // Reduced minimum height
   },
   inputWrapper: {
     flexDirection: "row",

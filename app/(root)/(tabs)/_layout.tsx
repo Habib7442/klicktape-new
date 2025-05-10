@@ -2,42 +2,58 @@ import { Tabs } from "expo-router";
 import { View, Text, StyleSheet } from "react-native";
 import React from "react";
 import { Feather } from "@expo/vector-icons";
+import { useTheme } from "@/src/context/ThemeContext";
 
 const TabIcon = ({
   iconName,
   focused,
   title,
 }: {
-  iconName: string;
+  iconName: any; // Using any to fix the TypeScript error
   focused: boolean;
   title: string;
-}) => (
-  <View style={styles.tabIconContainer}>
-    <View style={[styles.iconWrapper, focused && styles.iconWrapperActive]}>
-      <Feather 
-        name={iconName} 
-        size={24} 
-        color={focused ? "#FFD700" : "#A0A0A0"} 
-      />
+}) => {
+  const { colors } = useTheme();
+
+  return (
+    <View style={styles.tabIconContainer}>
+      <View style={[
+        styles.iconWrapper,
+        focused && { backgroundColor: `${colors.primary}20` }
+      ]}>
+        <Feather
+          name={iconName}
+          size={24}
+          color={focused ? colors.primary : colors.textTertiary}
+        />
+      </View>
+      <Text
+        style={[
+          styles.title,
+          { color: focused ? colors.primary : colors.textTertiary },
+        ]}
+      >
+        {title}
+      </Text>
     </View>
-    <Text
-      style={[
-        styles.title,
-        focused ? styles.titleActive : styles.titleInactive,
-      ]}
-    >
-      {title}
-    </Text>
-  </View>
-);
+  );
+};
 
 export default function Layout() {
+  const { colors } = useTheme();
+
   return (
     <Tabs
       initialRouteName="home"
       screenOptions={{
         tabBarShowLabel: false,
-        tabBarStyle: styles.tabBar,
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            backgroundColor: colors.backgroundSecondary,
+            borderColor: `${colors.primary}20`
+          }
+        ],
       }}
     >
       <Tabs.Screen
@@ -120,7 +136,6 @@ export default function Layout() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    backgroundColor: "#2A2A2A",
     borderRadius: 30,
     marginHorizontal: 12,
     marginBottom: 14,
@@ -135,7 +150,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.1)",
     zIndex: 0,
   },
   tabIconContainer: {
@@ -154,9 +168,6 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     marginBottom: 4,
   },
-  iconWrapperActive: {
-    backgroundColor: "rgba(255, 215, 0, 0.2)",
-  },
   icon: {
     width: 30,
     height: 30,
@@ -171,13 +182,5 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     width: "100%",
     overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  titleActive: {
-    color: "#FFD700",  // Already golden
-  },
-  titleInactive: {
-    color: "#A0A0A0",
   },
 });

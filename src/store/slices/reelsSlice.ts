@@ -70,6 +70,7 @@ export const toggleLike = createAsyncThunk<
   { rejectValue: string }
 >("reels/toggleLike", async ({ reelId, isLiked }, { rejectWithValue }) => {
   try {
+    // Pass the current state to the API, which will toggle it
     const result = await reelsAPI.toggleReelLike(reelId, isLiked);
     return {
       reelId,
@@ -172,6 +173,25 @@ const reelsSlice = createSlice({
       const { entityId, comments } = action.payload;
       state.comments[entityId] = comments;
     },
+    // Add a new reducer for optimistic updates
+    optimisticToggleLike: (state, action) => {
+      const { reelId, is_liked, likes_count } = action.payload;
+      const reel = state.reels.find((r) => r.id === reelId);
+      if (reel) {
+        // Update the reel with the optimistic values
+        reel.is_liked = is_liked;
+        reel.likes_count = likes_count;
+
+        // Update the liked reels array
+        if (is_liked) {
+          if (!state.likedReelIds.includes(reelId)) {
+            state.likedReelIds.push(reelId);
+          }
+        } else {
+          state.likedReelIds = state.likedReelIds.filter((id) => id !== reelId);
+        }
+      }
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -205,27 +225,21 @@ const reelsSlice = createSlice({
         state.error = null;
       })
       .addCase(toggleLike.fulfilled, (state, action) => {
-        const { reelId, is_liked, likes_count } = action.payload;
-        const reel = state.reels.find((r) => r.id === reelId);
-        if (reel) {
-          // If API returns undefined values, use the opposite of current state
-          const newIsLiked = is_liked !== undefined ? is_liked : !reel.is_liked;
-          const newLikesCount = likes_count !== undefined 
-            ? likes_count 
-            : (newIsLiked ? reel.likes_count + 1 : reel.likes_count - 1);
-          
-          // Update the reel with calculated values
-          reel.is_liked = newIsLiked;
-          reel.likes_count = newLikesCount;
-          
-          // Update the liked reels array
-          if (newIsLiked) {
-            if (!state.likedReelIds.includes(reelId)) {
-              state.likedReelIds.push(reelId);
-            }
-          } else {
-            state.likedReelIds = state.likedReelIds.filter((id) => id !== reelId);
+        // We don't need to update the UI state here since we're using optimistic updates
+        // The API response is just a confirmation that the operation succeeded
+        // If we update the state here, it might cause flickering if the API response
+        // comes back quickly after the optimistic update
+
+        // However, we should still update the likedReelIds array for consistency
+        const { reelId, is_liked } = action.payload;
+
+        // Update the liked reels array
+        if (is_liked) {
+          if (!state.likedReelIds.includes(reelId)) {
+            state.likedReelIds.push(reelId);
           }
+        } else {
+          state.likedReelIds = state.likedReelIds.filter((id) => id !== reelId);
         }
       })
       .addCase(toggleLike.rejected, (state, action) => {
@@ -322,7 +336,7 @@ const reelsSlice = createSlice({
   },
 });
 
-export const { resetReels, setComments } = reelsSlice.actions;
+export const { resetReels, setComments, optimisticToggleLike } = reelsSlice.actions;
 
 export const selectReels = (state: { reels: ReelsState }) => state.reels.reels;
 export const selectLoading = (state: { reels: ReelsState }) => state.reels.loading;

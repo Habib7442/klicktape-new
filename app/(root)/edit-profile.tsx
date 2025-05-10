@@ -10,15 +10,17 @@ import {
   Image,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { Picker } from "@react-native-picker/picker";
 import { supabase } from "@/lib/supabase";
 import * as FileSystem from "expo-file-system";
 import * as Network from "expo-network";
+import ThemedGradient from "@/components/ThemedGradient";
+import { useTheme } from "@/src/context/ThemeContext";
 
 const EditProfile = () => {
+  const { colors, isDarkMode } = useTheme();
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [avatar, setAvatar] = useState("");
@@ -105,10 +107,10 @@ const EditProfile = () => {
 
       if (!result.canceled && result.assets[0].uri) {
         setUploadingImage(true);
-        
+
         // Store the local URI for preview
         setNewAvatar(result.assets[0].uri);
-        
+
         Alert.alert(
           "Image Selected",
           "Your new profile picture is ready. Don't forget to click 'Save Changes' to update your profile.",
@@ -125,12 +127,12 @@ const EditProfile = () => {
     }
   };
 
-  const uploadAvatar = async () => {
-    if (!newAvatar || !userId) return null;
-    
+  const uploadAvatar = async (): Promise<string> => {
+    if (!newAvatar || !userId) return "";
+
     try {
       setUploadingImage(true);
-      
+
       // Check network connectivity
       const networkState = await Network.getNetworkStateAsync();
       if (!networkState.isConnected || !networkState.isInternetReachable) {
@@ -159,7 +161,7 @@ const EditProfile = () => {
       const fileName = `updated_avatars/avatar_${userId}_${Date.now()}.jpg`;
 
       // Upload the ArrayBuffer to Supabase Storage
-      const { data, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from("avatars")
         .upload(fileName, arrayBuffer, {
           contentType: "image/jpeg",
@@ -195,7 +197,7 @@ const EditProfile = () => {
       setUpdating(true);
 
       let avatarUrl = avatar;
-      
+
       // If there's a new avatar selected, upload it first
       if (newAvatar) {
         avatarUrl = await uploadAvatar();
@@ -231,111 +233,139 @@ const EditProfile = () => {
   };
 
   return (
-    <LinearGradient
-      colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.container}
-    >
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Edit Profile</Text>
+    <ThemedGradient style={styles.container}>
+      <View style={[styles.header, { borderBottomColor: `${colors.primary}20` }]}>
+        <Text style={[styles.headerTitle, { color: colors.primary }]}>Edit Profile</Text>
         <TouchableOpacity onPress={() => router.back()}>
-          <Feather name="x" size={24} color="#FFD700" />
+          <Feather name="x" size={24} color={colors.primary} />
         </TouchableOpacity>
       </View>
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FFD700" />
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
-        <View style={styles.card}>
-          <TouchableOpacity 
-            style={styles.avatarContainer} 
+        <View style={[styles.card, {
+          backgroundColor: `${colors.backgroundSecondary}90`,
+          borderColor: `${colors.primary}20`
+        }]}>
+          <TouchableOpacity
+            style={styles.avatarContainer}
             onPress={pickImage}
             disabled={uploadingImage}
           >
             <Image
               source={{ uri: newAvatar || avatar || "https://via.placeholder.com/150" }}
-              style={styles.avatar}
+              style={[styles.avatar, { borderColor: colors.primary }]}
             />
-            <View style={styles.avatarOverlay}>
+            <View style={[styles.avatarOverlay, {
+              backgroundColor: `${colors.backgroundTertiary}E6`,
+              borderColor: `${colors.primary}30`
+            }]}>
               {uploadingImage ? (
-                <ActivityIndicator size="small" color="#FFD700" />
+                <ActivityIndicator size="small" color={colors.primary} />
               ) : (
-                <Feather name="camera" size={24} color="#FFD700" />
+                <Feather name="camera" size={24} color={colors.primary} />
               )}
             </View>
           </TouchableOpacity>
 
           {newAvatar && (
-            <Text style={styles.previewText}>
+            <Text style={[styles.previewText, { color: colors.primary }]}>
               New profile picture selected (click Save Changes to update)
             </Text>
           )}
 
-          <Text style={styles.label}>Username</Text>
+          <Text style={[styles.label, { color: colors.text }]}>Username</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, {
+              backgroundColor: `${colors.primary}10`,
+              borderColor: `${colors.primary}30`,
+              color: colors.primary
+            }]}
             value={username}
             onChangeText={setUsername}
             placeholder="Enter username"
-            placeholderTextColor="rgba(255, 215, 0, 0.5)"
+            placeholderTextColor={`${colors.primary}50`}
           />
 
-          <Text style={styles.label}>Bio</Text>
+          <Text style={[styles.label, { color: colors.text }]}>Bio</Text>
           <TextInput
-            style={[styles.input, styles.bioInput]}
+            style={[
+              styles.input,
+              styles.bioInput,
+              {
+                backgroundColor: `${colors.primary}10`,
+                borderColor: `${colors.primary}30`,
+                color: colors.primary
+              }
+            ]}
             value={bio}
             onChangeText={setBio}
             placeholder="Tell us about yourself"
-            placeholderTextColor="rgba(255, 215, 0, 0.5)"
+            placeholderTextColor={`${colors.primary}50`}
             multiline
           />
 
-          <Text style={styles.label}>Gender</Text>
-          <View style={styles.pickerContainer}>
+          <Text style={[styles.label, { color: colors.text }]}>Gender</Text>
+          <View style={[styles.pickerContainer, {
+            backgroundColor: "#000000",
+            borderColor: `${colors.primary}30`
+          }]}>
             <Picker
               selectedValue={gender}
               onValueChange={setGender}
-              style={styles.picker}
-              dropdownIconColor="#FFD700"
+              style={[styles.picker, { color: "#FFFFFF" }]}
+              dropdownIconColor={colors.primary}
             >
-              <Picker.Item label="Select Gender" value="" color="#ffffff" style={styles.pickerItem} />
-              <Picker.Item label="Male" value="male" color="#ffffff" style={styles.pickerItem} />
-              <Picker.Item label="Female" value="female" color="#ffffff" style={styles.pickerItem} />
-              <Picker.Item label="Other" value="other" color="#ffffff" style={styles.pickerItem} />
+              <Picker.Item label="Select Gender" value="" color="black" />
+              <Picker.Item label="Male" value="male" color="black" />
+              <Picker.Item label="Female" value="female" color="black" />
+              <Picker.Item label="Other" value="other" color="black" />
             </Picker>
           </View>
 
-          <Text style={styles.label}>Account Type</Text>
-          <View style={styles.pickerContainer}>
+          <Text style={[styles.label, { color: colors.text }]}>Account Type</Text>
+          <View style={[styles.pickerContainer, {
+            backgroundColor: "#000000",
+            borderColor: `${colors.primary}30`
+          }]}>
             <Picker
               selectedValue={accountType}
               onValueChange={setAccountType}
-              style={styles.picker}
-              dropdownIconColor="#FFD700"
+              style={[styles.picker, { color: "#FFFFFF" }]}
+              dropdownIconColor={colors.primary}
             >
-              <Picker.Item label="Personal" value="personal" color="#ffffff" style={styles.pickerItem} />
-              <Picker.Item label="Business" value="business" color="#ffffff" style={styles.pickerItem} />
-              <Picker.Item label="Creator" value="creator" color="#ffffff" style={styles.pickerItem} />
+              <Picker.Item label="Personal" value="personal" color="black" />
+              <Picker.Item label="Business" value="business" color="black" />
+              <Picker.Item label="Creator" value="creator" color="black" />
             </Picker>
           </View>
 
           <TouchableOpacity
-            style={[styles.saveButton, (updating || uploadingImage) && styles.saveButtonDisabled]}
+            style={[
+              styles.saveButton,
+              {
+                backgroundColor: colors.primary,
+                shadowOpacity: 0
+              },
+              (updating || uploadingImage) && styles.saveButtonDisabled
+            ]}
             onPress={handleSave}
             disabled={updating || uploadingImage}
           >
             {updating || uploadingImage ? (
-              <ActivityIndicator color="#000000" />
+              <ActivityIndicator color={isDarkMode ? "#000000" : "#FFFFFF"} />
             ) : (
-              <Text style={styles.saveButtonText}>Save Changes</Text>
+              <Text style={[styles.saveButtonText, { color: isDarkMode ? "#000000" : "#FFFFFF" }]}>
+                Save Changes
+              </Text>
             )}
           </TouchableOpacity>
         </View>
       )}
-    </LinearGradient>
+    </ThemedGradient>
   );
 };
 
@@ -357,44 +387,35 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 215, 0, 0.2)",
   },
   headerTitle: {
     fontSize: 20,
-    color: "#FFD700",
     fontFamily: "Rubik-Bold",
   },
   card: {
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
     borderRadius: 12,
     padding: 20,
     marginTop: 20,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.2)",
   },
   label: {
     fontSize: 16,
     fontFamily: "Rubik-Medium",
-    color: "#ffffff",
     marginBottom: 8,
   },
   input: {
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
     borderRadius: 8,
     padding: 12,
     marginBottom: 16,
     fontSize: 16,
     fontFamily: "Rubik-Regular",
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
-    color: "#FFD700",
   },
   bioInput: {
     height: 100,
     textAlignVertical: "top",
   },
   saveButton: {
-    backgroundColor: "#FFD700",
     padding: 16,
     borderRadius: 8,
     alignItems: "center",
@@ -405,7 +426,6 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   saveButtonText: {
-    color: "#000000",
     fontSize: 16,
     fontFamily: "Rubik-Medium",
   },
@@ -418,38 +438,29 @@ const styles = StyleSheet.create({
     height: 100,
     borderRadius: 50,
     borderWidth: 3,
-    borderColor: "#FFD700",
   },
   avatarOverlay: {
     position: "absolute",
     bottom: 0,
     right: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
     padding: 8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   pickerContainer: {
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
     borderRadius: 8,
     marginBottom: 16,
-    backgroundColor: "#000000",
     overflow: "hidden",
   },
   picker: {
-    color: "#FFD700",
     height: 50,
   },
   pickerItem: {
-    backgroundColor: "#000000",
-    color: "#ffffff",
     fontSize: 16,
     fontFamily: "Rubik-Regular",
   },
   previewText: {
-    color: "#FFD700",
     textAlign: "center",
     marginBottom: 16,
     fontFamily: "Rubik-Medium",

@@ -9,22 +9,25 @@ import {
   StyleSheet,
 } from "react-native";
 import { Link, router } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "@/lib/supabase";
 import { Feather } from "@expo/vector-icons";
+import ThemedGradient from "@/components/ThemedGradient";
+import { useTheme } from "@/src/context/ThemeContext";
 
 const SignUp = () => {
   const [email, setEmail] = useState("");
-  const [name, setName] = useState("");  // Add this line
+  const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const { colors } = useTheme();
 
   const onSubmit = async () => {
+    // Validate input fields
     if (
       !email ||
       !password ||
-      !name ||  // Add name validation
+      !name ||
       password.length < 6 ||
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     ) {
@@ -34,18 +37,91 @@ const SignUp = () => {
       );
       return;
     }
+
     setIsLoading(true);
+
     try {
+      if (!supabase) {
+        throw new Error("Supabase client is not initialized");
+      }
+
+      // First, check if the email already exists in the profiles table
+      console.log("Checking if email exists in profiles table:", email);
+      const { data: existingProfiles, error: profileError } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", email)
+        .maybeSingle();
+
+      if (profileError) {
+        console.error("Error checking profiles table:", profileError);
+        // Continue with signup even if there's an error checking profiles
+      } else if (existingProfiles) {
+        console.log("Email already exists in profiles table:", email);
+        Alert.alert(
+          "Email Already Registered",
+          "This email address is already registered. Please use a different email or sign in."
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      // If we get here, the email doesn't exist in profiles table
+      // Attempt to sign up
+      console.log("Email check passed, attempting to sign up with email:", email);
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { 
+        options: {
           emailRedirectTo: "klicktape://verify-email",
-          
+          data: {
+            full_name: name,
+            name: name,
+          },
         },
       });
-      if (error) throw error;
+
+      if (error) {
+        console.log("Signup error:", error.message);
+
+        // Check if the error indicates the email is already registered
+        if (
+          error.message.includes("already registered") ||
+          error.message.includes("already in use") ||
+          error.message.includes("already exists") ||
+          error.message.includes("User already exists") ||
+          error.message.includes("email address is already taken")
+        ) {
+          console.log("Email already exists (from signup error):", email);
+          Alert.alert(
+            "Email Already Registered",
+            "This email address is already registered. Please use a different email or sign in."
+          );
+        } else {
+          // Handle other errors
+          Alert.alert("Error", error.message || "Failed to create account. Please try again.");
+        }
+        setIsLoading(false);
+        return;
+      }
+
       if (data.user) {
+        // Create a profile record with the user's name
+        try {
+          await supabase.from("profiles").insert({
+            id: data.user.id,
+            username: email.split("@")[0], // Default username from email
+            full_name: name,
+            email: email, // Store the email in the profiles table
+            avatar_url: null,
+            is_active: false,
+            created_at: new Date().toISOString(),
+          });
+        } catch (profileError) {
+          console.error("Error creating profile:", profileError);
+          // Continue even if profile creation fails
+        }
+
         Alert.alert(
           "Success",
           "Account created! Check your email for verification.",
@@ -55,40 +131,43 @@ const SignUp = () => {
         throw new Error("No user data returned after signup");
       }
     } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error.message || "Failed to create account. Please try again."
-      );
+      console.error("Signup error:", error);
+      Alert.alert("Error", error.message || "An unexpected error occurred. Please try again.");
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <LinearGradient
-      colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-      style={styles.container}
-    >
-      <View style={styles.overlay}>
-        <View style={styles.card}>
-          <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>Please sign up to continue</Text>
+    <ThemedGradient style={styles.container}>
+      <View style={[styles.overlay, { backgroundColor: `${colors.background}80` }]}>
+        <View style={[styles.card, { backgroundColor: `${colors.backgroundSecondary}90` }]}>
+          <Text style={[styles.title, { color: colors.primary }]}>Create Account</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Please sign up to continue</Text>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Full Name</Text>
+            <Text style={[styles.label, { color: colors.text }]}>Full Name</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, {
+                color: colors.text,
+                borderColor: `${colors.primary}30`,
+                backgroundColor: `${colors.backgroundTertiary}80`
+              }]}
               placeholder="Enter your full name"
-              placeholderTextColor="rgba(255, 255, 255, 0.5)"
+              placeholderTextColor={`${colors.textTertiary}80`}
               value={name}
               onChangeText={setName}
             />
           </View>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email</Text>
+            <Text style={[styles.label, { color: colors.text }]}>Email</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, {
+                color: colors.text,
+                borderColor: `${colors.primary}30`,
+                backgroundColor: `${colors.backgroundTertiary}80`
+              }]}
               placeholder="Enter your email"
-              placeholderTextColor="rgba(255, 255, 255, 0.5)"
+              placeholderTextColor={`${colors.textTertiary}80`}
               keyboardType="email-address"
               autoCapitalize="none"
               value={email}
@@ -96,12 +175,15 @@ const SignUp = () => {
             />
           </View>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Password</Text>
-            <View style={styles.passwordContainer}>
+            <Text style={[styles.label, { color: colors.text }]}>Password</Text>
+            <View style={[styles.passwordContainer, {
+                borderColor: `${colors.primary}30`,
+                backgroundColor: `${colors.backgroundTertiary}80`
+              }]}>
               <TextInput
-                style={styles.passwordInput}
+                style={[styles.passwordInput, { color: colors.text }]}
                 placeholder="Enter your password"
-                placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                placeholderTextColor={`${colors.textTertiary}80`}
                 secureTextEntry={!showPassword}
                 value={password}
                 onChangeText={setPassword}
@@ -113,7 +195,7 @@ const SignUp = () => {
                 <Feather
                   name={showPassword ? "eye" : "eye-off"}
                   size={20}
-                  color="rgba(255, 215, 0, 0.7)"
+                  color={colors.primary}
                 />
               </TouchableOpacity>
             </View>
@@ -130,68 +212,66 @@ const SignUp = () => {
             )}
           </TouchableOpacity>
           <View style={styles.signInContainer}>
-            <Text style={styles.signInText}>Already have an account?</Text>
+            <Text style={[styles.signInText, { color: colors.textSecondary }]}>Already have an account?</Text>
             <Link href="/sign-in" style={styles.signInLink}>
-              <Text style={styles.linkText}>Sign In</Text>
+              <Text style={[styles.linkText, { color: colors.primary }]}>Sign In</Text>
             </Link>
           </View>
         </View>
       </View>
-    </LinearGradient>
+    </ThemedGradient>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: {
+    flex: 1
+  },
   overlay: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   card: {
     width: "90%",
     maxWidth: 400,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
     padding: 20,
     borderRadius: 16,
     alignItems: "center",
   },
   title: {
     fontSize: 32,
-    color: "#FFD700",
     fontWeight: "bold",
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
-    color: "rgba(255, 255, 255, 0.7)",
     marginBottom: 20,
   },
-  inputGroup: { width: "100%", marginBottom: 16 },
-  label: { fontSize: 14, color: "#ffffff", marginBottom: 6 },
+  inputGroup: {
+    width: "100%",
+    marginBottom: 16
+  },
+  label: {
+    fontSize: 14,
+    marginBottom: 6
+  },
   input: {
     width: "100%",
     padding: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
-    color: "#ffffff",
     fontSize: 16,
   },
   passwordContainer: {
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
     borderRadius: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
   },
   passwordInput: {
     flex: 1,
     padding: 12,
-    color: "#ffffff",
     fontSize: 16,
   },
   eyeButton: {
@@ -205,12 +285,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
-  buttonDisabled: { opacity: 0.7 },
-  buttonText: { fontSize: 16, color: "#000000", fontWeight: "bold" },
-  signInContainer: { flexDirection: "row", justifyContent: "center" },
-  signInText: { fontSize: 14, color: "rgba(255, 255, 255, 0.7)" },
-  signInLink: { marginLeft: 4 },
-  linkText: { fontSize: 14, color: "#FFD700" },
+  buttonDisabled: {
+    opacity: 0.7
+  },
+  buttonText: {
+    fontSize: 16,
+    color: "#000000",
+    fontWeight: "bold"
+  },
+  signInContainer: {
+    flexDirection: "row",
+    justifyContent: "center"
+  },
+  signInText: {
+    fontSize: 14
+  },
+  signInLink: {
+    marginLeft: 4
+  },
+  linkText: {
+    fontSize: 14
+  },
 });
 
 export default SignUp;

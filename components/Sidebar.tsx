@@ -8,23 +8,24 @@ import {
   Image,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { useSelector, useDispatch } from "react-redux";
 import { RootState } from "@/src/store/store";
-import { logoutUser } from "@/src/store/actions/authActions";
 import { closeSidebar } from "@/src/store/slices/sidebarSlice";
 import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useTheme } from "@/src/context/ThemeContext";
+import ThemedGradient from "@/components/ThemedGradient";
 
 const Sidebar = () => {
   const dispatch = useDispatch();
+  const { colors } = useTheme();
   const user = useSelector((state: RootState) => state.auth.user);
   const isVisible = useSelector((state: RootState) => state.sidebar.isVisible);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [isActive, setIsActive] = useState(false);
-  const { fetchUserProfile, loading } = useSupabaseFetch();
+  const { fetchUserProfile } = useSupabaseFetch();
   const [userId, setUserId] = useState<string | null>(null);
 
   const slideAnim = useRef(new Animated.Value(-300)).current;
@@ -128,10 +129,15 @@ const Sidebar = () => {
       await supabase.auth.signOut();
 
       // Clear all Redux state
-      dispatch(logoutUser());
-
-      // Close sidebar
-      dispatch(closeSidebar());
+      // Use direct actions instead of the thunk
+      import("@/src/store/slices/postsSlice").then(({ clearPosts }) => {
+        dispatch(clearPosts());
+        import("@/src/store/slices/authSlice").then(({ logout }) => {
+          dispatch(logout());
+          // Close sidebar
+          dispatch(closeSidebar());
+        });
+      });
 
       // Navigate to sign-up screen
       router.replace("/sign-up");
@@ -159,29 +165,39 @@ const Sidebar = () => {
         onPress={handleClose}
       >
         <Animated.View
-          style={[styles.overlayBackground, { opacity: fadeAnim }]}
+          style={[
+            styles.overlayBackground,
+            {
+              opacity: fadeAnim,
+              backgroundColor: `${colors.background}E6`
+            }
+          ]}
         />
       </TouchableOpacity>
 
       <Animated.View
         style={[
           styles.sidebarContainer,
-          { transform: [{ translateX: slideAnim }] },
+          {
+            transform: [{ translateX: slideAnim }],
+            backgroundColor: colors.background
+          },
         ]}
       >
-        <LinearGradient
-          colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.sidebar}
-        >
-          <View style={styles.header}>
-            <Text style={styles.headerText}>Klicktape</Text>
+        <ThemedGradient style={styles.sidebar}>
+          <View style={[styles.header, { borderBottomColor: `${colors.primary}30` }]}>
+            <Text style={[styles.headerText, { color: colors.primary }]}>Klicktape</Text>
           </View>
 
           {userProfile && (
             <TouchableOpacity
-              style={styles.userInfo}
+              style={[
+                styles.userInfo,
+                {
+                  backgroundColor: `${colors.primary}05`,
+                  borderColor: `${colors.primary}10`
+                }
+              ]}
               onPress={() => {
                 router.push("/profile");
                 handleClose();
@@ -192,64 +208,79 @@ const Sidebar = () => {
                   uri:
                     userProfile.avatar_url || "https://via.placeholder.com/150",
                 }}
-                style={styles.avatar}
+                style={[
+                  styles.avatar,
+                  { borderColor: `${colors.primary}30` }
+                ]}
               />
-              <Text style={styles.username}>{userProfile.username}</Text>
+              <Text style={[styles.username, { color: colors.text }]}>{userProfile.username}</Text>
               <View style={styles.userStatus}>
                 <View
                   style={[
                     styles.statusDot,
-                    { backgroundColor: isActive ? "#4CAF50" : "#9E9E9E" },
+                    { backgroundColor: isActive ? colors.success : colors.textTertiary },
                   ]}
                 />
-                <Text style={styles.statusText}>
+                <Text style={[styles.statusText, { color: colors.primary }]}>
                   {isActive ? "Online" : "Offline"}
                 </Text>
               </View>
 
               <View style={styles.statsContainer}>
                 <View style={styles.stat}>
-                  <Text style={styles.statNumber}>
+                  <Text style={[styles.statNumber, { color: colors.text }]}>
                     {userProfile.postsCount || 0}
                   </Text>
-                  <Text style={styles.statLabel}>Posts</Text>
+                  <Text style={[styles.statLabel, { color: `${colors.primary}70` }]}>Posts</Text>
                 </View>
                 <View style={styles.stat}>
-                  <Text style={styles.statNumber}>
+                  <Text style={[styles.statNumber, { color: colors.text }]}>
                     {userProfile.followersCount || 0}
                   </Text>
-                  <Text style={styles.statLabel}>Followers</Text>
+                  <Text style={[styles.statLabel, { color: `${colors.primary}70` }]}>Followers</Text>
                 </View>
                 <View style={styles.stat}>
-                  <Text style={styles.statNumber}>
+                  <Text style={[styles.statNumber, { color: colors.text }]}>
                     {userProfile.followingCount || 0}
                   </Text>
-                  <Text style={styles.statLabel}>Following</Text>
+                  <Text style={[styles.statLabel, { color: `${colors.primary}70` }]}>Following</Text>
                 </View>
               </View>
             </TouchableOpacity>
           )}
 
           <TouchableOpacity
-            style={styles.menuItem}
+            style={[
+              styles.menuItem,
+              {
+                backgroundColor: `${colors.primary}05`,
+                borderColor: `${colors.primary}10`
+              }
+            ]}
             onPress={() => {
               router.push("/profile");
               handleClose();
             }}
           >
-            <Feather name="user" size={24} color="#FFD700" />
-            <Text style={styles.menuText}>Profile</Text>
+            <Feather name="user" size={24} color={colors.primary} />
+            <Text style={[styles.menuText, { color: colors.text }]}>Profile</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.menuItem}
+            style={[
+              styles.menuItem,
+              {
+                backgroundColor: `${colors.primary}05`,
+                borderColor: `${colors.primary}10`
+              }
+            ]}
             onPress={() => {
               router.push("/settings");
               handleClose();
             }}
           >
-            <Feather name="settings" size={24} color="#FFD700" />
-            <Text style={styles.menuText}>Settings</Text>
+            <Feather name="settings" size={24} color={colors.primary} />
+            <Text style={[styles.menuText, { color: colors.text }]}>Settings</Text>
           </TouchableOpacity>
 
           {/* <TouchableOpacity
@@ -263,11 +294,20 @@ const Sidebar = () => {
             <Text style={styles.menuText}>People Nearby</Text>
           </TouchableOpacity> */}
 
-          <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
-            <Feather name="log-out" size={24} color="#FF6B6B" />
-            <Text style={[styles.menuText, styles.logoutText]}>Logout</Text>
+          <TouchableOpacity
+            style={[
+              styles.menuItem,
+              {
+                backgroundColor: `${colors.error}05`,
+                borderColor: `${colors.error}10`
+              }
+            ]}
+            onPress={handleLogout}
+          >
+            <Feather name="log-out" size={24} color={colors.error} />
+            <Text style={[styles.menuText, { color: colors.error }]}>Logout</Text>
           </TouchableOpacity>
-        </LinearGradient>
+        </ThemedGradient>
       </Animated.View>
     </Animated.View>
   );
@@ -293,45 +333,33 @@ const styles = StyleSheet.create({
   },
   overlayBackground: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 1)",
   },
   sidebarContainer: {
     width: "80%",
     height: "100%",
-    backgroundColor: "#000000",
   },
   sidebar: {
     flex: 1,
     padding: 20,
-    backgroundColor: "#000000",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 5,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 20,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 215, 0, 0.3)",
     paddingBottom: 16,
   },
   headerText: {
     fontSize: 24,
     fontFamily: "Rubik-Bold",
-    color: "#FFD700",
     marginLeft: 8,
   },
   userInfo: {
     padding: 20,
     marginBottom: 20,
     borderRadius: 12,
-    backgroundColor: "rgba(255, 215, 0, 0.05)",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.1)",
   },
   avatar: {
     width: 80,
@@ -339,10 +367,8 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     marginBottom: 15,
     borderWidth: 2,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   username: {
-    color: "#ffffff",
     fontSize: 18,
     fontFamily: "Rubik-Bold",
     marginBottom: 8,
@@ -359,7 +385,6 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   statusText: {
-    color: "#FFD700",
     fontSize: 14,
     fontFamily: "Rubik-Medium",
   },
@@ -374,12 +399,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   statNumber: {
-    color: "#ffffff",
     fontSize: 16,
     fontFamily: "Rubik-Bold",
   },
   statLabel: {
-    color: "rgba(255, 215, 0, 0.7)",
     fontSize: 12,
     fontFamily: "Rubik-Regular",
     marginTop: 4,
@@ -391,18 +414,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginBottom: 12,
     borderRadius: 8,
-    backgroundColor: "rgba(255, 215, 0, 0.05)",
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.1)",
   },
   menuText: {
     marginLeft: 16,
     fontFamily: "Rubik-Medium",
     fontSize: 16,
-    color: "#ffffff",
   },
   logoutText: {
-    color: "#FF6B6B",
+    // Style is applied inline
   },
 });
 

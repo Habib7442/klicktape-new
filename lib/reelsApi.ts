@@ -76,6 +76,7 @@ export const reelsAPI = {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("User not authenticated");
 
+      // Call the RPC function to toggle the like
       const { data, error } = await supabase
         .rpc("toggle_reel_like", {
           p_reel_id: reelId,
@@ -94,7 +95,12 @@ export const reelsAPI = {
       }
 
       console.log("toggle_reel_like result:", data);
-      return { is_liked: data.is_liked, likes_count: data.likes_count };
+
+      // Return the updated state from the database
+      return {
+        is_liked: data.is_liked,
+        likes_count: data.likes_count
+      };
     } catch (error: any) {
       console.error("toggleReelLike error:", error);
       throw new Error(`Failed to toggle like: ${error.message}`);
@@ -105,7 +111,7 @@ export const reelsAPI = {
     try {
       const table = entityType === "reel" ? "reel_comments" : "comments";
       const cacheKey = `${entityType}_comments_${entityId}`;
-  
+
       const { data, error } = await supabase
         .from(table)
         .select(`
@@ -114,9 +120,9 @@ export const reelsAPI = {
         `)
         .eq(`${entityType}_id`, entityId)
         .order("created_at", { ascending: true });
-  
+
       if (error) throw new Error(`Failed to fetch ${entityType} comments: ${error.message}`);
-  
+
       const commentsWithDefaultAvatar = data.map((comment) => ({
         ...comment,
         user: {
@@ -124,7 +130,7 @@ export const reelsAPI = {
           avatar: comment.user?.avatar_url || "https://via.placeholder.com/40",
         },
       }));
-  
+
       const nestedComments = nestComments(commentsWithDefaultAvatar);
       await AsyncStorage.setItem(cacheKey, JSON.stringify(nestedComments));
       return nestedComments;

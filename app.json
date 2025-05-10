@@ -92,7 +92,10 @@
           "supportsPictureInPicture": true
         }
       ],
-      ["react-native-libsodium", {}],
+      [
+        "react-native-libsodium",
+        {}
+      ],
       [
         "expo-location",
         {
@@ -109,7 +112,7 @@
         "origin": false
       },
       "eas": {
-        "projectId": "79789b66-edbb-406a-99df-7a43c1795247"
+        "projectId": "51bfddbf-97b7-4282-b6ff-492cfc277bf1"
       }
     }
   }

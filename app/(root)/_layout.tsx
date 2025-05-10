@@ -23,6 +23,7 @@ const Layout = () => {
       <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="settings" options={{ headerShown: false }} />
       <Stack.Screen name="welcome-main" options={{ headerShown: false }} />
+      <Stack.Screen name="appearance" options={{ headerShown: false }} />
     </Stack>
   );
 };

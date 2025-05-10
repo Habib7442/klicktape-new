@@ -12,11 +12,12 @@ import {
   Alert,
   Keyboard,
   TouchableWithoutFeedback,
+  SafeAreaView,
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { router } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { messagesAPI } from "@/lib/messagesApi";
 import { useDispatch } from "react-redux";
@@ -49,12 +50,15 @@ export default function ChatScreen() {
   const [recipientTyping, setRecipientTyping] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<"connected" | "disconnected" | "connecting">("connecting");
   const flatListRef = useRef<FlatList>(null);
+  const textInputRef = useRef<TextInput>(null);
   const messageCache = useRef<MessageCache>({});
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subscriptionRef = useRef<any>(null);
   const retryCountRef = useRef<number>(0);
-  const maxRetries = 3;
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxRetries = 5;
   const retryDelay = 5000; // 5 seconds
+  const isUnmountedRef = useRef(false);
   const dispatch = useDispatch();
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
@@ -87,7 +91,7 @@ export default function ChatScreen() {
 
       const { data: recipientData, error: recipientError } = await supabase
         .from("profiles")
-        .select("id")
+        .select("id, username")
         .eq("id", recipient)
         .single();
 
@@ -123,8 +127,11 @@ export default function ChatScreen() {
         );
       }
 
-      setMessages(messages.documents);
-      setCachedMessages(chatId, messages.documents);
+      const sortedMessages = messages.documents.sort((a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+      setMessages(sortedMessages);
+      setCachedMessages(chatId, sortedMessages);
     } catch (error) {
       console.error("Failed to load messages:", error);
       Alert.alert("Error", "Failed to load messages: " + (error as Error).message);
@@ -173,16 +180,24 @@ export default function ChatScreen() {
       };
 
       setMessages((prev) => {
-        if (prev.some((m) => m.id === newMessageObj.id)) return prev;
-        return [newMessageObj, ...prev];
+         if (prev.some((m) => m.id === newMessageObj.id)) return prev;
+        const updatedMessages = [...prev, newMessageObj].sort((a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+        return updatedMessages;
       });
 
       const chatId = [userId, recipientId].sort().join("-");
       const cachedMessages = getCachedMessages(chatId) || [];
-      setCachedMessages(chatId, [newMessageObj, ...cachedMessages]);
+      const updatedCache = [...cachedMessages, newMessageObj].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+      setCachedMessages(chatId, updatedCache);
 
       setNewMessage("");
-      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
     } catch (error: any) {
       Alert.alert("Error", error.message || "Failed to send message");
       console.error("Send message error:", error);
@@ -192,12 +207,10 @@ export default function ChatScreen() {
   const handleTyping = useCallback(async () => {
     if (!userId || !recipientId) return;
 
-    // Clear existing timeout
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
 
-    // Set typing status to true if not already typing
     if (!isTyping) {
       setIsTyping(true);
       try {
@@ -211,7 +224,6 @@ export default function ChatScreen() {
       }
     }
 
-    // Set timeout to clear typing status
     typingTimeoutRef.current = setTimeout(async () => {
       setIsTyping(false);
       try {
@@ -226,7 +238,6 @@ export default function ChatScreen() {
     }, 3000);
   }, [userId, recipientId, isTyping]);
 
-  // Setup chat and load initial messages
   useEffect(() => {
     const setupChat = async () => {
       try {
@@ -258,27 +269,42 @@ export default function ChatScreen() {
       }
     };
 
+    isUnmountedRef.current = false;
     setupChat();
 
     return () => {
+      isUnmountedRef.current = true;
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
       }
     };
   }, [recipientId, loadMessages]);
 
-  // Setup real-time subscriptions
   useEffect(() => {
     if (!userId || !recipientId || !supabase) return;
 
     const chatId = [userId, recipientId].sort().join("-");
-    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const setupSubscriptions = async () => {
-      // Clean up any existing subscriptions
       if (subscriptionRef.current) {
-        await supabase.removeChannel(subscriptionRef.current);
+        try {
+          await supabase.removeChannel(subscriptionRef.current);
+        } catch (e) {
+          console.warn("Failed to remove channel:", e);
+        }
         subscriptionRef.current = null;
+      }
+
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+
+      if (isUnmountedRef.current) {
+        return;
       }
 
       if (retryCountRef.current >= maxRetries) {
@@ -293,324 +319,477 @@ export default function ChatScreen() {
 
       setConnectionStatus("connecting");
 
-      // Create a single channel for both message and typing events
-      subscriptionRef.current = supabase
-        .channel(`chat:${chatId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'messages',
-            filter: `or(and(sender_id.eq.${userId},receiver_id.eq.${recipientId}),and(sender_id.eq.${recipientId},receiver_id.eq.${userId})`,
-          },
-          (payload) => {
-            console.log("Message event:", payload.eventType, payload);
+      try {
+        subscriptionRef.current = supabase
+          .channel(`chat:${chatId}`)
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'messages',
+              filter: `or(sender_id.eq.${userId},receiver_id.eq.${recipientId},sender_id.eq.${recipientId},receiver_id.eq.${userId})`,
+            },
+            (payload) => {
+              if (isUnmountedRef.current) return;
+              console.log("Message event:", payload.eventType, payload);
 
-            switch (payload.eventType) {
-              case 'INSERT':
-                const newMessage = payload.new as Message;
-                setMessages((prev) => {
-                  if (prev.some((m) => m.id === newMessage.id)) return prev;
-                  return [newMessage, ...prev];
-                });
+              switch (payload.eventType) {
+                case 'INSERT':
+                  const newMessage = payload.new as Message;
+                  setMessages((prev) => {
+                    if (prev.some((m) => m.id === newMessage.id)) return prev;
+                    const updatedMessages = [...prev, newMessage].sort((a, b) =>
+                      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                    );
+                    return updatedMessages;
+                  });
+                  setTimeout(() => {
+                    flatListRef.current?.scrollToEnd({ animated: true });
+                  }, 100);
+                  if (newMessage.sender_id !== userId && !newMessage.is_read) {
+                    messagesAPI.markAsRead(newMessage.id).catch(console.error);
+                    dispatch(setUnreadMessageCount(0));
+                  }
+                  break;
 
-                if (newMessage.sender_id !== userId && !newMessage.is_read) {
-                  messagesAPI.markAsRead(newMessage.id).catch(console.error);
-                  dispatch(setUnreadMessageCount(0));
-                }
-                break;
+                case 'UPDATE':
+                  const updatedMessage = payload.new as Message;
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === updatedMessage.id
+                        ? { ...m, is_read: updatedMessage.is_read, status: updatedMessage.is_read ? "read" : m.status }
+                        : m
+                    )
+                  );
+                  break;
 
-              case 'UPDATE':
-                const updatedMessage = payload.new as Message;
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === updatedMessage.id
-                      ? { ...m, is_read: updatedMessage.is_read, status: updatedMessage.is_read ? "read" : m.status }
-                      : m
-                  )
-                );
-                break;
-
-              case 'DELETE':
-                const deletedMessage = payload.old as Message;
-                setMessages((prev) => prev.filter((m) => m.id !== deletedMessage.id));
-                break;
+                case 'DELETE':
+                  const deletedMessage = payload.old as Message;
+                  setMessages((prev) => prev.filter((m) => m.id !== deletedMessage.id));
+                  break;
+              }
             }
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'typing_status',
-            filter: `chat_id=eq.${chatId}`,
-          },
-          (payload) => {
-            const typingStatus = payload.new as { user_id: string; is_typing: boolean };
-            if (typingStatus.user_id === recipientId) {
-              setRecipientTyping(typingStatus.is_typing);
+          )
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'typing_status',
+              filter: `chat_id=eq.${chatId}`,
+            },
+            (payload) => {
+              if (isUnmountedRef.current) return;
+              const typingStatus = payload.new as { user_id: string; is_typing: boolean };
+              if (typingStatus.user_id === recipientId) {
+                setRecipientTyping(typingStatus.is_typing);
+              }
             }
-          }
-        )
-        .subscribe((status, error) => {
-          console.log("Subscription status:", status, error ? error.message : "");
+          )
+          .subscribe((status, error) => {
+            if (isUnmountedRef.current) return;
+            console.log("Subscription status:", status, error ? error.message : "");
 
-          if (status === 'SUBSCRIBED') {
-            console.log("Successfully subscribed to chat channel");
-            setConnectionStatus("connected");
-            retryCountRef.current = 0;
-          } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-            console.warn("Subscription error, retrying...");
-            setConnectionStatus("disconnected");
-            retryCountRef.current += 1;
-            retryTimeout = setTimeout(setupSubscriptions, retryDelay);
-          }
-        });
+            if (status === 'SUBSCRIBED') {
+              console.log("Successfully subscribed to chat channel");
+              setConnectionStatus("connected");
+              retryCountRef.current = 0;
+            } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+              console.warn("Subscription error, retrying...");
+              setConnectionStatus("disconnected");
+              if (retryCountRef.current < maxRetries) {
+                retryCountRef.current += 1;
+                reconnectTimeoutRef.current = setTimeout(() => {
+                  if (!isUnmountedRef.current) {
+                    setupSubscriptions();
+                  }
+                }, retryDelay);
+              } else {
+                console.error("Max retries reached for subscriptions");
+              }
+            }
+          });
+      } catch (error) {
+        console.error("Error setting up subscription:", error);
+        if (!isUnmountedRef.current && retryCountRef.current < maxRetries) {
+          retryCountRef.current += 1;
+          reconnectTimeoutRef.current = setTimeout(setupSubscriptions, retryDelay);
+        }
+      }
     };
 
     setupSubscriptions();
 
     return () => {
-      // Cleanup function
       if (subscriptionRef.current && supabase) {
-        supabase.removeChannel(subscriptionRef.current).catch(console.error);
+        try {
+          supabase.removeChannel(subscriptionRef.current).catch(console.error);
+        } catch (e) {
+          console.warn("Failed to remove channel during cleanup:", e);
+        }
       }
-      if (retryTimeout) {
-        clearTimeout(retryTimeout);
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
       }
       retryCountRef.current = 0;
     };
   }, [userId, recipientId, dispatch]);
 
-  const getItemLayout = useCallback((_: any, index: number) => ({
-    length: 80,
-    offset: 80 * index,
-    index,
-  }), []);
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      "keyboardDidShow",
+      () => {
+        if (textInputRef.current) {
+          textInputRef.current.focus();
+        }
+        if (flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: true });
+        }
+      }
+    );
 
-  const renderMessage = useCallback(({ item }: { item: Message }) => (
-    <View
-      style={[
-        styles.message,
-        item.sender_id === userId ? styles.myMessage : styles.theirMessage,
-      ]}
-    >
-      <Text style={styles.messageText}>{item.content || item.encrypted_content}</Text>
-      <View style={styles.messageFooter}>
-        <Text style={styles.time}>
-          {new Date(item.created_at).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </Text>
-        {item.sender_id === userId && (
-          <Ionicons
-            name={
-              item.status === "read"
-                ? "checkmark-done"
-                : item.status === "delivered"
-                ? "checkmark-circle"
-                : "time"
+    const keyboardDidHideListener = Keyboard.addListener(
+      "keyboardDidHide",
+      () => {
+        if (textInputRef.current) {
+          textInputRef.current.blur();
+        }
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+
+  const renderMessage = useCallback(({ item }: { item: Message }) => {
+    const bubbleStyle = {
+      ...styles.messageBubble,
+      backgroundColor:
+        item.sender_id === userId
+          ? "rgba(255, 229, 92, 0.2)"
+          : "rgba(255, 255, 255, 0.1)",
+    };
+
+    return (
+      <View
+        style={[
+          styles.messageContainer,
+          item.sender_id === userId ? styles.messageRight : styles.messageLeft,
+        ]}
+      >
+        <View style={bubbleStyle}>
+          <View style={styles.messageHeader}>
+            <Text
+              style={[
+                styles.username,
+                item.sender_id === userId
+                  ? styles.userUsername
+                  : styles.otherUsername,
+              ]}
+            >
+              {item.sender_id === userId ? "You" : "Other User"}
+            </Text>
+          </View>
+          <Text
+            style={
+              item.sender_id === userId
+                ? styles.userMessageText
+                : styles.otherMessageText
             }
-            size={16}
-            color={item.status === "read" ? "#FFD700" : "rgba(255, 255, 255, 0.6)"}
-            style={styles.statusIcon}
-          />
-        )}
+          >
+            {item.content || item.encrypted_content}
+          </Text>
+          <View style={styles.messageFooter}>
+            <Text
+              style={
+                item.sender_id === userId
+                  ? styles.userTimestamp
+                  : styles.otherTimestamp
+              }
+            >
+              {new Date(item.created_at).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </Text>
+            {item.sender_id === userId && (
+              <Feather
+                name={
+                  item.status === "read"
+                    ? "check-circle"
+                    : item.status === "delivered"
+                    ? "check"
+                    : "clock"
+                }
+                size={14}
+                color={item.status === "read" ? "#FFE55C" : "rgba(255, 255, 255, 0.6)"}
+                style={styles.statusIcon}
+              />
+            )}
+          </View>
+        </View>
       </View>
-    </View>
-  ), [userId]);
+    );
+  }, [userId]);
 
   return (
-    <LinearGradient colors={["#000000", "#1a1a1a"]} style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#FFD700" />
-        </TouchableOpacity>
-        <Text style={styles.title}>Chat</Text>
-        {connectionStatus === "disconnected" && (
-          <Text style={styles.connectionWarning}>Offline</Text>
-        )}
-      </View>
-
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#FFD700" />
-        </View>
-      ) : (
+    <SafeAreaView style={styles.safeArea}>
+      <LinearGradient
+        colors={["#000000", "#1a1a1a", "#2a2a2a"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.container}
+      >
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.flex}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 20}
+          style={styles.keyboardAvoidingView}
           enabled
         >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-            <View style={styles.messagesContainer}>
-              <FlatList
-                ref={flatListRef}
-                data={messages}
-                renderItem={renderMessage}
-                keyExtractor={(item) => item.id}
-                inverted
-                contentContainerStyle={styles.messages}
-                initialNumToRender={20}
-                maxToRenderPerBatch={10}
-                windowSize={5}
-                getItemLayout={getItemLayout}
-                removeClippedSubviews={true}
-                keyboardShouldPersistTaps="handled"
-              />
-              {recipientTyping && (
-                <View style={styles.typingIndicator}>
-                  <Text style={styles.typingText}>User is typing...</Text>
-                </View>
+          <View style={styles.content}>
+            <View style={styles.header}>
+              <TouchableOpacity onPress={() => router.back()}>
+                <Feather name="arrow-left" size={24} color="#FFE55C" />
+              </TouchableOpacity>
+              <Text style={styles.headerTitle}>Chat</Text>
+              {connectionStatus === "disconnected" && (
+                <Text style={styles.connectionWarning}>Offline</Text>
               )}
             </View>
-          </TouchableWithoutFeedback>
 
-          <View style={styles.inputContainer}>
-            <TextInput
-              style={styles.input}
-              value={newMessage}
-              onChangeText={(text) => {
-                setNewMessage(text);
-                handleTyping();
-              }}
-              placeholder="Type a message..."
-              placeholderTextColor="#999"
-              multiline
-              returnKeyType="default"
-            />
-            <TouchableOpacity onPress={sendMessage} style={styles.sendButton}>
-              <Ionicons name="send" size={20} color="#FFD700" />
-            </TouchableOpacity>
+            {loading ? (
+              <View style={styles.center}>
+                <ActivityIndicator size="large" color="#FFE55C" />
+              </View>
+            ) : (
+              <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+                <FlatList
+                  ref={flatListRef}
+                  data={messages}
+                  renderItem={renderMessage}
+                  keyExtractor={(item) => item.id}
+                  contentContainerStyle={[styles.messageList, { justifyContent: 'flex-end' }]}
+                  style={styles.flatList}
+                  keyboardShouldPersistTaps="handled"
+                  inverted={false}
+                  initialNumToRender={20}
+                  maxToRenderPerBatch={10}
+                  windowSize={5}
+                  removeClippedSubviews={Platform.OS === "android"}
+                  onContentSizeChange={() => {
+                    flatListRef.current?.scrollToEnd({ animated: false });
+                  }}
+                />
+              </TouchableWithoutFeedback>
+            )}
+
+            {recipientTyping && (
+              <View style={styles.typingIndicator}>
+                <Text style={styles.typingText}>User is typing...</Text>
+              </View>
+            )}
+
+            <View style={styles.inputContainer}>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  ref={textInputRef}
+                  style={styles.textInput}
+                  placeholder="Type a message..."
+                  placeholderTextColor="rgba(255, 229, 92, 0.7)"
+                  value={newMessage}
+                  onChangeText={(text) => {
+                    setNewMessage(text);
+                    handleTyping();
+                  }}
+                  multiline
+                />
+                <TouchableOpacity
+                  onPress={sendMessage}
+                  style={styles.sendButton}
+                >
+                  <Feather name="send" size={20} color="#FFE55C" />
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         </KeyboardAvoidingView>
-      )}
-    </LinearGradient>
+      </LinearGradient>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#000000",
+  },
   container: {
     flex: 1,
   },
-  flex: {
+  keyboardAvoidingView: {
     flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
+    width: '100%',
+  },
+  content: {
+    flex: 1,
+    flexDirection: "column",
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 15,
-    paddingTop: Platform.OS === "ios" ? 50 : 20,
+    justifyContent: "space-between",
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#333",
-    zIndex: 10,
+    borderBottomColor: "rgba(255, 229, 92, 0.2)",
+    backgroundColor: "rgba(40, 50, 50, 0.5)",
   },
-  title: {
-    color: "#FFD700",
-    fontSize: 18,
-    fontWeight: "bold",
-    marginLeft: 10,
+  headerTitle: {
+    fontSize: 20,
+    fontFamily: "Rubik-Bold",
+    color: "#FFE55C",
+    flex: 1,
+    marginLeft: 16,
   },
   connectionWarning: {
-    color: "#FF5555",
     fontSize: 14,
-    marginLeft: 10,
+    fontFamily: "Rubik-Medium",
+    color: "rgba(255, 85, 85, 0.8)",
   },
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  messagesContainer: {
+  flatList: {
     flex: 1,
-    position: 'relative',
   },
-  messages: {
-    padding: 15,
-    paddingBottom: 30,
+  messageList: {
+    paddingTop: 20,
+    paddingBottom: 10,
+    paddingHorizontal: 12, // Increased horizontal padding for equal spacing
+    flexGrow: 1,
+    justifyContent: 'flex-end', // This pushes content to the bottom
   },
-  message: {
-    maxWidth: "80%",
-    padding: 12,
-    borderRadius: 12,
+  messageContainer: {
     marginBottom: 8,
+    marginHorizontal: 1, // Reduced margin to 1px on both sides
+    maxWidth: "100%", // Slightly reduced max width
+    borderRadius: 16,
   },
-  myMessage: {
-    alignSelf: "flex-end",
-    backgroundColor: "rgba(255, 215, 0, 0.2)",
-    borderBottomRightRadius: 0,
+  messageLeft: {
+    alignItems: "flex-start",
   },
-  theirMessage: {
-    alignSelf: "flex-start",
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderBottomLeftRadius: 0,
+  messageRight: {
+    alignItems: "flex-end",
   },
-  messageText: {
-    color: "white",
+  messageBubble: {
+    padding: 12,
+    borderRadius: 16,
+  },
+  messageHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  username: {
+    fontSize: 12,
+    fontFamily: "Rubik-Medium",
+  },
+  userUsername: {
+    color: "#FFE55C",
+  },
+  otherUsername: {
+    color: "rgba(255, 255, 255, 0.7)",
+  },
+  userMessageText: {
     fontSize: 16,
+    fontFamily: "Rubik-Medium",
+    color: "#ffffff",
+  },
+  otherMessageText: {
+    fontSize: 16,
+    fontFamily: "Rubik-Medium",
+    color: "#ffffff",
   },
   messageFooter: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 4,
   },
-  time: {
-    color: "rgba(255, 255, 255, 0.6)",
+  userTimestamp: {
     fontSize: 12,
+    fontFamily: "Rubik-Regular",
+    color: "rgba(255, 255, 255, 0.7)",
+    marginRight: 8,
+  },
+  otherTimestamp: {
+    fontSize: 12,
+    fontFamily: "Rubik-Regular",
+    color: "rgba(255, 255, 255, 0.6)",
+    marginRight: 8,
   },
   statusIcon: {
     marginLeft: 4,
   },
   inputContainer: {
-    flexDirection: "row",
-    padding: 15,
+    padding: 8,
+    paddingHorizontal: 4,
     borderTopWidth: 1,
-    borderTopColor: "#333",
-    backgroundColor: "#1a1a1a",
-    paddingBottom: Platform.OS === "ios" ? 30 : 15, // Extra padding for iOS
+    borderTopColor: "rgba(255, 229, 92, 0.2)",
+    backgroundColor: "rgba(40, 50, 50, 0.5)",
     position: 'relative',
     bottom: 0,
     left: 0,
     right: 0,
     zIndex: 10,
+    minHeight: 60,
   },
-  input: {
+  inputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "transparent",
+  },
+  textInput: {
     flex: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 20,
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    color: "white",
-    marginRight: 10,
+    backgroundColor: "rgba(255, 229, 92, 0.1)",
+    borderRadius: 25,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    fontFamily: "Rubik-Medium",
+    color: "#ffffff",
+    marginRight: 12,
     maxHeight: 100,
-    minHeight: 40,
+    borderWidth: 1,
+    borderColor: "rgba(255, 229, 92, 0.3)",
   },
   sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255, 215, 0, 0.2)",
-    justifyContent: "center",
+    backgroundColor: "rgba(255, 229, 92, 0.2)",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 229, 92, 0.4)",
   },
   typingIndicator: {
     padding: 10,
     alignItems: "flex-start",
+    backgroundColor: 'rgba(40, 50, 50, 0.7)',
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(0,0,0,0.7)',
   },
   typingText: {
-    color: "rgba(255, 255, 255, 0.6)",
     fontSize: 14,
+    fontFamily: "Rubik-Medium",
+    color: "rgba(255, 255, 255, 0.6)",
     fontStyle: "italic",
   },
 });

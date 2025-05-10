@@ -2,10 +2,12 @@ import React from "react";
 import { StyleSheet, View } from "react-native";
 import CommentsModal from "@/components/Comments";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useTheme } from "@/src/context/ThemeContext";
 
 const ReelsCommentScreen = () => {
   const { reelId, reelOwnerUsername } = useLocalSearchParams();
   const router = useRouter();
+  const { colors } = useTheme();
 
   // Ensure reelId is a string
   if (!reelId || typeof reelId !== "string") {
@@ -13,7 +15,7 @@ const ReelsCommentScreen = () => {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <CommentsModal
         entityType="reel"
         entityId={reelId}
@@ -29,6 +31,5 @@ export default ReelsCommentScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#121212",
   },
 });

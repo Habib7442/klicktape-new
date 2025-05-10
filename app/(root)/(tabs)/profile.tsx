@@ -15,14 +15,17 @@ import {
 } from "react-native";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
+// import { LinearGradient } from "expo-linear-gradient";
 import { Video } from "expo-av";
 import { supabase } from "@/lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
 import DeleteModal from "@/components/DeleteModal";
+import ThemedGradient from "@/components/ThemedGradient";
+import { useTheme } from "@/src/context/ThemeContext";
 
 const Profile = () => {
+  const { colors } = useTheme();
   const [userId, setUserId] = useState<string | null>(null);
   const [posts, setPosts] = useState<any[]>([]);
   const [bookmarks, setBookmarks] = useState<any[]>([]);
@@ -46,7 +49,7 @@ const Profile = () => {
     type: 'post' | 'reel';
   } | null>(null);
 
-  const { fetchUserProfile, fetchPosts, fetchBookmarks, fetchReels, loading } =
+  const { fetchUserProfile, fetchPosts, fetchBookmarks, fetchReels } =
     useSupabaseFetch();
 
   // Ref to store video refs for controlling playback
@@ -55,7 +58,7 @@ const Profile = () => {
   // Pause all videos
   const pauseAllVideos = useCallback(() => {
     videoRefs.current.forEach((videoRef) => {
-      videoRef.current?.pauseAsync().catch((err) => {
+      videoRef.current?.pauseAsync().catch((err: any) => {
         console.warn("Error pausing video:", err);
       });
     });
@@ -173,7 +176,7 @@ const Profile = () => {
         if (postError || !post) throw postError || new Error("Post not found");
 
         if (post.image_urls && post.image_urls.length > 0) {
-          const filePaths = post.image_urls.map((url) =>
+          const filePaths = post.image_urls.map((url: string) =>
             url.split("/").slice(-2).join("/")
           );
           await supabase.storage.from("media").remove(filePaths);
@@ -220,6 +223,8 @@ const Profile = () => {
     }
   };
 
+  // Unused function - keeping for reference
+  /*
   const handleDeletePost = async (postId: string) => {
     Alert.alert(
       "Delete Post",
@@ -274,7 +279,10 @@ const Profile = () => {
       ]
     );
   };
+  */
 
+  // Unused function - keeping for reference
+  /*
   const handleDeleteReel = async (reelId: string) => {
     Alert.alert(
       "Delete Reel",
@@ -327,6 +335,7 @@ const Profile = () => {
       ]
     );
   };
+  */
 
   useEffect(() => {
     const getUserFromStorage = async () => {
@@ -376,7 +385,10 @@ const Profile = () => {
   const renderPost = ({ item }: { item: any }) => (
     <View style={styles.postContainer}>
       <TouchableOpacity
-        style={styles.postThumbnail}
+        style={[styles.postThumbnail, {
+          backgroundColor: `${colors.primary}10`,
+          shadowOpacity: 0
+        }]}
         onPress={() => router.push(`/post/${item.id}`)}
       >
         <Image
@@ -386,10 +398,10 @@ const Profile = () => {
       </TouchableOpacity>
       {activeTab === "posts" && item.user_id === userId && (
         <TouchableOpacity
-          style={styles.deleteButton}
+          style={[styles.deleteButton, { backgroundColor: `${colors.backgroundSecondary}99` }]}
           onPress={() => handleDelete(item.id, 'post')}
         >
-          <Feather name="trash-2" size={16} color="#FFD700" />
+          <Feather name="trash-2" size={16} color={colors.error} />
         </TouchableOpacity>
       )}
     </View>
@@ -408,7 +420,10 @@ const Profile = () => {
     return (
       <View style={styles.postContainer}>
         <TouchableOpacity
-          style={styles.postThumbnail}
+          style={[styles.postThumbnail, {
+            backgroundColor: `${colors.primary}10`,
+            shadowOpacity: 0
+          }]}
           onPress={() => {
             pauseAllVideos();
             router.push(`/reel/${item.id}`);
@@ -422,15 +437,16 @@ const Profile = () => {
             isMuted={true}
             useNativeControls={false}
             isLooping={false}
-            resizeMode="cover"
+            // @ts-ignore
+            resizeMode="contain"
           />
         </TouchableOpacity>
         {activeTab === "reels" && (
           <TouchableOpacity
-            style={styles.deleteButton}
+            style={[styles.deleteButton, { backgroundColor: `${colors.backgroundSecondary}99` }]}
             onPress={() => handleDelete(item.id, 'reel')}
           >
-            <Feather name="trash-2" size={16} color="#FFD700" />
+            <Feather name="trash-2" size={16} color={colors.error} />
           </TouchableOpacity>
         )}
       </View>
@@ -438,32 +454,27 @@ const Profile = () => {
   });
 
   return (
-    <LinearGradient
-      colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.container}
-    >
-      <View style={styles.header}>
-        <Text className="font-rubik-bold" style={styles.headerTitle}>
+    <ThemedGradient style={styles.container}>
+      <View style={[styles.header, { borderBottomColor: `${colors.primary}20` }]}>
+        <Text className="font-rubik-bold" style={[styles.headerTitle, { color: colors.primary }]}>
           Profile
         </Text>
         <View style={styles.headerButtons}>
           <TouchableOpacity onPress={() => router.push("/create")}>
-            <Feather name="plus-square" size={24} color="#FFD700" />
+            <Feather name="plus-square" size={24} color={colors.primary} />
           </TouchableOpacity>
           <TouchableOpacity onPress={handleShare}>
-            <Feather name="share-2" size={24} color="#FFD700" />
+            <Feather name="share-2" size={24} color={colors.primary} />
           </TouchableOpacity>
           <TouchableOpacity onPress={handleLogout}>
-            <Feather name="log-out" size={24} color="#FF6B6B" />
+            <Feather name="log-out" size={24} color={colors.error} />
           </TouchableOpacity>
         </View>
       </View>
 
       {isLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FFD700" />
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
         <ScrollView
@@ -471,39 +482,40 @@ const Profile = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
-              tintColor="#FFD700"
-              colors={["#FFD700"]}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+              progressBackgroundColor={colors.backgroundSecondary}
             />
           }
-          style={styles.scrollView}
+          contentContainerStyle={{ paddingBottom: 20 }}
         >
           <View style={styles.profileInfo}>
             <Image
               source={{ uri: userInfo.avatar }}
-              style={styles.profileImage}
+              style={[styles.profileImage, { borderColor: `${colors.primary}30` }]}
             />
             <View style={styles.statsContainer}>
               <View style={styles.stat}>
-                <Text className="font-rubik-bold" style={styles.statNumber}>
+                <Text className="font-rubik-bold" style={[styles.statNumber, { color: colors.text }]}>
                   {posts.length}
                 </Text>
-                <Text className="font-rubik-medium" style={styles.statLabel}>
+                <Text className="font-rubik-medium" style={[styles.statLabel, { color: colors.textSecondary }]}>
                   Posts
                 </Text>
               </View>
               <View style={styles.stat}>
-                <Text className="font-rubik-bold" style={styles.statNumber}>
+                <Text className="font-rubik-bold" style={[styles.statNumber, { color: colors.text }]}>
                   {userInfo.followers}
                 </Text>
-                <Text className="font-rubik-medium" style={styles.statLabel}>
+                <Text className="font-rubik-medium" style={[styles.statLabel, { color: colors.textSecondary }]}>
                   Followers
                 </Text>
               </View>
               <View style={styles.stat}>
-                <Text className="font-rubik-bold" style={styles.statNumber}>
+                <Text className="font-rubik-bold" style={[styles.statNumber, { color: colors.text }]}>
                   {userInfo.following}
                 </Text>
-                <Text className="font-rubik-medium" style={styles.statLabel}>
+                <Text className="font-rubik-medium" style={[styles.statLabel, { color: colors.textSecondary }]}>
                   Following
                 </Text>
               </View>
@@ -513,21 +525,21 @@ const Profile = () => {
           <View style={styles.bioSection}>
             <View style={styles.bioHeader}>
               <View style={styles.bioTextContainer}>
-                <Text className="font-rubik-bold" style={styles.username}>
+                <Text className="font-rubik-bold" style={[styles.username, { color: colors.text }]}>
                   {userInfo.username}
                 </Text>
-                <Text className="font-rubik-medium" style={styles.bio}>
+                <Text className="font-rubik-medium" style={[styles.bio, { color: colors.textSecondary }]}>
                   {userInfo.bio}
                 </Text>
               </View>
               <View style={styles.infoContainer}>
-                <Text className="font-rubik-medium" style={styles.infoText}>
+                <Text className="font-rubik-medium" style={[styles.infoText, { color: colors.textTertiary }]}>
                   {userInfo.accountType.charAt(0).toUpperCase() +
                     userInfo.accountType.slice(1).toLowerCase()}{" "}
                   Account
                 </Text>
                 {userInfo.gender && (
-                  <Text className="font-rubik-medium" style={styles.infoText}>
+                  <Text className="font-rubik-medium" style={[styles.infoText, { color: colors.textTertiary }]}>
                     {userInfo.gender.charAt(0).toUpperCase() +
                       userInfo.gender.slice(1).toLowerCase()}
                   </Text>
@@ -535,18 +547,27 @@ const Profile = () => {
               </View>
             </View>
             <TouchableOpacity
-              style={styles.editButton}
+              style={[styles.editButton, {
+                backgroundColor: `${colors.primary}10`,
+                borderColor: `${colors.primary}30`
+              }]}
               onPress={() => router.push("/edit-profile")}
             >
-              <Text className="font-rubik-bold" style={styles.editButtonText}>
+              <Text className="font-rubik-bold" style={[styles.editButtonText, { color: colors.primary }]}>
                 Edit Profile
               </Text>
             </TouchableOpacity>
           </View>
 
-          <View style={styles.tabsContainer}>
+          <View style={[styles.tabsContainer, {
+            borderTopColor: `${colors.primary}20`,
+            backgroundColor: `${colors.backgroundSecondary}80`
+          }]}>
             <TouchableOpacity
-              style={[styles.tab, activeTab === "posts" && styles.activeTab]}
+              style={[
+                styles.tab,
+                activeTab === "posts" && [styles.activeTab, { borderBottomColor: colors.primary }]
+              ]}
               onPress={() => {
                 pauseAllVideos();
                 setActiveTab("posts");
@@ -556,12 +577,15 @@ const Profile = () => {
                 name="grid"
                 size={24}
                 color={
-                  activeTab === "posts" ? "#FFD700" : "rgba(255, 215, 0, 0.7)"
+                  activeTab === "posts" ? colors.primary : `${colors.primary}70`
                 }
               />
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.tab, activeTab === "saved" && styles.activeTab]}
+              style={[
+                styles.tab,
+                activeTab === "saved" && [styles.activeTab, { borderBottomColor: colors.primary }]
+              ]}
               onPress={() => {
                 pauseAllVideos();
                 setActiveTab("saved");
@@ -571,12 +595,15 @@ const Profile = () => {
                 name="bookmark"
                 size={24}
                 color={
-                  activeTab === "saved" ? "#FFD700" : "rgba(255, 215, 0, 0.7)"
+                  activeTab === "saved" ? colors.primary : `${colors.primary}70`
                 }
               />
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.tab, activeTab === "reels" && styles.activeTab]}
+              style={[
+                styles.tab,
+                activeTab === "reels" && [styles.activeTab, { borderBottomColor: colors.primary }]
+              ]}
               onPress={() => {
                 pauseAllVideos();
                 setActiveTab("reels");
@@ -586,7 +613,7 @@ const Profile = () => {
                 name="video"
                 size={24}
                 color={
-                  activeTab === "reels" ? "#FFD700" : "rgba(255, 215, 0, 0.7)"
+                  activeTab === "reels" ? colors.primary : `${colors.primary}70`
                 }
               />
             </TouchableOpacity>
@@ -624,7 +651,7 @@ const Profile = () => {
         }}
         confirm={handleConfirmDelete}
       />
-    </LinearGradient>
+    </ThemedGradient>
   );
 };
 
@@ -640,11 +667,9 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 215, 0, 0.2)",
   },
   headerTitle: {
     fontSize: 20,
-    color: "#FFD700",
   },
   headerButtons: {
     flexDirection: "row",
@@ -661,7 +686,6 @@ const styles = StyleSheet.create({
     borderRadius: 45,
     marginRight: 16,
     borderWidth: 2,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   statsContainer: {
     flex: 1,
@@ -673,19 +697,15 @@ const styles = StyleSheet.create({
   },
   statNumber: {
     fontSize: 18,
-    color: "#ffffff",
   },
   statLabel: {
-    color: "#ffffff",
     fontSize: 14,
   },
   username: {
     fontSize: 16,
-    color: "#ffffff",
   },
   bio: {
     marginTop: 6,
-    color: "#ffffff",
     fontSize: 14,
   },
   bioSection: {
@@ -707,8 +727,6 @@ const styles = StyleSheet.create({
   },
   infoText: {
     fontSize: 14,
-    color: "#ffffff",
-    opacity: 0.8,
   },
   editButton: {
     marginTop: 12,
@@ -716,19 +734,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
     alignItems: "center",
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
   },
   editButtonText: {
-    color: "#ffffff",
     fontSize: 14,
   },
   tabsContainer: {
     flexDirection: "row",
     borderTopWidth: 1,
-    borderTopColor: "rgba(255, 215, 0, 0.2)",
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
   },
   tab: {
     flex: 1,
@@ -738,7 +751,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "transparent",
   },
   activeTab: {
-    borderBottomColor: "#FFD700",
+    // borderBottomColor is set inline
   },
   loadingContainer: {
     flex: 1,
@@ -751,12 +764,6 @@ const styles = StyleSheet.create({
     margin: 6,
     borderRadius: 8,
     overflow: "hidden",
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
   },
   thumbnailImage: {
     width: "100%",
@@ -773,7 +780,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 12,
     right: 12,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
     borderRadius: 12,
     padding: 6,
     zIndex: 1,

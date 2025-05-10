@@ -30,6 +30,8 @@ import { supabase } from "@/lib/supabase";
 import { postsAPI } from "@/lib/postsApi";
 import { notificationsAPI } from "@/lib/notificationsApi";
 import * as Haptics from 'expo-haptics';
+import ThemedGradient from "@/components/ThemedGradient";
+import { useTheme } from "@/src/context/ThemeContext";
 
 const TAB_BAR_HEIGHT = 90;
 const TAB_BAR_MARGIN = 24;
@@ -37,6 +39,8 @@ const EMOJIS = ["😊", "😂", "❤️", "👍", "🎉", "🔥", "🌟", "💖"
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
+  const { colors, isDarkMode } = useTheme();
+
   // User and content state
   const [userId, setUserId] = useState<string | null>(null);
   const [media, setMedia] = useState<Array<{ uri: string; type: 'image' }>>([]);
@@ -524,16 +528,22 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
-      <View style={styles.nextButtonContainer}>
+      <View style={[styles.nextButtonContainer, {
+        backgroundColor: colors.backgroundSecondary,
+        borderTopColor: `${colors.primary}20`
+      }]}>
         <TouchableOpacity
-          style={styles.nextButton}
+          style={[styles.nextButton, {
+            backgroundColor: colors.primary,
+            shadowOpacity: 0
+          }]}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setStep("details");
           }}
         >
-          <Feather name="arrow-right" size={20} color="#000" style={styles.nextButtonIcon} />
-          <Text style={styles.nextButtonText}>Next</Text>
+          <Feather name="arrow-right" size={20} color={isDarkMode ? "#000" : "#FFF"} style={styles.nextButtonIcon} />
+          <Text style={[styles.nextButtonText, { color: isDarkMode ? "#000" : "#FFF" }]}>Next</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -724,18 +734,16 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
   );
 
   return (
-    <LinearGradient
-      colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.container}
-    >
+    <ThemedGradient style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.container}
         keyboardVerticalOffset={Platform.OS === "ios" ? TAB_BAR_HEIGHT + TAB_BAR_MARGIN : 0}
       >
-        <View style={styles.header}>
+        <View style={[styles.header, {
+          borderBottomColor: `${colors.primary}20`,
+          backgroundColor: `${colors.backgroundSecondary}90`
+        }]}>
           <TouchableOpacity onPress={() => {
             if (step !== "select") {
               setMedia([]);
@@ -744,9 +752,9 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
               onClose();
             }
           }}>
-            <Feather name={step === "select" ? "x" : "arrow-left"} size={24} color="#FFD700" />
+            <Feather name={step === "select" ? "x" : "arrow-left"} size={24} color={colors.primary} />
           </TouchableOpacity>
-          <Text style={styles.headerText}>Create Post</Text>
+          <Text style={[styles.headerText, { color: colors.text }]}>Create Post</Text>
           <View style={{ width: 60 }} />
         </View>
 
@@ -756,9 +764,15 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.content}>
-              <TouchableOpacity style={styles.mediaPicker} onPress={pickMedia}>
-                <Feather name="image" size={40} color="rgba(255, 215, 0, 0.7)" />
-                <Text style={styles.mediaPickerText}>Tap to select images</Text>
+              <TouchableOpacity
+                style={[styles.mediaPicker, {
+                  backgroundColor: `${colors.primary}10`,
+                  borderColor: `${colors.primary}30`
+                }]}
+                onPress={pickMedia}
+              >
+                <Feather name="image" size={40} color={`${colors.primary}70`} />
+                <Text style={[styles.mediaPickerText, { color: colors.text }]}>Tap to select images</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -776,17 +790,23 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
             </ScrollView>
 
             {/* Share Post Button at extreme bottom */}
-            <View style={styles.shareButtonContainer}>
+            <View style={[styles.shareButtonContainer, {
+              backgroundColor: colors.backgroundSecondary,
+              borderTopColor: `${colors.primary}20`
+            }]}>
               <TouchableOpacity
-                style={styles.shareButton}
+                style={[styles.shareButton, {
+                  backgroundColor: colors.primary,
+                  shadowOpacity: 0
+                }]}
                 onPress={handlePost}
                 disabled={loading}
                 onPressIn={handlePressIn}
                 onPressOut={handlePressOut}
               >
                 <Animated.View style={{ transform: [{ scale: scaleValue }], flexDirection: 'row', alignItems: 'center' }}>
-                  <Feather name="upload" size={20} color="#000" style={styles.shareButtonIcon} />
-                  <Text style={styles.shareButtonText}>Share Post</Text>
+                  <Feather name="upload" size={20} color={isDarkMode ? "#000" : "#FFF"} style={styles.shareButtonIcon} />
+                  <Text style={[styles.shareButtonText, { color: isDarkMode ? "#000" : "#FFF" }]}>Share Post</Text>
                 </Animated.View>
               </TouchableOpacity>
             </View>
@@ -795,15 +815,21 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
       </KeyboardAvoidingView>
 
       {showEmojiPicker && (
-        <View style={styles.emojiPickerContainer}>
+        <View style={[styles.emojiPickerContainer, {
+          backgroundColor: colors.backgroundSecondary,
+          borderColor: `${colors.primary}30`
+        }]}>
           <TouchableOpacity
-            style={styles.closeEmojiPicker}
+            style={[styles.closeEmojiPicker, {
+              backgroundColor: `${colors.backgroundTertiary}`,
+              borderColor: `${colors.primary}30`
+            }]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setShowEmojiPicker(false);
             }}
           >
-            <Feather name="x" size={20} color="#FFD700" />
+            <Feather name="x" size={20} color={colors.primary} />
           </TouchableOpacity>
 
           <ScrollView
@@ -814,7 +840,10 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
             {EMOJIS.map((emoji, index) => (
               <TouchableOpacity
                 key={index}
-                style={styles.emojiItem}
+                style={[styles.emojiItem, {
+                  backgroundColor: `${colors.primary}10`,
+                  borderColor: `${colors.primary}20`
+                }]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   insertEmoji(emoji);
@@ -828,12 +857,12 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
       )}
 
       {loading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#FFD700" />
-          <Text style={styles.loadingText}>Creating your post...</Text>
+        <View style={[styles.loadingOverlay, { backgroundColor: `${colors.overlay}` }]}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.primary }]}>Creating your post...</Text>
         </View>
       )}
-    </LinearGradient>
+    </ThemedGradient>
   );
 };
 

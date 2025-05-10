@@ -25,12 +25,13 @@ import {
   toggleLike,
 } from "@/src/store/slices/postsSlice";
 import { Post } from "@/src/types/post";
+import { useTheme } from "@/src/context/ThemeContext";
+import ThemedGradient from "@/components/ThemedGradient";
 
 const Posts = () => {
+  const { colors } = useTheme();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  // State for comment text
-  const [commentText, setCommentText] = useState<{ [key: string]: string }>({});
 
   // State for carousel image indexes
   const [activeImageIndexes, setActiveImageIndexes] = useState<{
@@ -81,7 +82,8 @@ const Posts = () => {
           *,
           user:profiles!posts_user_id_fkey(username, avatar_url),
           likes!likes_post_id_fkey(user_id),
-          bookmarks!bookmarks_post_id_fkey(user_id)
+          bookmarks!bookmarks_post_id_fkey(user_id),
+          comments:comments!comments_post_id_fkey(id)
           `
         )
         .order("created_at", { ascending: false })
@@ -113,15 +115,21 @@ const Posts = () => {
         const isBookmarked = Array.isArray(post.bookmarks) &&
           post.bookmarks.some((bookmark: any) => bookmark.user_id === user.id);
 
+        // Get the actual comment count from the comments array
+        const actualCommentsCount = Array.isArray(post.comments) ? post.comments.length : 0;
+
         console.log(`Post ${post.id} liked status for user ${user.id}:`, {
           isLiked,
-          likesArray: post.likes
+          likesArray: post.likes,
+          commentsCount: post.comments_count,
+          actualCommentsCount
         });
 
         return {
           ...post,
           is_liked: isLiked,
           is_bookmarked: isBookmarked,
+          comments_count: actualCommentsCount, // Use the actual count from the comments array
           user: post.user || { username: "Unknown User", avatar_url: "https://via.placeholder.com/150" },
         };
       });
@@ -247,50 +255,7 @@ const Posts = () => {
     }
   };
 
-  const handleComment = async (postId: string) => {
-    try {
-      if (!supabase) {
-        console.error("Supabase client is not initialized");
-        return;
-      }
 
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-
-      if (authError) {
-        console.error("Error getting current user:", authError);
-        return;
-      }
-
-      if (!user) {
-        router.push("/sign-in");
-        return;
-      }
-
-      const comment = commentText[postId]?.trim();
-      if (!comment) return;
-
-      const { error } = await supabase.from("comments").insert({
-        post_id: postId,
-        user_id: user.id,
-        content: comment,
-        created_at: new Date().toISOString(),
-      });
-
-      if (error) {
-        console.error("Error inserting comment:", error);
-        return;
-      }
-
-      // Clear the comment text and refresh posts
-      setCommentText((prev) => ({ ...prev, [postId]: "" }));
-      fetchPosts();
-    } catch (error) {
-      console.error("Exception in handleComment:", error);
-    }
-  };
 
   const handleShare = async (post: Post) => {
     try {
@@ -329,17 +294,15 @@ const Posts = () => {
     );
 
     return (
-      <LinearGradient
-        colors={["rgba(42, 42, 42, 0.8)", "rgba(26, 26, 26, 0.9)"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+      <ThemedGradient
         style={styles.postContainer}
+        customColors={[`${colors.primary}20`, `${colors.primary}15`, `${colors.primary}10`]}
       >
         <View style={styles.postHeader}>
           <View style={styles.userInfo}>
             <Image
               source={{ uri: post.user.avatar_url }}
-              style={styles.avatar}
+              style={[styles.avatar, { borderColor: `${colors.primary}30` }]}
             />
 
             <View>
@@ -351,13 +314,13 @@ const Posts = () => {
                   })
                 }
               >
-                <Text style={styles.username}>{post.user.username}</Text>
+                <Text style={[styles.username, { color: colors.text }]}>{post.user.username}</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
 
-        <Text style={styles.postText}>{post.caption}</Text>
+        <Text style={[styles.postText, { color: colors.text }]}>{post.caption}</Text>
 
         <View style={styles.imageContainer}>
           <Carousel
@@ -381,8 +344,11 @@ const Posts = () => {
                   key={index}
                   style={[
                     styles.paginationDot,
-                    index === (activeImageIndexes[post.id] || 0) &&
+                    { backgroundColor: `${colors.text}50` },
+                    index === (activeImageIndexes[post.id] || 0) && [
                       styles.paginationDotActive,
+                      { backgroundColor: colors.primary }
+                    ],
                   ]}
                 />
               ))}
@@ -391,7 +357,7 @@ const Posts = () => {
         </View>
 
         <View style={styles.postStats}>
-          <Text style={styles.statText}>
+          <Text style={[styles.statText, { color: colors.text }]}>
             {post.likes_count} {post.likes_count === 1 ? "like" : "likes"}
           </Text>
           <TouchableOpacity
@@ -405,14 +371,20 @@ const Posts = () => {
               });
             }}
           >
-            <Text style={styles.statText}>
-              {post.comments_count}{" "}
-              {post.comments_count === 1 ? "comment" : "comments"}
-            </Text>
+            {post.comments_count > 0 ? (
+              <Text style={[styles.statText, { color: colors.text }]}>
+                {post.comments_count}{" "}
+                {post.comments_count === 1 ? "comment" : "comments"}
+              </Text>
+            ) : (
+              <Text style={[styles.statText, { color: colors.text }]}>
+                No comments
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
 
-        <View style={styles.postActions}>
+        <View style={[styles.postActions, { borderTopColor: `${colors.primary}20` }]}>
           <TouchableOpacity
             onPress={() => handleLike(post.id)}
             style={styles.actionButton}
@@ -420,7 +392,7 @@ const Posts = () => {
             <AntDesign
               name={post.is_liked ? "heart" : "hearto"}
               size={24}
-              color={post.is_liked ? "#ff6b6b" : "#ffffff"}
+              color={post.is_liked ? colors.error : colors.text}
             />
           </TouchableOpacity>
           <TouchableOpacity
@@ -435,14 +407,13 @@ const Posts = () => {
             }
             style={styles.actionButton}
           >
-            <Ionicons name="chatbubble-outline" size={24} color="#ffffff" />
+            <Ionicons name="chatbubble-outline" size={24} color={colors.text} />
           </TouchableOpacity>
-          {/* Remove the semicolon here */}
           <TouchableOpacity
             onPress={() => handleShare(post)}
             style={styles.actionButton}
           >
-            <Feather name="send" size={24} color="#ffffff" />
+            <Feather name="send" size={24} color={colors.text} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => handleBookmark(post.id)}
@@ -451,20 +422,20 @@ const Posts = () => {
             <FontAwesome
               name={post.is_bookmarked ? "bookmark" : "bookmark-o"}
               size={24}
-              color={post.is_bookmarked ? "#FFD700" : "#ffffff"}
+              color={post.is_bookmarked ? colors.primary : colors.text}
             />
           </TouchableOpacity>
         </View>
 
         {/* Comment input section removed - now handled in the comments screen */}
-      </LinearGradient>
+      </ThemedGradient>
     );
   };
 
   if (loading && posts.length === 0) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FFD700" />
+      <View style={[styles.loadingContainer, { backgroundColor: colors.backgroundSecondary }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
@@ -486,7 +457,7 @@ const Posts = () => {
         ListFooterComponent={() =>
           loading && hasMore ? (
             <View style={styles.loader}>
-              <ActivityIndicator color="#FFD700" />
+              <ActivityIndicator color={colors.primary} />
             </View>
           ) : null
         }
@@ -504,18 +475,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#1a1a1a",
   },
   postContainer: {
     marginBottom: 16,
     borderRadius: 12,
     padding: 16,
     marginHorizontal: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
   },
   postHeader: {
     flexDirection: "row",
@@ -533,18 +498,16 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginRight: 12,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   username: {
     fontSize: 16,
     fontFamily: "Rubik-Medium",
-    color: "#ffffff",
     fontStyle: "italic",
   },
   postTime: {
     fontSize: 12,
-    color: "rgba(255, 255, 255, 0.6)",
     marginTop: 2,
+    opacity: 0.6,
   },
   moreButton: {
     padding: 8,
@@ -552,7 +515,6 @@ const styles = StyleSheet.create({
   postText: {
     fontSize: 14,
     fontFamily: "Rubik-Regular",
-    color: "#ffffff",
     marginBottom: 12,
     lineHeight: 20,
   },
@@ -585,11 +547,9 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "rgba(255, 255, 255, 0.5)",
     marginHorizontal: 4,
   },
   paginationDotActive: {
-    backgroundColor: "#FFD700",
     width: 8,
     height: 8,
   },
@@ -601,14 +561,12 @@ const styles = StyleSheet.create({
   statText: {
     fontSize: 14,
     fontFamily: "Rubik-Medium",
-    color: "#ffffff",
   },
   postActions: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 8,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255, 255, 255, 0.1)",
   },
   actionButton: {
     padding: 8,
@@ -618,7 +576,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255, 255, 255, 0.1)",
   },
   commentInputContainer: {
     flexDirection: "row",
@@ -627,10 +584,8 @@ const styles = StyleSheet.create({
   commentInput: {
     flex: 1,
     height: 40,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 20,
     paddingHorizontal: 16,
-    color: "#ffffff",
     fontFamily: "Rubik-Regular",
   },
   commentButton: {
@@ -638,11 +593,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: "#FFD700",
   },
   commentButtonText: {
     fontFamily: "Rubik-Medium",
-    color: "#000000",
   },
   loader: {
     padding: 16,

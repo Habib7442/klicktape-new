@@ -134,9 +134,9 @@ const StoryViewer = ({ stories, onClose, currentIndex }: StoryViewerProps) => {
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-      <Animated.View 
+      <Animated.View
         style={[
-          styles.progressContainer, 
+          styles.progressContainer,
           { opacity: hideInterface ? 0 : 1 }
         ]}
       >
@@ -163,7 +163,7 @@ const StoryViewer = ({ stories, onClose, currentIndex }: StoryViewerProps) => {
       </Animated.View>
 
       {/* User Info Header */}
-      <Animated.View 
+      <Animated.View
         style={[
           styles.userInfoContainer,
           { opacity: hideInterface ? 0 : 1 }
@@ -183,11 +183,13 @@ const StoryViewer = ({ stories, onClose, currentIndex }: StoryViewerProps) => {
         </TouchableOpacity>
       </Animated.View>
 
-      <Image
-        source={{ uri: currentStory?.image_url || "https://via.placeholder.com/300" }}
-        style={styles.image}
-        onError={(e) => console.log("Image load error:", e.nativeEvent.error)}
-      />
+      <View style={styles.imageContainer}>
+        <Image
+          source={{ uri: currentStory?.image_url || "https://via.placeholder.com/300" }}
+          style={styles.image}
+          onError={(e) => console.log("Image load error:", e.nativeEvent.error)}
+        />
+      </View>
 
       <View style={styles.touchableContainer}>
         <TouchableOpacity
@@ -243,10 +245,18 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     borderRadius: 1,
   },
+  imageContainer: {
+    width: width,
+    height: height,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: "black",
+    overflow: 'hidden',
+  },
   image: {
     width: width,
     height: height,
-    resizeMode: "cover", // Changed from contain to cover
+    resizeMode: "contain",
     backgroundColor: "black",
   },
   userInfoContainer: {
@@ -288,9 +298,6 @@ const styles = StyleSheet.create({
   },
   centerTouch: {
     flex: 3,
-  },
-  nextTouch: {
-    flex: 1,
   },
   nextTouch: {
     flex: 2,

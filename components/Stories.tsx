@@ -20,6 +20,8 @@ import { cacheManager } from "../lib/utils/cacheManager";
 import { storiesAPI } from "@/lib/storiesApi";
 import { LinearGradient } from "expo-linear-gradient";
 import DeleteModal from "./DeleteModal";
+import { useTheme } from "@/src/context/ThemeContext";
+import ThemedGradient from "@/components/ThemedGradient";
 
 interface Story {
   id: string;
@@ -50,23 +52,43 @@ const StoryItem = ({
 }: StoryProps & {
   onPress?: () => void;
   onDelete?: () => void;
-}) => (
-  <TouchableOpacity style={styles.storyContainer} onPress={onPress}>
-    <View style={styles.storyImageContainer}>
-      <Image source={{ uri: image }} style={styles.storyImage} />
-      {isYourStory && (
-        <TouchableOpacity style={styles.deleteButton} onPress={onDelete}>
-          <AntDesign name="delete" size={14} color="#ff6b6b" />
-        </TouchableOpacity>
-      )}
-    </View>
-    <Text className="font-rubik-medium" style={styles.usernameText}>
-      {isYourStory ? "Your Story" : username}
-    </Text>
-  </TouchableOpacity>
-);
+}) => {
+  const { colors } = useTheme();
+
+  return (
+    <TouchableOpacity style={styles.storyContainer} onPress={onPress}>
+      <View style={[
+        styles.storyImageContainer,
+        { borderColor: `${colors.primary}70` }
+      ]}>
+        <Image source={{ uri: image }} style={styles.storyImage} />
+        {isYourStory && (
+          <TouchableOpacity
+            style={[
+              styles.deleteButton,
+              {
+                backgroundColor: `${colors.backgroundSecondary}E0`,
+                borderColor: colors.cardBorder
+              }
+            ]}
+            onPress={onDelete}
+          >
+            <AntDesign name="delete" size={14} color={colors.error} />
+          </TouchableOpacity>
+        )}
+      </View>
+      <Text
+        className="font-rubik-medium"
+        style={[styles.usernameText, { color: colors.text }]}
+      >
+        {isYourStory ? "Your Story" : username}
+      </Text>
+    </TouchableOpacity>
+  );
+};
 
 const Stories = () => {
+  const { colors } = useTheme();
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedStoryIndex, setSelectedStoryIndex] = useState<number>(-1);
@@ -406,18 +428,30 @@ const Stories = () => {
           onPress={handleCreateStory}
         >
           <View
-            style={[styles.storyImageContainer, { borderColor: "#ffffff" }]}
+            style={[
+              styles.storyImageContainer,
+              {
+                borderColor: `${colors.primary}70`,
+                backgroundColor: `${colors.primary}10`
+              }
+            ]}
           >
-            <View style={styles.createStoryButton}>
+            <View style={[
+              styles.createStoryButton,
+              { backgroundColor: `${colors.primary}20` }
+            ]}>
               <Text
                 className="font-rubik-medium"
-                style={styles.createStoryText}
+                style={[styles.createStoryText, { color: colors.primary }]}
               >
                 +
               </Text>
             </View>
           </View>
-          <Text className="font-rubik-medium" style={styles.usernameText}>
+          <Text
+            className="font-rubik-medium"
+            style={[styles.usernameText, { color: colors.text }]}
+          >
             Create Story
           </Text>
         </TouchableOpacity>
@@ -442,15 +476,15 @@ const Stories = () => {
         animationOut="fadeOut"
         backdropOpacity={0.9}
       >
-        <LinearGradient
-          colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-          style={styles.previewContainer}
-        >
-          <View style={styles.previewHeader}>
+        <ThemedGradient style={styles.previewContainer}>
+          <View style={[styles.previewHeader, { borderBottomColor: `${colors.primary}20` }]}>
             <TouchableOpacity onPress={() => setIsPreviewModalVisible(false)}>
-              <AntDesign name="close" size={24} color="#FFD700" />
+              <AntDesign name="close" size={24} color={colors.primary} />
             </TouchableOpacity>
-            <Text className="font-rubik-bold" style={styles.previewTitle}>
+            <Text
+              className="font-rubik-bold"
+              style={[styles.previewTitle, { color: colors.primary }]}
+            >
               Preview Story
             </Text>
             <View style={{ width: 24 }} />
@@ -460,25 +494,31 @@ const Stories = () => {
             {croppedImage && (
               <Image
                 source={{ uri: croppedImage }}
-                style={styles.imagePreview}
+                style={[styles.imagePreview, { borderColor: `${colors.primary}30` }]}
                 resizeMode="contain"
               />
             )}
           </View>
 
-          <TouchableOpacity style={styles.postButton} onPress={handlePostStory}>
+          <TouchableOpacity
+            style={[styles.postButton, { backgroundColor: `${colors.primary}10` }]}
+            onPress={handlePostStory}
+          >
             <LinearGradient
-              colors={["#FFD700", "#FFA500"]}
+              colors={[colors.primary, colors.primaryDark]}
               style={styles.postButtonGradient}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
             >
-              <Text className="font-rubik-bold" style={styles.postButtonText}>
+              <Text
+                className="font-rubik-bold"
+                style={[styles.postButtonText, { color: colors.background }]}
+              >
                 Post Story
               </Text>
             </LinearGradient>
           </TouchableOpacity>
-        </LinearGradient>
+        </ThemedGradient>
       </Modal>
 
       {/* Story Viewer Modal */}
@@ -517,12 +557,19 @@ const Stories = () => {
         animationIn="fadeIn"
         animationOut="fadeOut"
       >
-        <View style={styles.loadingModalContent}>
-          <ActivityIndicator size="large" color="#FFD700" />
+        <View style={[
+          styles.loadingModalContent,
+          {
+            backgroundColor: `${colors.backgroundSecondary}E6`,
+            borderColor: `${colors.primary}30`
+          }
+        ]}>
+          <ActivityIndicator size="large" color={colors.primary} />
           <Animated.View
             style={[
               styles.progressBar,
               {
+                backgroundColor: `${colors.primary}30`,
                 width: deleteProgress.interpolate({
                   inputRange: [0, 1],
                   outputRange: ["0%", "100%"],
@@ -530,7 +577,10 @@ const Stories = () => {
               },
             ]}
           />
-          <Text className="font-rubik-medium" style={styles.loadingText}>
+          <Text
+            className="font-rubik-medium"
+            style={[styles.loadingText, { color: colors.text }]}
+          >
             {loadingMessage}
           </Text>
         </View>
@@ -573,7 +623,6 @@ const styles = StyleSheet.create({
     height: 90,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: "rgba(255, 255, 255, 0.7)",
     justifyContent: "center",
     alignItems: "center",
     padding: 2,
@@ -585,7 +634,6 @@ const styles = StyleSheet.create({
   },
   usernameText: {
     fontSize: 14,
-    color: "#ffffff",
     marginTop: 5,
   },
   createStoryButton: {
@@ -593,12 +641,10 @@ const styles = StyleSheet.create({
     height: "100%",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
     borderRadius: 10,
   },
   createStoryText: {
     fontSize: 24,
-    color: "#ffffff",
     fontWeight: "bold",
   },
   modal: {
@@ -619,10 +665,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     padding: 16,
+    borderBottomWidth: 1,
   },
   previewTitle: {
     fontSize: 18,
-    color: "#FFD700",
   },
   imagePreviewContainer: {
     flex: 1,
@@ -634,6 +680,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     borderRadius: 10,
+    borderWidth: 1,
   },
   postButton: {
     margin: 20,
@@ -647,7 +694,6 @@ const styles = StyleSheet.create({
   },
   postButtonText: {
     fontSize: 16,
-    color: "#000000",
   },
   deleteButton: {
     position: "absolute",
@@ -656,11 +702,9 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 6,
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 2,
-    borderColor: "#fff",
   },
   loadingModal: {
     margin: 0,
@@ -668,7 +712,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   loadingModalContent: {
-    backgroundColor: "rgba(0, 0, 0, 0.8)",
     padding: 20,
     borderRadius: 16,
     alignItems: "center",
@@ -678,10 +721,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
+    borderWidth: 1,
   },
   progressBar: {
     height: 4,
-    backgroundColor: "rgba(255, 255, 255, 0.3)",
     borderRadius: 2,
     width: "100%",
     marginVertical: 10,
@@ -690,7 +733,6 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 10,
     fontSize: 16,
-    color: "#ffffff",
     textAlign: "center",
   },
   warningModal: {
@@ -699,7 +741,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   warningModalContent: {
-    backgroundColor: "#1a1a1a",
     padding: 20,
     borderRadius: 16,
     alignItems: "center",
@@ -710,16 +751,13 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   warningTitle: {
     fontSize: 20,
-    color: "#FFD700",
     marginBottom: 10,
   },
   warningText: {
     fontSize: 16,
-    color: "#ffffff",
     textAlign: "center",
     marginBottom: 20,
   },
@@ -736,18 +774,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
   },
   cancelButton: {
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.3)",
   },
   deleteButtonModal: {
-    backgroundColor: "#ff6b6b",
     borderWidth: 1,
-    borderColor: "rgba(255, 0, 0, 0.5)",
   },
   warningButtonText: {
     fontSize: 16,
-    color: "#ffffff",
   },
 });
 

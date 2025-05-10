@@ -17,6 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
+import { useTheme } from "@/src/context/ThemeContext";
 
 interface Comment {
   id: string;
@@ -43,6 +44,7 @@ interface CommentsModalProps {
 
 const CommentsModal: React.FC<CommentsModalProps> = React.memo(
   ({ entityType, entityId, onClose, entityOwnerUsername }) => {
+    const { colors } = useTheme();
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState("");
     const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
@@ -149,7 +151,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
           .from(table)
           .select(`
             *,
-            user:profiles!comments_user_id_fkey (username, avatar_url)
+            user:profiles!${table === 'reel_comments' ? 'reel_comments_user_id_fkey' : 'comments_user_id_fkey'} (username, avatar_url)
           `)
           .eq(`${entityType}_id`, entityId)
           .order("created_at", { ascending: true });
@@ -519,7 +521,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
         // Add text before the mention
         if (mentionStart > lastIndex) {
           parts.push(
-            <Text key={`text-${lastIndex}`} style={styles.commentText}>
+            <Text key={`text-${lastIndex}`} style={[styles.commentText, { color: colors.text }]}>
               {text.slice(lastIndex, mentionStart)}
             </Text>
           );
@@ -533,7 +535,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
               key={`mention-${mentionStart}`}
               onPress={() => handleMentionClick(mentionedUser.user_id)}
             >
-              <Text style={[styles.commentText, styles.mentionText]}>
+              <Text style={[styles.commentText, { color: colors.primary }]}>
                 {match[0]}
               </Text>
             </TouchableOpacity>
@@ -541,7 +543,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
         } else {
           // If no matching user_id, render as plain text
           parts.push(
-            <Text key={`text-${mentionStart}`} style={styles.commentText}>
+            <Text key={`text-${mentionStart}`} style={[styles.commentText, { color: colors.text }]}>
               {match[0]}
             </Text>
           );
@@ -553,7 +555,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
       // Add remaining text after the last mention
       if (lastIndex < text.length) {
         parts.push(
-          <Text key={`text-${lastIndex}`} style={styles.commentText}>
+          <Text key={`text-${lastIndex}`} style={[styles.commentText, { color: colors.text }]}>
             {text.slice(lastIndex)}
           </Text>
         );
@@ -568,7 +570,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
           console.warn('Invalid user ID for mention click');
           return;
         }
-        
+
         router.push({
           pathname: '/userProfile/[id]',
           params: { id: userId }
@@ -590,11 +592,14 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
             ]}
           >
             <View style={styles.commentRow}>
-              <Image source={{ uri: avatarUri }} style={styles.avatar} />
+              <Image
+                source={{ uri: avatarUri }}
+                style={[styles.avatar, { borderColor: `${colors.primary}30` }]}
+              />
               <View style={styles.commentContentWrapper}>
                 <View style={styles.commentHeader}>
-                  <Text style={styles.username}>{comment.user.username}</Text>
-                  <Text style={styles.commentTime}>
+                  <Text style={[styles.username, { color: colors.text }]}>{comment.user.username}</Text>
+                  <Text style={[styles.commentTime, { color: colors.textSecondary }]}>
                     {new Date(comment.created_at).toLocaleTimeString([], {
                       hour: "2-digit",
                       minute: "2-digit",
@@ -609,7 +614,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                     onPress={() => setReplyingTo(comment)}
                     style={styles.actionButton}
                   >
-                    <Text style={styles.actionText}>Reply</Text>
+                    <Text style={[styles.actionText, { color: colors.textSecondary }]}>Reply</Text>
                   </TouchableOpacity>
                   {comment.user_id === user?.id && (
                     <TouchableOpacity
@@ -621,7 +626,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                       }
                       style={styles.actionButton}
                     >
-                      <Text style={[styles.actionText, styles.deleteText]}>
+                      <Text style={[styles.actionText, { color: colors.error }]}>
                         Delete
                       </Text>
                     </TouchableOpacity>
@@ -635,10 +640,12 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                 <Ionicons
                   name={comment.likes_count > 0 ? "heart" : "heart-outline"}
                   size={18}
-                  color={comment.likes_count > 0 ? "#FF3040" : "#FFFFFF"}
+                  color={comment.likes_count > 0 ? colors.error : colors.text}
                 />
                 {comment.likes_count > 0 && (
-                  <Text style={styles.likeCount}>{comment.likes_count}</Text>
+                  <Text style={[styles.likeCount, { color: colors.textSecondary }]}>
+                    {comment.likes_count}
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -653,7 +660,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
           </View>
         );
       },
-      [user, comments, entityType, handleLikeComment, handleDeleteComment]
+      [user, comments, entityType, handleLikeComment, handleDeleteComment, colors]
     );
 
     const searchUsers = async (query: string) => {
@@ -727,19 +734,28 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
     };
 
     const MentionsList = () => (
-      <View style={styles.mentionsContainer}>
+      <View style={[
+        styles.mentionsContainer,
+        {
+          backgroundColor: colors.backgroundSecondary,
+          borderColor: `${colors.primary}20`
+        }
+      ]}>
         {filteredUsers.length > 0 ? (
           filteredUsers.map((user) => (
             <TouchableOpacity
               key={user.id}
-              style={styles.mentionItem}
+              style={[
+                styles.mentionItem,
+                { borderBottomColor: `${colors.primary}10` }
+              ]}
               onPress={() => handleMentionSelect(user)}
             >
-              <Text style={styles.mentionText}>@{user.username}</Text>
+              <Text style={[styles.mentionText, { color: colors.primary }]}>@{user.username}</Text>
             </TouchableOpacity>
           ))
         ) : (
-          <Text style={styles.noMentionsText}>No users found</Text>
+          <Text style={[styles.noMentionsText, { color: colors.textSecondary }]}>No users found</Text>
         )}
       </View>
     );
@@ -748,24 +764,24 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
       <SafeAreaProvider>
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={styles.container}
+          style={[styles.container, { backgroundColor: colors.background }]}
         >
           <SafeAreaView style={{ flex: 1 }}>
-            <View style={styles.header}>
-              <Text style={styles.headerText}>Comments</Text>
+            <View style={[styles.header, { borderBottomColor: `${colors.primary}20` }]}>
+              <Text style={[styles.headerText, { color: colors.text }]}>Comments</Text>
               <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                <Ionicons name="close" size={24} color="#FFFFFF" />
+                <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
 
             {loading ? (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#FFFFFF" />
+                <ActivityIndicator size="large" color={colors.primary} />
               </View>
             ) : comments.length === 0 ? (
               <View style={styles.noCommentsContainer}>
-                <Text style={styles.noCommentsText}>No comments yet</Text>
-                <Text style={styles.noCommentsSubtext}>
+                <Text style={[styles.noCommentsText, { color: colors.text }]}>No comments yet</Text>
+                <Text style={[styles.noCommentsSubtext, { color: colors.textSecondary }]}>
                   Be the first to comment
                 </Text>
               </View>
@@ -779,27 +795,30 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
               />
             )}
 
-            <View style={styles.inputContainer}>
+            <View style={[styles.inputContainer, {
+              backgroundColor: colors.background,
+              borderTopColor: `${colors.primary}20`
+            }]}>
               {replyingTo && (
-                <View style={styles.replyingToContainer}>
-                  <Text style={styles.replyingToText}>
+                <View style={[styles.replyingToContainer, { backgroundColor: `${colors.primary}10` }]}>
+                  <Text style={[styles.replyingToText, { color: colors.primary }]}>
                     Replying to @{replyingTo.user.username}
                   </Text>
                   <TouchableOpacity onPress={() => setReplyingTo(null)}>
-                    <Ionicons name="close" size={16} color="#FFFFFF" />
+                    <Ionicons name="close" size={16} color={colors.primary} />
                   </TouchableOpacity>
                 </View>
               )}
-              <View style={styles.inputWrapper}>
+              <View style={[styles.inputWrapper, { backgroundColor: `${colors.backgroundTertiary}80` }]}>
                 <Image
                   source={{
                     uri: user?.avatar || "https://via.placeholder.com/40",
                   }}
-                  style={styles.inputAvatar}
+                  style={[styles.inputAvatar, { borderColor: `${colors.primary}30` }]}
                 />
                 <TextInput
                   ref={mentionInputRef}
-                  style={styles.input}
+                  style={[styles.input, { color: colors.text }]}
                   placeholder={
                     replyingTo
                       ? `Reply to @${replyingTo.user.username}...`
@@ -807,7 +826,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                           entityOwnerUsername || `this ${entityType}`
                         }...`
                   }
-                  placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                  placeholderTextColor={`${colors.textSecondary}80`}
                   value={newComment}
                   onChangeText={handleTextChange}
                   multiline
@@ -820,15 +839,15 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                   disabled={submitting || !newComment.trim()}
                 >
                   {submitting ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <ActivityIndicator size="small" color={colors.primary} />
                   ) : (
                     <Ionicons
                       name="send"
                       size={20}
                       color={
                         newComment.trim()
-                          ? "#FFD700"
-                          : "rgba(255, 255, 255, 0.3)"
+                          ? colors.primary
+                          : `${colors.textTertiary}80`
                       }
                     />
                   )}
@@ -846,7 +865,6 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#121212",
   },
   header: {
     flexDirection: "row",
@@ -855,12 +873,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 0.5,
-    borderBottomColor: "rgba(255, 255, 255, 0.1)",
   },
   headerText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#FFFFFF",
   },
   closeButton: {
     padding: 4,
@@ -879,12 +895,10 @@ const styles = StyleSheet.create({
   noCommentsText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#FFFFFF",
     marginBottom: 4,
   },
   noCommentsSubtext: {
     fontSize: 14,
-    color: "rgba(255, 255, 255, 0.6)",
   },
   commentsList: {
     flex: 1,
@@ -908,6 +922,7 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: 16,
     marginRight: 12,
+    borderWidth: 1,
   },
   commentContentWrapper: {
     flex: 1,
@@ -920,12 +935,10 @@ const styles = StyleSheet.create({
   username: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#FFFFFF",
     marginRight: 8,
   },
   commentTime: {
     fontSize: 12,
-    color: "rgba(255, 255, 255, 0.6)",
   },
   commentTextContainer: {
     flexDirection: "row",
@@ -933,11 +946,9 @@ const styles = StyleSheet.create({
   },
   commentText: {
     fontSize: 14,
-    color: "#FFFFFF",
     lineHeight: 20,
   },
   mentionText: {
-    color: "#FFD700",
     fontWeight: "600",
   },
   commentActions: {
@@ -949,10 +960,6 @@ const styles = StyleSheet.create({
   },
   actionText: {
     fontSize: 12,
-    color: "rgba(255, 255, 255, 0.6)",
-  },
-  deleteText: {
-    color: "#FF6B6B",
   },
   likeButton: {
     alignItems: "center",
@@ -962,7 +969,6 @@ const styles = StyleSheet.create({
   },
   likeCount: {
     fontSize: 12,
-    color: "rgba(255, 255, 255, 0.6)",
     marginTop: 2,
   },
   repliesList: {
@@ -971,26 +977,21 @@ const styles = StyleSheet.create({
   inputContainer: {
     padding: 16,
     borderTopWidth: 0.5,
-    borderTopColor: "rgba(255, 255, 255, 0.1)",
-    backgroundColor: "#121212",
   },
   replyingToContainer: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 8,
     padding: 8,
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
     borderRadius: 8,
   },
   replyingToText: {
     fontSize: 12,
-    color: "#FFD700",
     flex: 1,
   },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -1000,10 +1001,10 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: 16,
     marginRight: 12,
+    borderWidth: 1,
   },
   input: {
     flex: 1,
-    color: "#FFFFFF",
     fontSize: 14,
     maxHeight: 100,
     paddingVertical: 0,
@@ -1017,20 +1018,18 @@ const styles = StyleSheet.create({
     bottom: "100%",
     left: 16,
     right: 16,
-    backgroundColor: "#1a1a1a",
     borderRadius: 8,
     maxHeight: 200,
     marginBottom: 8,
     zIndex: 10,
+    borderWidth: 1,
   },
   mentionItem: {
     padding: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.1)",
   },
   noMentionsText: {
     padding: 12,
-    color: "rgba(255, 255, 255, 0.6)",
     fontSize: 14,
   },
 });

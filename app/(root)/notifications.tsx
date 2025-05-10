@@ -16,6 +16,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { notificationsAPI } from "@/lib/notificationsApi";
+import { useTheme } from "@/src/context/ThemeContext";
 
 interface Notification {
   id: string;
@@ -37,6 +38,7 @@ export default function NotificationsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const router = useRouter();
+  const { colors, isDarkMode } = useTheme();
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -169,25 +171,26 @@ export default function NotificationsScreen() {
       <TouchableOpacity
         style={[
           styles.notificationItem,
-          !notification.is_read && styles.unreadNotification,
+          { borderBottomColor: `${colors.primary}20` },
+          !notification.is_read && { backgroundColor: `${colors.primary}10` },
         ]}
         onPress={() => handleNotificationPress(notification)}
       >
         <Image
           source={{ uri: notification.sender.avatar_url }}
-          style={styles.avatar}
+          style={[styles.avatar, { borderColor: `${colors.primary}30` }]}
         />
         <View style={styles.notificationContent}>
-          <Text className="font-rubik-bold" style={styles.username}>
+          <Text className="font-rubik-bold" style={[styles.username, { color: colors.text }]}>
             {notification.sender.username}
           </Text>
-          <Text className="font-rubik-medium" style={styles.notificationText}>
+          <Text className="font-rubik-medium" style={[styles.notificationText, { color: colors.textSecondary }]}>
             {notification.type === "like" && "liked your post"}
             {notification.type === "comment" && "commented on your post"}
             {notification.type === "follow" && "started following you"}
             {notification.type === "mention" && "mentioned you in a post"}
           </Text>
-          <Text className="font-rubik-medium" style={styles.timeAgo}>
+          <Text className="font-rubik-medium" style={[styles.timeAgo, { color: colors.textTertiary }]}>
             {timeAgo}
           </Text>
         </View>
@@ -198,11 +201,11 @@ export default function NotificationsScreen() {
             handleDelete(notification.id);
           }}
         >
-          <Ionicons name="trash-outline" size={20} color="#FFD700" />
+          <Ionicons name="trash-outline" size={20} color={colors.primary} />
         </TouchableOpacity>
         {!notification.is_read && (
           <View style={styles.unreadDot}>
-            <Ionicons name="ellipse" size={10} color="#FFD700" />
+            <Ionicons name="ellipse" size={10} color={colors.primary} />
           </View>
         )}
       </TouchableOpacity>
@@ -212,32 +215,41 @@ export default function NotificationsScreen() {
   if (loading) {
     return (
       <LinearGradient
-        colors={["#000000", "#1a1a1a", "#2a2a2a"]}
+        colors={isDarkMode
+          ? [colors.background, colors.backgroundSecondary, colors.backgroundTertiary]
+          : [colors.background, colors.backgroundSecondary, colors.backgroundTertiary]
+        }
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.centered}
       >
-        <ActivityIndicator size="large" color="#FFD700" />
+        <ActivityIndicator size="large" color={colors.primary} />
       </LinearGradient>
     );
   }
 
   return (
     <LinearGradient
-      colors={["#000000", "#1a1a1a", "#2a2a2a"]}
+      colors={isDarkMode
+        ? [colors.background, colors.backgroundSecondary, colors.backgroundTertiary]
+        : [colors.background, colors.backgroundSecondary, colors.backgroundTertiary]
+      }
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
-      <View style={styles.header}>
-        <Text className="font-rubik-bold" style={styles.headerTitle}>
+      <View style={[styles.header, { borderBottomColor: `${colors.primary}20` }]}>
+        <Text className="font-rubik-bold" style={[styles.headerTitle, { color: colors.primary }]}>
           Notifications
         </Text>
         <TouchableOpacity
           onPress={() => router.back()}
-          style={styles.closeButton}
+          style={[styles.closeButton, {
+            backgroundColor: `${colors.primary}10`,
+            borderColor: `${colors.primary}30`
+          }]}
         >
-          <Ionicons name="close" size={24} color="#FFD700" />
+          <Ionicons name="close" size={24} color={colors.primary} />
         </TouchableOpacity>
       </View>
 
@@ -252,13 +264,13 @@ export default function NotificationsScreen() {
               setRefreshing(true);
               fetchNotifications();
             }}
-            tintColor="#FFD700"
-            colors={["#FFD700"]}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text className="font-rubik-medium" style={styles.emptyText}>
+            <Text className="font-rubik-medium" style={[styles.emptyText, { color: colors.textSecondary }]}>
               No notifications yet
             </Text>
           </View>
@@ -285,35 +297,26 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === "ios" ? 50 : 20,
     paddingBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 215, 0, 0.2)",
   },
   headerTitle: {
     fontSize: 20,
-    color: "#FFD700",
   },
   closeButton: {
     padding: 8,
     borderRadius: 20,
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   notificationItem: {
     flexDirection: "row",
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 215, 0, 0.2)",
     alignItems: "center",
-  },
-  unreadNotification: {
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
   },
   avatar: {
     width: 50,
     height: 50,
     borderRadius: 25,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   notificationContent: {
     flex: 1,
@@ -321,16 +324,13 @@ const styles = StyleSheet.create({
   },
   username: {
     fontSize: 16,
-    color: "#ffffff",
     marginBottom: 4,
   },
   notificationText: {
     fontSize: 14,
-    color: "rgba(255, 255, 255, 0.9)",
   },
   timeAgo: {
     fontSize: 12,
-    color: "rgba(255, 255, 255, 0.7)",
     marginTop: 4,
   },
   unreadDot: {
@@ -344,7 +344,6 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    color: "rgba(255, 255, 255, 0.7)",
   },
   deleteButton: {
     padding: 8,
