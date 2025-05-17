@@ -13,6 +13,7 @@ import { supabase } from "@/lib/supabase";
 import { Feather } from "@expo/vector-icons";
 import ThemedGradient from "@/components/ThemedGradient";
 import { useTheme } from "@/src/context/ThemeContext";
+import { e2eEncryption } from "@/lib/e2eEncryption";
 
 const SignUp = () => {
   const [email, setEmail] = useState("");
@@ -117,6 +118,9 @@ const SignUp = () => {
             is_active: false,
             created_at: new Date().toISOString(),
           });
+
+          // Note: We'll initialize encryption later when the user is fully authenticated
+          // This will happen in the create-profile.tsx file or when the user first logs in
         } catch (profileError) {
           console.error("Error creating profile:", profileError);
           // Continue even if profile creation fails

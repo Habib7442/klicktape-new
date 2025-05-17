@@ -14,6 +14,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 import { supabase, generateUsername, generateAnonymousRoomName } from "@/lib/supabase";
 import { router } from "expo-router";
+import { e2eEncryption } from "@/lib/e2eEncryption";
 
 // Define types
 type Gender = "male" | "female" | "other";
@@ -166,6 +167,53 @@ const CreateProfile = () => {
           { onConflict: "id" }
         );
       if (error) throw error;
+
+      // Initialize encryption for the user
+      // This is the main place where encryption keys should be generated
+      // since the user is fully authenticated at this point
+      try {
+        console.log("Initializing encryption during profile creation for user:", user.id);
+
+        // First, check if a public key already exists for this user
+        const { data: existingKey, error: checkError } = await supabase
+          .from('public_keys')
+          .select('user_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (checkError) {
+          console.error('Error checking for existing key:', checkError);
+        }
+
+        if (existingKey) {
+          console.log('Public key already exists for user, skipping generation');
+        } else {
+          // Generate a new key pair
+          console.log('Generating new key pair for user');
+          const keyPair = await e2eEncryption.generateKeyPair();
+
+          // Save private key securely
+          await e2eEncryption.savePrivateKey(keyPair.privateKey);
+
+          // Directly insert the public key since we're authenticated
+          const { error: insertError } = await supabase
+            .from('public_keys')
+            .insert({
+              user_id: user.id,
+              public_key: e2eEncryption.uint8ArrayToBase64(keyPair.publicKey)
+            });
+
+          if (insertError) {
+            console.error('Error inserting public key:', insertError);
+          } else {
+            console.log('Successfully inserted public key for user');
+          }
+        }
+      } catch (encryptionError) {
+        console.error("Error initializing encryption:", encryptionError);
+        // Continue even if encryption setup fails
+      }
+
       router.replace("/(root)/(tabs)/home");
     } catch (error: any) {
       Alert.alert("Error", error.message);
