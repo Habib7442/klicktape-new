@@ -9,6 +9,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
+      "icon": "./assets/images/appstore.png",
       "supportsTablet": true,
       "requireFullScreen": true,
       "bundleIdentifier": "com.flerid.klicktape",
@@ -18,7 +19,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/icon.png",
+        "foregroundImage": "./assets/images/playstore.png",
         "backgroundColor": "#000000"
       },
       "permissions": [
@@ -47,7 +48,6 @@
           "splash": {
             "image": "./assets/images/icon.png",
             "resizeMode": "contain",
-            "backgroundColor": "#121212",
             "imageWidth": 240,
             "imageHeight": 240
           },
@@ -92,10 +92,7 @@
           "supportsPictureInPicture": true
         }
       ],
-      [
-        "react-native-libsodium",
-        {}
-      ],
+      ["react-native-libsodium", {}],
       [
         "expo-location",
         {

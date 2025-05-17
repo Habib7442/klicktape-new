@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Image,
   Pressable,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,20 +22,39 @@ import Animated, {
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEvent } from 'expo';
 import { supabase } from '@/lib/supabase';
-import { reelsAPI } from '@/lib/reelsApi';
+import { useDispatch as useReduxDispatch } from 'react-redux';
+import { AppDispatch } from '@/src/store/store';
+import { toggleLike } from '@/src/store/slices/reelsSlice';
 
 const { width, height } = Dimensions.get('window');
 
+// Define a custom reel type that matches our local state structure
+interface ReelDetail {
+  id: string;
+  userId: string;
+  videoUrl: string;
+  thumbnailUrl: string;
+  caption: string;
+  likesCount: number;
+  commentsCount: number;
+  user: {
+    username: string;
+    avatar: string;
+  };
+  is_liked: boolean;
+}
+
 const ReelDetail = () => {
   const { id } = useLocalSearchParams();
-  const [reel, setReel] = useState(null);
+  const [reel, setReel] = useState<ReelDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [isLiked, setIsLiked] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [showFullCaption, setShowFullCaption] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const isMounted = useRef(true);
+  const dispatch = useReduxDispatch<AppDispatch>();
 
   // Initialize VideoPlayer with null source
   const player = useVideoPlayer(null, player => {
@@ -53,9 +73,9 @@ const ReelDetail = () => {
 
   // Listen to player status changes
   const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing });
-  const { status, error: playerError } = useEvent(player, 'statusChange', {
+  const { error: playerError } = useEvent(player, 'statusChange', {
     status: player.status,
-    error: null,
+    error: undefined,
   });
 
   useEffect(() => {
@@ -63,6 +83,8 @@ const ReelDetail = () => {
 
     const fetchReel = async () => {
       try {
+        if (!supabase) throw new Error('Supabase client not initialized');
+
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) throw new Error('User not authenticated');
 
@@ -93,6 +115,22 @@ const ReelDetail = () => {
           .eq('user_id', user.id)
           .single();
 
+        // Extract user data safely with type assertion
+        let username = 'Unknown User';
+        let avatarUrl = 'https://via.placeholder.com/150';
+
+        // Use type assertion to handle the user data
+        const userObj = data.user as any;
+        if (userObj) {
+          if (Array.isArray(userObj) && userObj.length > 0) {
+            username = userObj[0]?.username || username;
+            avatarUrl = userObj[0]?.avatar_url || avatarUrl;
+          } else if (typeof userObj === 'object') {
+            username = userObj.username || username;
+            avatarUrl = userObj.avatar_url || avatarUrl;
+          }
+        }
+
         const reelData = {
           id: data.id,
           userId: data.user_id,
@@ -101,7 +139,10 @@ const ReelDetail = () => {
           caption: data.caption || '',
           likesCount: data.likes_count || 0,
           commentsCount: data.comments_count || 0,
-          user: data.user || { username: 'Unknown User', avatar: 'https://via.placeholder.com/150' },
+          user: {
+            username: username,
+            avatar: avatarUrl
+          },
           is_liked: !!likeData,
         };
 
@@ -178,24 +219,70 @@ const ReelDetail = () => {
   }, [playerError, retryCount]);
 
   const handleLike = async () => {
-    try {
-      const { is_liked, likes_count } = await reelsAPI.toggleReelLike(reel.id, isLiked);
-      if (!isMounted.current) return;
+    if (!reel || !reel.id) {
+      console.error('Invalid reel ID:', reel?.id);
+      Alert.alert('Error', 'Cannot like this reel due to an invalid ID.');
+      return;
+    }
 
-      setIsLiked(is_liked);
-      scaleValues.like.value = withSpring(1.2, {}, () => {
-        scaleValues.like.value = withSpring(1);
-      });
-      setReel(prev => ({
+    // Calculate new state for optimistic update
+    const newIsLiked = !isLiked;
+    const newLikesCount = isLiked ? reel.likesCount - 1 : reel.likesCount + 1;
+
+    // Animate the like button
+    scaleValues.like.value = withSpring(1.2, {}, () => {
+      scaleValues.like.value = withSpring(1);
+    });
+
+    // Store original values in case we need to revert
+    const originalIsLiked = isLiked;
+    const originalLikesCount = reel.likesCount;
+
+    // Apply optimistic update locally
+    setIsLiked(newIsLiked);
+    setReel(prev => {
+      if (!prev) return prev;
+      return {
         ...prev,
-        likesCount: likes_count,
-      }));
-    } catch (error) {
+        likesCount: newLikesCount,
+      };
+    });
+
+    try {
+      // Make the actual API call
+      await dispatch(
+        toggleLike({
+          reelId: reel.id,
+          isLiked: originalIsLiked // Pass the original state, not the optimistically updated one
+        })
+      ).unwrap();
+
+      console.log('Like toggled successfully for reel:', reel.id);
+    } catch (error: any) {
       console.error('Error toggling like:', error);
+
+      // Revert the optimistic update if the API call fails
+      setIsLiked(originalIsLiked);
+      setReel(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          likesCount: originalLikesCount,
+        };
+      });
+
+      if (error?.message && !error.message.includes('duplicate key value')) {
+        Alert.alert(
+          'Error',
+          `Failed to toggle like: ${error.message || 'Unknown error'}`
+        );
+      }
     }
   };
 
   const handleShare = async () => {
+    if (!reel) return;
+
     try {
       await Share.share({
         message: `Check out this reel: ${reel.caption}\n${reel.videoUrl}`,
@@ -211,7 +298,7 @@ const ReelDetail = () => {
   };
 
   const handleComment = () => {
-    if (!isMounted.current) return;
+    if (!isMounted.current || !reel) return;
 
     scaleValues.comment.value = withSpring(1.2, {}, () => {
       scaleValues.comment.value = withSpring(1);
@@ -221,7 +308,13 @@ const ReelDetail = () => {
     } catch (err) {
       console.warn('Error pausing video before comment navigation:', err);
     }
-    router.push(`/reels-comments?reelId=${reel.id}`);
+    router.push({
+      pathname: "/reels-comments-screen",
+      params: {
+        reelId: reel.id,
+        reelOwnerUsername: reel.user.username,
+      },
+    });
   };
 
   const handleMute = () => {
@@ -256,7 +349,7 @@ const ReelDetail = () => {
   };
 
   const handleProfilePress = () => {
-    if (!isMounted.current) return;
+    if (!isMounted.current || !reel) return;
 
     console.log('Navigating to user profile with ID:', reel.userId);
     try {
@@ -341,7 +434,6 @@ const ReelDetail = () => {
         player={player}
         contentFit="contain"
         nativeControls={false}
-        posterSource={reel.thumbnailUrl ? { uri: reel.thumbnailUrl } : undefined}
       />
 
       <TouchableOpacity style={styles.backButton} onPress={handleBack}>

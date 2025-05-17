@@ -244,21 +244,21 @@ const simpleEncrypt = (message: string, key: Uint8Array): string => {
 };
 
 // Simple XOR decryption as a fallback
-const simpleDecrypt = (encoded: string, key: Uint8Array): string => {
-  try {
-    const message = decodeBase64(encoded);
-    let result = '';
-    for (let i = 0; i < message.length; i++) {
-      // XOR each character with a byte from the key (same operation as encrypt)
-      const charCode = message.charCodeAt(i) ^ key[i % key.length];
-      result += String.fromCharCode(charCode);
-    }
-    return result;
-  } catch (error) {
-    console.error('Error in simpleDecrypt:', error);
-    throw error;
-  }
-};
+// const simpleDecrypt = (encoded: string, key: Uint8Array): string => {
+//   try {
+//     const message = decodeBase64(encoded);
+//     let result = '';
+//     for (let i = 0; i < message.length; i++) {
+//       // XOR each character with a byte from the key (same operation as encrypt)
+//       const charCode = message.charCodeAt(i) ^ key[i % key.length];
+//       result += String.fromCharCode(charCode);
+//     }
+//     return result;
+//   } catch (error) {
+//     console.error('Error in simpleDecrypt:', error);
+//     throw error;
+//   }
+// };
 
 // Encrypt a message - try AES-CBC first, fall back to simple XOR if that fails
 export const encryptMessage = (message: string, sharedSecret: Uint8Array): EncryptedMessage => {
