@@ -21,6 +21,7 @@ import { supabase } from "@/lib/supabase";
 import { useDispatch, useSelector } from "react-redux";
 import { toggleLike, toggleBookmark } from "@/src/store/slices/postsSlice";
 import { RootState } from "@/src/store/store";
+import { useTheme } from "@/src/context/ThemeContext";
 
 const { width } = Dimensions.get("window");
 const IMAGE_HEIGHT = width * 0.9;
@@ -61,6 +62,12 @@ const PostDetailScreen = () => {
   const router = useRouter();
   const likeScale = useState(new Animated.Value(1))[0];
   const dispatch = useDispatch();
+  const { isDarkMode, colors } = useTheme();
+
+  // Define gradient colors based on theme
+  const gradientColors = isDarkMode
+    ? ["#121212", "#1e1e1e", "#2c2c2c"] as const
+    : ["#F8F9FA", "#F0F2F5", "#E9ECEF"] as const;
 
   // Get bookmark status from Redux store
   const bookmarkedPosts = useSelector(
@@ -76,7 +83,7 @@ const PostDetailScreen = () => {
     const fetchUser = async () => {
       const {
         data: { user },
-      } = await supabase.auth.getUser();
+      } = await supabase!.auth.getUser();
       setUserId(user?.id || null);
     };
 
@@ -87,7 +94,7 @@ const PostDetailScreen = () => {
   const fetchPostAndComments = async () => {
     try {
       setLoading(true);
-      const { data: postData, error: postError } = await supabase
+      const { data: postData, error: postError } = await supabase!
         .from("posts")
         .select(
           `
@@ -97,41 +104,61 @@ const PostDetailScreen = () => {
           created_at,
           likes_count,
           comments_count,
-          user:profiles!fk_posts_user (
+          user:profiles!posts_user_id_fkey (
             username,
             avatar_url
           )
-        `
+          `
         )
         .eq("id", id as string)
         .single();
 
-      if (postError || !postData)
+      if (postError || !postData) {
         throw postError || new Error("Post not found");
+      }
 
-      const { data: commentsData, error: commentsError } = await supabase
+      const { data: commentsData, error: commentsError } = await supabase!
         .from("comments")
         .select(
           `
           id,
           content,
           created_at,
-          user:user_id (
+          user:profiles!fk_comments_user (
             username,
             avatar_url
           )
-        `
+          `
         )
         .eq("post_id", id as string)
         .order("created_at", { ascending: false });
 
       if (commentsError) throw commentsError;
 
-      // Remove the local like status check since we're using Redux
-      setPost(postData as Post);
-      setComments(commentsData as Comment[]);
-    } catch (error) {
-      console.error("Error fetching post details:", error);
+      // Transform comments data to match the Comment type
+      const transformedComments = commentsData?.map((comment: any) => ({
+        id: comment.id,
+        content: comment.content,
+        created_at: comment.created_at,
+        user: {
+          username: (comment.user as any)?.username || "Unknown User",
+          avatar_url: (comment.user as any)?.avatar_url || "https://via.placeholder.com/150"
+        }
+      })) || [];
+
+      // Transform post data to match the Post type
+      const transformedPost = {
+        ...postData,
+        user: {
+          username: (postData.user as any)?.username || "Unknown User",
+          avatar_url: (postData.user as any)?.avatar_url || "https://via.placeholder.com/150"
+        }
+      };
+
+      setPost(transformedPost as Post);
+      setComments(transformedComments as Comment[]);
+    } catch (error: any) {
+      console.error("Error fetching post details:", error.message, error.details, error.hint);
     } finally {
       setLoading(false);
     }
@@ -173,7 +200,7 @@ const PostDetailScreen = () => {
       // Dispatch Redux action first for immediate UI update
       dispatch(toggleLike(post.id));
 
-      const { error } = await supabase.rpc("toggle_like", {
+      const { error } = await supabase!.rpc("toggle_like", {
         post_id: post.id,
         user_id: userId,
       });
@@ -182,7 +209,7 @@ const PostDetailScreen = () => {
     } catch (error) {
       // Revert the Redux state on error
       dispatch(toggleLike(post.id));
-      
+
       // Revert the post count
       setPost((prev) =>
         prev
@@ -205,7 +232,7 @@ const PostDetailScreen = () => {
       // Dispatch the action to update Redux store
       dispatch(toggleBookmark(post.id));
 
-      const { error } = await supabase.rpc("toggle_bookmark", {
+      const { error } = await supabase!.rpc("toggle_bookmark", {
         post_id: post.id,
         user_id: userId,
       });
@@ -222,7 +249,7 @@ const PostDetailScreen = () => {
     if (!userId || !post || !newComment.trim()) return;
 
     try {
-      const { data: commentData, error } = await supabase
+      const { data: commentData, error } = await supabase!
         .from("comments")
         .insert({
           post_id: post.id,
@@ -234,7 +261,7 @@ const PostDetailScreen = () => {
           id,
           content,
           created_at,
-          user:user_id (
+          user:profiles!fk_comments_user (
             username,
             avatar_url
           )
@@ -244,12 +271,23 @@ const PostDetailScreen = () => {
 
       if (error) throw error;
 
-      await supabase
+      await supabase!
         .from("posts")
         .update({ comments_count: post.comments_count + 1 })
         .eq("id", post.id);
 
-      setComments((prev) => [commentData as Comment, ...prev]);
+      // Transform the comment data to match the Comment type
+      const transformedComment = {
+        id: commentData.id,
+        content: commentData.content,
+        created_at: commentData.created_at,
+        user: {
+          username: (commentData.user as any)?.username || "You",
+          avatar_url: (commentData.user as any)?.avatar_url || "https://via.placeholder.com/150"
+        }
+      };
+
+      setComments((prev) => [transformedComment as Comment, ...prev]);
       setNewComment("");
       setPost((prev) =>
         prev ? { ...prev, comments_count: prev.comments_count + 1 } : null
@@ -270,12 +308,12 @@ const PostDetailScreen = () => {
   if (loading) {
     return (
       <LinearGradient
-        colors={["#121212", "#1e1e1e", "#2c2c2c"]}
+        colors={gradientColors}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.centered}
       >
-        <ActivityIndicator size="large" color="#FFD700" />
+        <ActivityIndicator size="large" color={colors.primary} />
       </LinearGradient>
     );
   }
@@ -283,41 +321,42 @@ const PostDetailScreen = () => {
   if (!post) {
     return (
       <LinearGradient
-        colors={["#121212", "#1e1e1e", "#2c2c2c"]}
+        colors={gradientColors}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.centered}
       >
-        <Text style={styles.errorText}>Post not found</Text>
+        <Text style={[styles.errorText, { color: colors.text }]}>Post not found</Text>
       </LinearGradient>
     );
   }
 
   return (
     <LinearGradient
-      colors={["#121212", "#1e1e1e", "#2c2c2c"]}
+      colors={gradientColors}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior={Platform.OS === "ios" ? "padding" : "padding"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}
         style={styles.container}
       >
         <ScrollView style={styles.scrollView}>
-          <View style={styles.header}>
+          <View style={[styles.header, { borderBottomColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.1)` }]}>
             <TouchableOpacity
               onPress={() => router.back()}
-              style={styles.backButton}
+              style={[styles.backButton, { backgroundColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.15)` }]}
             >
-              <Ionicons name="arrow-back" size={24} color="#FFD700" />
+              <Ionicons name="arrow-back" size={24} color={colors.primary} />
             </TouchableOpacity>
             <View style={styles.userInfo}>
               <Image
                 source={{ uri: post.user.avatar_url }}
-                style={styles.avatar}
+                style={[styles.avatar, { borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.4)` }]}
               />
-              <Text style={styles.username}>{post.user.username}</Text>
+              <Text style={[styles.username, { color: colors.text }]}>{post.user.username}</Text>
             </View>
           </View>
 
@@ -333,7 +372,7 @@ const PostDetailScreen = () => {
                 <Image
                   key={index}
                   source={{ uri: url }}
-                  style={styles.image}
+                  style={[styles.image, { borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.2)` }]}
                   resizeMode="contain"
                 />
               ))}
@@ -345,7 +384,8 @@ const PostDetailScreen = () => {
                     key={index}
                     style={[
                       styles.paginationDot,
-                      currentImageIndex === index && styles.activeDot,
+                      { backgroundColor: isDarkMode ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.3)" },
+                      currentImageIndex === index && [styles.activeDot, { backgroundColor: colors.primary }],
                     ]}
                   />
                 ))}
@@ -360,11 +400,11 @@ const PostDetailScreen = () => {
                   <Ionicons
                     name={isLiked ? "heart" : "heart-outline"}
                     size={28}
-                    color={isLiked ? "#FFD700" : "#ffffff"}
+                    color={isLiked ? colors.primary : colors.text}
                   />
                 </Animated.View>
               </TouchableOpacity>
-              <Text style={styles.count}>{post.likes_count} likes</Text>
+              <Text style={[styles.count, { color: colors.textSecondary }]}>{post.likes_count} likes</Text>
             </View>
 
             <TouchableOpacity
@@ -374,35 +414,40 @@ const PostDetailScreen = () => {
               <Ionicons
                 name={isBookmarked ? "bookmark" : "bookmark-outline"}
                 size={28}
-                color={isBookmarked ? "#FFD700" : "#ffffff"}
+                color={isBookmarked ? colors.primary : colors.text}
               />
             </TouchableOpacity>
           </View>
 
-          <View style={styles.captionContainer}>
-            <Text style={styles.username}>{post.user.username}</Text>
-            <Text style={styles.caption}>{post.caption}</Text>
-            <Text style={styles.timeAgo}>
+          <View style={[styles.captionContainer, { borderBottomColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.1)` }]}>
+            <Text style={[styles.username, { color: colors.text }]}>{post.user.username}</Text>
+            <Text style={[styles.caption, { color: colors.textSecondary }]}>{post.caption}</Text>
+            <Text style={[styles.timeAgo, { color: colors.textTertiary }]}>
               {moment(post.created_at).fromNow()}
             </Text>
           </View>
 
           <View style={styles.commentsSection}>
-            <Text style={styles.commentsHeader}>
+            <Text style={[styles.commentsHeader, { color: colors.text }]}>
               Comments ({post.comments_count})
             </Text>
             {comments.map((comment) => (
-              <View key={comment.id} style={styles.commentItem}>
+              <View key={comment.id} style={[styles.commentItem, {
+                backgroundColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.05)`,
+                borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.1)`
+              }]}>
                 <Image
-                  source={{ uri: comment.user.avatar_url }}  // Changed from avatar to avatar_url
-                  style={styles.commentAvatar}
+                  source={{ uri: comment.user.avatar_url }}
+                  style={[styles.commentAvatar, {
+                    borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.3)`
+                  }]}
                 />
                 <View style={styles.commentContent}>
-                  <Text style={styles.commentUsername}>
+                  <Text style={[styles.commentUsername, { color: colors.text }]}>
                     {comment.user.username}
                   </Text>
-                  <Text style={styles.commentText}>{comment.content}</Text>
-                  <Text style={styles.commentTime}>
+                  <Text style={[styles.commentText, { color: colors.textSecondary }]}>{comment.content}</Text>
+                  <Text style={[styles.commentTime, { color: colors.textTertiary }]}>
                     {moment(comment.created_at).fromNow()}
                   </Text>
                 </View>
@@ -411,13 +456,20 @@ const PostDetailScreen = () => {
           </View>
         </ScrollView>
 
-        <View style={styles.commentInput}>
+        <View style={[styles.commentInput, {
+          backgroundColor: isDarkMode ? "rgba(18, 18, 18, 0.9)" : "rgba(248, 249, 250, 0.9)",
+          borderTopColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.1)`
+        }]}>
           <TextInput
             placeholder="Add a comment..."
-            placeholderTextColor="rgba(255, 255, 255, 0.5)"
+            placeholderTextColor={isDarkMode ? "rgba(255, 255, 255, 0.5)" : "rgba(0, 0, 0, 0.5)"}
             value={newComment}
             onChangeText={setNewComment}
-            style={styles.input}
+            style={[styles.input, {
+              color: colors.text,
+              backgroundColor: isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.05)",
+              borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.3)`
+            }]}
             multiline
           />
           <TouchableOpacity
@@ -425,10 +477,14 @@ const PostDetailScreen = () => {
             disabled={!newComment.trim()}
             style={[
               styles.postButton,
+              {
+                backgroundColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.3)`,
+                borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.4)`
+              },
               !newComment.trim() && styles.disabledButton,
             ]}
           >
-            <Text style={styles.postButtonText}>Post</Text>
+            <Text style={[styles.postButtonText, { color: colors.text }]}>Post</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -450,7 +506,6 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 18,
-    color: "#ffffff",
     fontFamily: "Rubik-Regular",
   },
   header: {
@@ -459,12 +514,11 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingTop: Platform.OS === "ios" ? 50 : 30,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 215, 0, 0.1)",
+    marginBottom: 10,
   },
   backButton: {
     padding: 10,
     borderRadius: 20,
-    backgroundColor: "rgba(255, 215, 0, 0.15)",
     marginRight: 16,
   },
   userInfo: {
@@ -477,11 +531,9 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     marginRight: 10,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.4)",
   },
   username: {
     fontSize: 16,
-    color: "#ffffff",
     fontFamily: "Rubik-Bold",
   },
   imageContainer: {
@@ -493,7 +545,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginHorizontal: 16,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.2)",
   },
   pagination: {
     flexDirection: "row",
@@ -504,11 +555,10 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "rgba(255, 255, 255, 0.3)",
     marginHorizontal: 4,
   },
   activeDot: {
-    backgroundColor: "#FFD700",
+    // backgroundColor will be set dynamically
   },
   actions: {
     flexDirection: "row",
@@ -526,24 +576,20 @@ const styles = StyleSheet.create({
   count: {
     marginLeft: 12,
     fontSize: 14,
-    color: "rgba(255, 255, 255, 0.9)",
     fontFamily: "Rubik-Medium",
   },
   captionContainer: {
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 215, 0, 0.1)",
   },
   caption: {
     fontSize: 14,
-    color: "rgba(255, 255, 255, 0.9)",
     marginTop: 6,
     fontFamily: "Rubik-Regular",
     lineHeight: 20,
   },
   timeAgo: {
     fontSize: 12,
-    color: "rgba(255, 255, 255, 0.7)",
     marginTop: 8,
     fontFamily: "Rubik-Regular",
   },
@@ -553,18 +599,15 @@ const styles = StyleSheet.create({
   },
   commentsHeader: {
     fontSize: 18,
-    color: "#ffffff",
     marginBottom: 16,
     fontFamily: "Rubik-Medium",
   },
   commentItem: {
     flexDirection: "row",
     marginBottom: 16,
-    backgroundColor: "rgba(255, 215, 0, 0.05)",
     padding: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.1)",
   },
   commentAvatar: {
     width: 32,
@@ -572,26 +615,22 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginRight: 12,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   commentContent: {
     flex: 1,
   },
   commentUsername: {
     fontSize: 14,
-    color: "#ffffff",
     marginBottom: 4,
     fontFamily: "Rubik-Medium",
   },
   commentText: {
     fontSize: 14,
-    color: "rgba(255, 255, 255, 0.9)",
     fontFamily: "Rubik-Regular",
     lineHeight: 20,
   },
   commentTime: {
     fontSize: 12,
-    color: "rgba(255, 255, 255, 0.7)",
     marginTop: 4,
     fontFamily: "Rubik-Regular",
   },
@@ -599,37 +638,29 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255, 215, 0, 0.1)",
     alignItems: "center",
-    backgroundColor: "rgba(18, 18, 18, 0.9)",
   },
   input: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
     borderRadius: 24,
     paddingHorizontal: 16,
     paddingVertical: 12,
     marginRight: 12,
     maxHeight: 120,
-    color: "#ffffff",
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
     fontSize: 14,
     fontFamily: "Rubik-Regular",
   },
   postButton: {
-    backgroundColor: "rgba(255, 215, 0, 0.3)",
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.4)",
   },
   disabledButton: {
     opacity: 0.5,
   },
   postButtonText: {
-    color: "#ffffff",
     fontSize: 14,
     fontFamily: "Rubik-Medium",
   },

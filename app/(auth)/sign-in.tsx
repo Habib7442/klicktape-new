@@ -24,18 +24,69 @@ const SignIn = () => {
   const dispatch = useDispatch();
 
   const onSubmit = async () => {
-    if (!email || !password) {
-      Alert.alert("Error", "Please fill in all fields");
+    // Validate email
+    if (!email || email.trim().length === 0) {
+      Alert.alert("Error", "Please enter your email address");
       return;
     }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      Alert.alert("Error", "Please enter a valid email address");
+      return;
+    }
+
+    // Validate password
+    if (!password || password.trim().length === 0) {
+      Alert.alert("Error", "Please enter your password");
+      return;
+    }
+
+    // Check for Supabase client
     if (!supabase) {
       Alert.alert("Error", "Unable to connect to the service");
       return;
     }
+
+    // Sanitize inputs
+    const sanitizedEmail = email.trim().toLowerCase();
+
     setIsLoading(true);
     try {
+      // Add rate limiting check
+      const rateLimitKey = `signin_attempts_${sanitizedEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const storedAttempts = await AsyncStorage.getItem(rateLimitKey);
+      const attempts = storedAttempts ? JSON.parse(storedAttempts) : { count: 0, timestamp: 0 };
+
+      const now = Date.now();
+      const oneHour = 60 * 60 * 1000;
+
+      // Reset attempts if more than an hour has passed
+      if (now - attempts.timestamp > oneHour) {
+        attempts.count = 0;
+        attempts.timestamp = now;
+      }
+
+      // Check if too many attempts
+      if (attempts.count >= 5) {
+        const timeLeft = Math.ceil((attempts.timestamp + oneHour - now) / 60000);
+        Alert.alert(
+          "Too Many Attempts",
+          `You've made too many login attempts. Please try again in ${timeLeft} minutes.`
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      // Increment attempt counter
+      attempts.count += 1;
+      attempts.timestamp = now;
+      await AsyncStorage.setItem(rateLimitKey, JSON.stringify(attempts));
+
+      // Attempt to sign in
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: sanitizedEmail,
         password,
       });
       if (error) throw error;
@@ -80,20 +131,63 @@ const SignIn = () => {
   };
 
   const handleForgotPassword = async () => {
-    if (!email) {
+    // Validate email
+    if (!email || email.trim().length === 0) {
       Alert.alert("Error", "Please enter your email address");
       return;
     }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      Alert.alert("Error", "Please enter a valid email address");
+      return;
+    }
+
+    // Check for Supabase client
     if (!supabase) {
       Alert.alert("Error", "Unable to connect to the service");
       return;
     }
+
+    // Sanitize input
+    const sanitizedEmail = email.trim().toLowerCase();
+
+    // Add rate limiting for password reset
+    const rateLimitKey = `pwd_reset_${sanitizedEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const storedAttempts = await AsyncStorage.getItem(rateLimitKey);
+    const attempts = storedAttempts ? JSON.parse(storedAttempts) : { count: 0, timestamp: 0 };
+
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+
+    // Reset attempts if more than a day has passed
+    if (now - attempts.timestamp > oneDay) {
+      attempts.count = 0;
+      attempts.timestamp = now;
+    }
+
+    // Check if too many attempts (limit to 3 per day)
+    if (attempts.count >= 3) {
+      const timeLeft = Math.ceil((attempts.timestamp + oneDay - now) / (60 * 60 * 1000));
+      Alert.alert(
+        "Too Many Requests",
+        `You've made too many password reset requests. Please try again in ${timeLeft} hours.`
+      );
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const redirectUrl =   
-      'https://klicktape.com/reset-password.html';
+      // Increment attempt counter
+      attempts.count += 1;
+      attempts.timestamp = now;
+      await AsyncStorage.setItem(rateLimitKey, JSON.stringify(attempts));
 
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      // Use a secure, validated redirect URL
+      const redirectUrl = 'https://klicktape.com/reset-password.html';
+
+      const { error } = await supabase.auth.resetPasswordForEmail(sanitizedEmail, {
         redirectTo: redirectUrl,
       });
 

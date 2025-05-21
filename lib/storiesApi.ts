@@ -114,7 +114,7 @@ export const storiesAPI = {
           created_at,
           expires_at,
           viewed_by,
-          profiles!fk_stories_user (username, avatar_url)
+          profiles!stories_user_id_fkey (username, avatar_url)
           `
         )
         .gt("expires_at", new Date().toISOString())

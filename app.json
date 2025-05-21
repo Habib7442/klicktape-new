@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "klicktape",
+    "name": "Klicktape",
     "slug": "klicktape",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "icon": "./assets/images/appstore.png",
+      "icon": "./assets/images/ios-light.png",
       "supportsTablet": true,
       "requireFullScreen": true,
       "bundleIdentifier": "com.flerid.klicktape",
@@ -19,7 +19,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/playstore.png",
+        "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
       "permissions": [
@@ -41,15 +41,17 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/icon.png",
+          "imageResizeMode": "contain",
           "imageWidth": 240,
-          "resizeMode": "contain",
+          "imageHeight": 240,
           "backgroundColor": "#121212",
-          "splash": {
-            "image": "./assets/images/icon.png",
-            "resizeMode": "contain",
-            "imageWidth": 240,
-            "imageHeight": 240
+          "dark": {
+            "image": "./assets/images/splash-icon-dark.png",
+            "backgroundColor": "#121212"
+          },
+          "light": {
+            "image": "./assets/images/splash-icon-light.png",
+            "backgroundColor": "#FFFFFF"
           },
           "androidSplashResourceBackgroundColor": "#121212",
           "splashScreen": {

@@ -18,6 +18,7 @@ import { Video } from "expo-av";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
+import { useTheme } from "@/src/context/ThemeContext";
 
 interface ProfileParams extends Record<string, string | string[]> {
   id: string;
@@ -36,6 +37,12 @@ const UserProfile = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<"posts" | "reels">("posts");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const { isDarkMode, colors } = useTheme();
+
+  // Define gradient colors based on theme
+  const gradientColors = isDarkMode
+    ? ["#000000", "#1a1a1a", "#2a2a2a"] as const
+    : ["#F8F9FA", "#F0F2F5", "#E9ECEF"] as const;
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -132,14 +139,14 @@ const UserProfile = () => {
   const handleFollow = async () => {
     try {
       if (!currentUserId || !supabase) return;
-  
+
       // Ensure current user has a profile
       let { data: currentUserProfile, error: profileError } = await supabase
         .from("profiles")
         .select("id")
         .eq("id", currentUserId)
         .single();
-  
+
       if (profileError || !currentUserProfile) {
         // Create a profile for the current user
         const username = `user_${Math.random().toString(36).substring(2, 10)}`;
@@ -152,14 +159,14 @@ const UserProfile = () => {
           })
           .select()
           .single();
-  
+
         if (insertError || !newProfile) {
           console.error("Error creating user profile:", insertError);
           return;
         }
         currentUserProfile = newProfile;
       }
-  
+
       // Check if already following
       const { data: existingFollow, error: followError } = await supabase
         .from("follows")
@@ -167,19 +174,19 @@ const UserProfile = () => {
         .eq("follower_id", currentUserId)
         .eq("following_id", id)
         .single();
-  
+
       if (followError && followError.code !== "PGRST116") {
         console.error("Error checking follow status:", followError);
         return;
       }
-  
+
       if (existingFollow) {
         // Unfollow user
         const { error: deleteError } = await supabase
           .from("follows")
           .delete()
           .eq("id", existingFollow.id);
-  
+
         if (deleteError) {
           console.error("Error unfollowing user:", deleteError);
           return;
@@ -193,12 +200,12 @@ const UserProfile = () => {
             following_id: id,
             created_at: new Date().toISOString(),
           });
-  
+
         if (insertError) {
           console.error("Error following user:", insertError);
           return;
         }
-  
+
         // Create notification for the followed user
         try {
           const { error: notifError } = await supabase.from("notifications").insert({
@@ -215,7 +222,7 @@ const UserProfile = () => {
           console.error("Error creating follow notification:", notifError);
         }
       }
-  
+
       // Update UI
       setIsFollowing(!isFollowing);
       setUserProfile((prev: any) => ({
@@ -240,7 +247,9 @@ const UserProfile = () => {
   const renderPost = ({ item }: { item: any }) => (
     <View style={styles.postContainer}>
       <TouchableOpacity
-        style={styles.postThumbnail}
+        style={[styles.postThumbnail, {
+          backgroundColor: isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.05)"
+        }]}
         onPress={() => router.push(`/post/${item.id}`)}
       >
         <Image
@@ -254,7 +263,9 @@ const UserProfile = () => {
   const renderReel = ({ item }: { item: any }) => (
     <View style={styles.postContainer}>
       <TouchableOpacity
-        style={styles.postThumbnail}
+        style={[styles.postThumbnail, {
+          backgroundColor: isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.05)"
+        }]}
         onPress={() => router.push(`/reel/${item.id}`)}
       >
         <Video
@@ -272,13 +283,13 @@ const UserProfile = () => {
   if (loading || !userProfile) {
     return (
       <LinearGradient
-        colors={["#000000", "#1a1a1a", "#2a2a2a"]}
+        colors={gradientColors}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.container}
       >
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FFD700" />
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       </LinearGradient>
     );
@@ -287,20 +298,20 @@ const UserProfile = () => {
 
   return (
     <LinearGradient
-      colors={["#000000", "#1a1a1a", "#2a2a2a"]}
+      colors={gradientColors}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.2)` }]}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Feather name="arrow-left" size={24} color="#FFD700" />
+          <Feather name="arrow-left" size={24} color={colors.primary} />
         </TouchableOpacity>
-        <Text className="font-rubik-bold" style={styles.headerTitle}>
+        <Text className="font-rubik-bold" style={[styles.headerTitle, { color: colors.text }]}>
           {userProfile.username}
         </Text>
         <TouchableOpacity onPress={handleShare}>
-          <Feather name="share-2" size={24} color="#FFD700" />
+          <Feather name="share-2" size={24} color={colors.primary} />
         </TouchableOpacity>
       </View>
 
@@ -309,8 +320,8 @@ const UserProfile = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            tintColor="#FFD700"
-            colors={["#FFD700"]}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
         style={styles.scrollView}
@@ -318,30 +329,30 @@ const UserProfile = () => {
         <View style={styles.profileInfo}>
           <Image
             source={{ uri: userProfile.avatar_url }}
-            style={styles.profileImage}
+            style={[styles.profileImage, { borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.3)` }]}
           />
           <View style={styles.statsContainer}>
             <View style={styles.stat}>
-              <Text className="font-rubik-bold" style={styles.statNumber}>
+              <Text className="font-rubik-bold" style={[styles.statNumber, { color: colors.text }]}>
                 {userPosts.length + userReels.length}
               </Text>
-              <Text className="font-rubik-medium" style={styles.statLabel}>
+              <Text className="font-rubik-medium" style={[styles.statLabel, { color: colors.textSecondary }]}>
                 Posts
               </Text>
             </View>
             <View style={styles.stat}>
-              <Text className="font-rubik-bold" style={styles.statNumber}>
+              <Text className="font-rubik-bold" style={[styles.statNumber, { color: colors.text }]}>
                 {userProfile.followersCount}
               </Text>
-              <Text className="font-rubik-medium" style={styles.statLabel}>
+              <Text className="font-rubik-medium" style={[styles.statLabel, { color: colors.textSecondary }]}>
                 Followers
               </Text>
             </View>
             <View style={styles.stat}>
-              <Text className="font-rubik-bold" style={styles.statNumber}>
+              <Text className="font-rubik-bold" style={[styles.statNumber, { color: colors.text }]}>
                 {userProfile.followingCount}
               </Text>
-              <Text className="font-rubik-medium" style={styles.statLabel}>
+              <Text className="font-rubik-medium" style={[styles.statLabel, { color: colors.textSecondary }]}>
                 Following
               </Text>
             </View>
@@ -349,10 +360,10 @@ const UserProfile = () => {
         </View>
 
         <View style={styles.bioSection}>
-          <Text className="font-rubik-bold" style={styles.username}>
+          <Text className="font-rubik-bold" style={[styles.username, { color: colors.text }]}>
             {userProfile.username}
           </Text>
-          <Text className="font-rubik-medium" style={styles.bio}>
+          <Text className="font-rubik-medium" style={[styles.bio, { color: colors.textSecondary }]}>
             {userProfile.bio}
           </Text>
           {currentUserId !== id && (
@@ -360,24 +371,33 @@ const UserProfile = () => {
               <TouchableOpacity
                 style={[
                   styles.followButton,
-                  isFollowing && styles.followingButton,
+                  {
+                    backgroundColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.2)`,
+                    borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.3)`
+                  },
+                  isFollowing && [styles.followingButton, {
+                    backgroundColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.1)`
+                  }],
                 ]}
                 onPress={handleFollow}
               >
                 <Text
                   className="font-rubik-bold"
-                  style={styles.followButtonText}
+                  style={[styles.followButtonText, { color: colors.text }]}
                 >
                   {isFollowing ? "Following" : "Follow"}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.messageButton}
+                style={[styles.messageButton, {
+                  backgroundColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.1)`,
+                  borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.3)`
+                }]}
                 onPress={() => router.push(`/chat/${id}`)}
               >
                 <Text
                   className="font-rubik-bold"
-                  style={styles.followButtonText}
+                  style={[styles.followButtonText, { color: colors.text }]}
                 >
                   Message
                 </Text>
@@ -386,28 +406,34 @@ const UserProfile = () => {
           )}
         </View>
 
-        <View style={styles.tabsContainer}>
+        <View style={[styles.tabsContainer, { borderTopColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.2)` }]}>
           <TouchableOpacity
-            style={[styles.tab, activeTab === "posts" && styles.activeTab]}
+            style={[
+              styles.tab,
+              activeTab === "posts" && [styles.activeTab, { borderBottomColor: colors.primary }]
+            ]}
             onPress={() => setActiveTab("posts")}
           >
             <MaterialCommunityIcons
               name="grid"
               size={24}
               color={
-                activeTab === "posts" ? "#FFD700" : "rgba(255, 255, 255, 0.7)"
+                activeTab === "posts" ? colors.primary : colors.textSecondary
               }
             />
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.tab, activeTab === "reels" && styles.activeTab]}
+            style={[
+              styles.tab,
+              activeTab === "reels" && [styles.activeTab, { borderBottomColor: colors.primary }]
+            ]}
             onPress={() => setActiveTab("reels")}
           >
             <Feather
               name="video"
               size={24}
               color={
-                activeTab === "reels" ? "#FFD700" : "rgba(255, 255, 255, 0.7)"
+                activeTab === "reels" ? colors.primary : colors.textSecondary
               }
             />
           </TouchableOpacity>
@@ -422,7 +448,7 @@ const UserProfile = () => {
           contentContainerStyle={styles.postsContainer}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Text className="font-rubik-medium" style={styles.emptyText}>
+              <Text className="font-rubik-medium" style={[styles.emptyText, { color: colors.textSecondary }]}>
                 No {activeTab} yet
               </Text>
             </View>
@@ -445,11 +471,9 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 215, 0, 0.2)",
   },
   headerTitle: {
     fontSize: 20,
-    color: "#ffffff",
   },
   profileInfo: {
     flexDirection: "row",
@@ -462,7 +486,6 @@ const styles = StyleSheet.create({
     borderRadius: 45,
     marginRight: 16,
     borderWidth: 2,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   statsContainer: {
     flex: 1,
@@ -474,10 +497,8 @@ const styles = StyleSheet.create({
   },
   statNumber: {
     fontSize: 18,
-    color: "#ffffff",
   },
   statLabel: {
-    color: "rgba(255, 255, 255, 0.7)",
     fontSize: 14,
   },
   bioSection: {
@@ -486,11 +507,9 @@ const styles = StyleSheet.create({
   },
   username: {
     fontSize: 16,
-    color: "#ffffff",
   },
   bio: {
     marginTop: 6,
-    color: "rgba(255, 255, 255, 0.9)",
     fontSize: 14,
   },
   actionButtonsContainer: {
@@ -504,12 +523,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
     alignItems: "center",
-    backgroundColor: "rgba(255, 215, 0, 0.2)",
   },
   followingButton: {
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
+    // Will be set dynamically
   },
   messageButton: {
     flex: 1,
@@ -517,18 +534,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
     alignItems: "center",
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
   },
   followButtonText: {
-    color: "#ffffff",
     fontSize: 14,
   },
   tabsContainer: {
     flexDirection: "row",
     borderTopWidth: 1,
-    borderTopColor: "rgba(255, 215, 0, 0.2)",
   },
   tab: {
     flex: 1,
@@ -538,7 +551,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "transparent",
   },
   activeTab: {
-    borderBottomColor: "#FFD700",
+    // borderBottomColor will be set dynamically
   },
   loadingContainer: {
     flex: 1,
@@ -554,7 +567,6 @@ const styles = StyleSheet.create({
     margin: 6,
     borderRadius: 8,
     overflow: "hidden",
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
@@ -579,7 +591,6 @@ const styles = StyleSheet.create({
     width: Dimensions.get("window").width,
   },
   emptyText: {
-    color: "rgba(255, 255, 255, 0.7)",
     fontSize: 16,
   },
 });

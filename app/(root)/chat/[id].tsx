@@ -22,6 +22,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { messagesAPI } from "@/lib/messagesApi";
 import { useDispatch } from "react-redux";
 import { setUnreadMessageCount } from "@/src/store/slices/messageSlice";
+import { useTheme } from "@/src/context/ThemeContext";
 
 interface Message {
   id: string;
@@ -61,6 +62,12 @@ export default function ChatScreen() {
   const isUnmountedRef = useRef(false);
   const dispatch = useDispatch();
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+  const { isDarkMode, colors } = useTheme();
+
+  // Define gradient colors based on theme
+  const gradientColors = isDarkMode
+    ? ["#000000", "#1a1a1a", "#2a2a2a"] as const
+    : ["#F8F9FA", "#F0F2F5", "#E9ECEF"] as const;
 
   // Memoized functions
   const getCachedMessages = useCallback((chatId: string) => {
@@ -132,6 +139,11 @@ export default function ChatScreen() {
       );
       setMessages(sortedMessages);
       setCachedMessages(chatId, sortedMessages);
+
+      // Scroll to bottom after messages are loaded
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: false });
+      }, 300);
     } catch (error) {
       console.error("Failed to load messages:", error);
       Alert.alert("Error", "Failed to load messages: " + (error as Error).message);
@@ -289,7 +301,7 @@ export default function ChatScreen() {
     const chatId = [userId, recipientId].sort().join("-");
 
     const setupSubscriptions = async () => {
-      if (subscriptionRef.current) {
+      if (subscriptionRef.current && supabase) {
         try {
           await supabase.removeChannel(subscriptionRef.current);
         } catch (e) {
@@ -320,6 +332,10 @@ export default function ChatScreen() {
       setConnectionStatus("connecting");
 
       try {
+        if (!supabase) {
+          throw new Error("Supabase client not initialized");
+        }
+
         subscriptionRef.current = supabase
           .channel(`chat:${chatId}`)
           .on(
@@ -436,30 +452,46 @@ export default function ChatScreen() {
     };
   }, [userId, recipientId, dispatch]);
 
+  // Effect to scroll to bottom when messages change
+  useEffect(() => {
+    if (messages.length > 0 && !loading && flatListRef.current) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: false });
+      }, 200);
+    }
+  }, [messages, loading]);
+
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
       "keyboardDidShow",
       () => {
-        if (textInputRef.current) {
-          textInputRef.current.focus();
-        }
         if (flatListRef.current) {
-          flatListRef.current.scrollToEnd({ animated: true });
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }, 100);
         }
       }
     );
 
+    const keyboardWillShowListener = Platform.OS === 'ios'
+      ? Keyboard.addListener("keyboardWillShow", () => {
+          if (textInputRef.current) {
+            textInputRef.current.focus();
+          }
+        })
+      : { remove: () => {} };
+
     const keyboardDidHideListener = Keyboard.addListener(
       "keyboardDidHide",
       () => {
-        if (textInputRef.current) {
-          textInputRef.current.blur();
-        }
+        // We don't want to automatically blur the input when keyboard hides
+        // This allows users to continue typing after dismissing keyboard
       }
     );
 
     return () => {
       keyboardDidShowListener.remove();
+      keyboardWillShowListener.remove();
       keyboardDidHideListener.remove();
     };
   }, []);
@@ -469,8 +501,21 @@ export default function ChatScreen() {
       ...styles.messageBubble,
       backgroundColor:
         item.sender_id === userId
-          ? "rgba(255, 229, 92, 0.2)"
-          : "rgba(255, 255, 255, 0.1)",
+          ? isDarkMode
+            ? "rgba(255, 229, 92, 0.2)"
+            : "rgba(184, 134, 11, 0.1)"
+          : isDarkMode
+            ? "rgba(255, 255, 255, 0.1)"
+            : "rgba(0, 0, 0, 0.05)",
+      borderColor:
+        item.sender_id === userId
+          ? isDarkMode
+            ? "rgba(255, 229, 92, 0.3)"
+            : "rgba(184, 134, 11, 0.2)"
+          : isDarkMode
+            ? "rgba(255, 255, 255, 0.2)"
+            : "rgba(0, 0, 0, 0.1)",
+      borderWidth: 1,
     };
 
     return (
@@ -486,29 +531,31 @@ export default function ChatScreen() {
               style={[
                 styles.username,
                 item.sender_id === userId
-                  ? styles.userUsername
-                  : styles.otherUsername,
+                  ? { color: colors.primary }
+                  : { color: colors.textSecondary },
               ]}
             >
               {item.sender_id === userId ? "You" : "Other User"}
             </Text>
           </View>
           <Text
-            style={
+            style={[
               item.sender_id === userId
                 ? styles.userMessageText
-                : styles.otherMessageText
-            }
+                : styles.otherMessageText,
+              { color: colors.text }
+            ]}
           >
             {item.content || item.encrypted_content}
           </Text>
           <View style={styles.messageFooter}>
             <Text
-              style={
+              style={[
                 item.sender_id === userId
                   ? styles.userTimestamp
-                  : styles.otherTimestamp
-              }
+                  : styles.otherTimestamp,
+                { color: colors.textTertiary }
+              ]}
             >
               {new Date(item.created_at).toLocaleTimeString([], {
                 hour: "2-digit",
@@ -525,7 +572,7 @@ export default function ChatScreen() {
                     : "clock"
                 }
                 size={14}
-                color={item.status === "read" ? "#FFE55C" : "rgba(255, 255, 255, 0.6)"}
+                color={item.status === "read" ? colors.primary : colors.textSecondary}
                 style={styles.statusIcon}
               />
             )}
@@ -533,28 +580,31 @@ export default function ChatScreen() {
         </View>
       </View>
     );
-  }, [userId]);
+  }, [userId, isDarkMode, colors]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: isDarkMode ? "#000000" : "#F8F9FA" }]}>
       <LinearGradient
-        colors={["#000000", "#1a1a1a", "#2a2a2a"]}
+        colors={gradientColors}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.container}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 20}
+          behavior={Platform.OS === "ios" ? "padding" : "padding"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
           style={styles.keyboardAvoidingView}
           enabled
         >
           <View style={styles.content}>
-            <View style={styles.header}>
+            <View style={[styles.header, {
+              borderBottomColor: `rgba(${isDarkMode ? '255, 229, 92' : '184, 134, 11'}, 0.2)`,
+              backgroundColor: isDarkMode ? "rgba(40, 50, 50, 0.5)" : "rgba(248, 249, 250, 0.8)"
+            }]}>
               <TouchableOpacity onPress={() => router.back()}>
-                <Feather name="arrow-left" size={24} color="#FFE55C" />
+                <Feather name="arrow-left" size={24} color={colors.primary} />
               </TouchableOpacity>
-              <Text style={styles.headerTitle}>Chat</Text>
+              <Text style={[styles.headerTitle, { color: colors.text }]}>Chat</Text>
               {connectionStatus === "disconnected" && (
                 <Text style={styles.connectionWarning}>Offline</Text>
               )}
@@ -562,7 +612,7 @@ export default function ChatScreen() {
 
             {loading ? (
               <View style={styles.center}>
-                <ActivityIndicator size="large" color="#FFE55C" />
+                <ActivityIndicator size="large" color={colors.primary} />
               </View>
             ) : (
               <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
@@ -571,9 +621,12 @@ export default function ChatScreen() {
                   data={messages}
                   renderItem={renderMessage}
                   keyExtractor={(item) => item.id}
-                  contentContainerStyle={[styles.messageList, { justifyContent: 'flex-end' }]}
+                  contentContainerStyle={[styles.messageList, {
+                    justifyContent: 'flex-end',
+                    flexGrow: 1
+                  }]}
                   style={styles.flatList}
-                  keyboardShouldPersistTaps="handled"
+                  keyboardShouldPersistTaps="always"
                   inverted={false}
                   initialNumToRender={20}
                   maxToRenderPerBatch={10}
@@ -582,23 +635,36 @@ export default function ChatScreen() {
                   onContentSizeChange={() => {
                     flatListRef.current?.scrollToEnd({ animated: false });
                   }}
+                  onLayout={() => {
+                    // Scroll to bottom when the layout is first calculated
+                    flatListRef.current?.scrollToEnd({ animated: false });
+                  }}
                 />
               </TouchableWithoutFeedback>
             )}
 
             {recipientTyping && (
-              <View style={styles.typingIndicator}>
-                <Text style={styles.typingText}>User is typing...</Text>
+              <View style={[styles.typingIndicator, {
+                backgroundColor: isDarkMode ? 'rgba(40, 50, 50, 0.7)' : 'rgba(248, 249, 250, 0.7)'
+              }]}>
+                <Text style={[styles.typingText, { color: colors.textSecondary }]}>User is typing...</Text>
               </View>
             )}
 
-            <View style={styles.inputContainer}>
+            <View style={[styles.inputContainer, {
+              borderTopColor: `rgba(${isDarkMode ? '255, 229, 92' : '184, 134, 11'}, 0.2)`,
+              backgroundColor: isDarkMode ? "rgba(40, 50, 50, 0.5)" : "rgba(248, 249, 250, 0.8)"
+            }]}>
               <View style={styles.inputWrapper}>
                 <TextInput
                   ref={textInputRef}
-                  style={styles.textInput}
+                  style={[styles.textInput, {
+                    backgroundColor: isDarkMode ? "rgba(255, 229, 92, 0.1)" : "rgba(184, 134, 11, 0.05)",
+                    borderColor: `rgba(${isDarkMode ? '255, 229, 92' : '184, 134, 11'}, 0.3)`,
+                    color: colors.text
+                  }]}
                   placeholder="Type a message..."
-                  placeholderTextColor="rgba(255, 229, 92, 0.7)"
+                  placeholderTextColor={isDarkMode ? "rgba(255, 229, 92, 0.7)" : "rgba(184, 134, 11, 0.7)"}
                   value={newMessage}
                   onChangeText={(text) => {
                     setNewMessage(text);
@@ -608,9 +674,12 @@ export default function ChatScreen() {
                 />
                 <TouchableOpacity
                   onPress={sendMessage}
-                  style={styles.sendButton}
+                  style={[styles.sendButton, {
+                    backgroundColor: isDarkMode ? "rgba(255, 229, 92, 0.2)" : "rgba(184, 134, 11, 0.1)",
+                    borderColor: `rgba(${isDarkMode ? '255, 229, 92' : '184, 134, 11'}, 0.4)`
+                  }]}
                 >
-                  <Feather name="send" size={20} color="#FFE55C" />
+                  <Feather name="send" size={20} color={colors.primary} />
                 </TouchableOpacity>
               </View>
             </View>
@@ -624,7 +693,6 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#000000",
   },
   container: {
     flex: 1,
@@ -636,6 +704,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     flexDirection: "column",
+    justifyContent: "space-between",
   },
   header: {
     flexDirection: "row",
@@ -643,13 +712,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 229, 92, 0.2)",
-    backgroundColor: "rgba(40, 50, 50, 0.5)",
   },
   headerTitle: {
     fontSize: 20,
     fontFamily: "Rubik-Bold",
-    color: "#FFE55C",
     flex: 1,
     marginLeft: 16,
   },
@@ -700,20 +766,18 @@ const styles = StyleSheet.create({
     fontFamily: "Rubik-Medium",
   },
   userUsername: {
-    color: "#FFE55C",
+    // Color will be set dynamically
   },
   otherUsername: {
-    color: "rgba(255, 255, 255, 0.7)",
+    // Color will be set dynamically
   },
   userMessageText: {
     fontSize: 16,
     fontFamily: "Rubik-Medium",
-    color: "#ffffff",
   },
   otherMessageText: {
     fontSize: 16,
     fontFamily: "Rubik-Medium",
-    color: "#ffffff",
   },
   messageFooter: {
     flexDirection: "row",
@@ -723,13 +787,11 @@ const styles = StyleSheet.create({
   userTimestamp: {
     fontSize: 12,
     fontFamily: "Rubik-Regular",
-    color: "rgba(255, 255, 255, 0.7)",
     marginRight: 8,
   },
   otherTimestamp: {
     fontSize: 12,
     fontFamily: "Rubik-Regular",
-    color: "rgba(255, 255, 255, 0.6)",
     marginRight: 8,
   },
   statusIcon: {
@@ -739,14 +801,13 @@ const styles = StyleSheet.create({
     padding: 8,
     paddingHorizontal: 4,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255, 229, 92, 0.2)",
-    backgroundColor: "rgba(40, 50, 50, 0.5)",
     position: 'relative',
     bottom: 0,
     left: 0,
     right: 0,
     zIndex: 10,
     minHeight: 60,
+    justifyContent: 'flex-end',
   },
   inputWrapper: {
     flexDirection: "row",
@@ -755,32 +816,26 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    backgroundColor: "rgba(255, 229, 92, 0.1)",
     borderRadius: 25,
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 16,
     fontFamily: "Rubik-Medium",
-    color: "#ffffff",
     marginRight: 12,
     maxHeight: 100,
     borderWidth: 1,
-    borderColor: "rgba(255, 229, 92, 0.3)",
   },
   sendButton: {
-    backgroundColor: "rgba(255, 229, 92, 0.2)",
     width: 44,
     height: 44,
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(255, 229, 92, 0.4)",
   },
   typingIndicator: {
     padding: 10,
     alignItems: "flex-start",
-    backgroundColor: 'rgba(40, 50, 50, 0.7)',
     position: 'absolute',
     bottom: 0,
     left: 0,
@@ -789,7 +844,6 @@ const styles = StyleSheet.create({
   typingText: {
     fontSize: 14,
     fontFamily: "Rubik-Medium",
-    color: "rgba(255, 255, 255, 0.6)",
     fontStyle: "italic",
   },
 });

@@ -80,7 +80,7 @@ const Posts = () => {
         .select(
           `
           *,
-          user:profiles!posts_user_id_fkey(username, avatar_url),
+          profiles(username, avatar_url),
           likes!likes_post_id_fkey(user_id),
           bookmarks!bookmarks_post_id_fkey(user_id),
           comments:comments!comments_post_id_fkey(id)
@@ -125,12 +125,17 @@ const Posts = () => {
           actualCommentsCount
         });
 
+        // Extract user data from profiles
+        const profileData = post.profiles || {};
+        const username = profileData.username || "Unknown User";
+        const avatar_url = profileData.avatar_url || "https://via.placeholder.com/150";
+
         return {
           ...post,
           is_liked: isLiked,
           is_bookmarked: isBookmarked,
           comments_count: actualCommentsCount, // Use the actual count from the comments array
-          user: post.user || { username: "Unknown User", avatar_url: "https://via.placeholder.com/150" },
+          user: { username, avatar_url },
         };
       });
 

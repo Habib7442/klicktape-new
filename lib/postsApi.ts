@@ -129,7 +129,7 @@ export const postsAPI = {
         .select(
           `
           *,
-          profiles:profiles!posts_user_id_fkey (username, avatar_url)
+          profiles(username, avatar_url)
         `
         )
         .order("created_at", { ascending: false })
@@ -157,7 +157,7 @@ export const postsAPI = {
         .select(
           `
           *,
-          profiles:profiles!posts_user_id_fkey (username, avatar_url)
+          profiles(username, avatar_url)
         `
         )
         .eq("id", postId)
@@ -165,8 +165,8 @@ export const postsAPI = {
 
       if (error) throw error;
       return {
-        ...post,
-        user: post.profiles || {
+        ...data,
+        user: data.profiles || {
           username: "Unknown User",
           avatar: "https://via.placeholder.com/150",
         },
@@ -346,7 +346,7 @@ export const postsAPI = {
         .select(
           `
           *,
-          profiles:profiles!comments_user_id_fkey (username, avatar_url)
+          profiles(username, avatar_url)
         `
         )
         .eq("post_id", postId)
@@ -479,7 +479,7 @@ export const postsAPI = {
         .select(
           `
           *,
-          profiles:profiles!posts_user_id_fkey (username, avatar_url)
+          profiles(username, avatar_url)
         `
         )
         .in("id", postIds);

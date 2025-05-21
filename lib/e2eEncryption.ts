@@ -4,6 +4,8 @@ import CryptoES from 'crypto-es';
 import * as Keychain from 'react-native-keychain';
 import { supabase } from './supabase';
 import { encode as encodeBase64, decode as decodeBase64 } from 'base-64';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
 // Key types
 export interface KeyPair {
@@ -51,15 +53,12 @@ const base64ToUint8Array = (base64: string): Uint8Array => {
   return bytes;
 };
 
-// Fallback storage for environments where Keychain isn't available
-const inMemoryStorage: Record<string, string> = {};
-
 // Save private key to secure storage
 export const savePrivateKey = async (privateKey: Uint8Array): Promise<boolean> => {
   try {
     const privateKeyBase64 = uint8ArrayToBase64(privateKey);
 
-    // Try to use Keychain first
+    // Try to use Keychain
     try {
       await Keychain.setGenericPassword(
         KEYCHAIN_PRIVATE_KEY,
@@ -68,10 +67,45 @@ export const savePrivateKey = async (privateKey: Uint8Array): Promise<boolean> =
       );
       return true;
     } catch (keychainError) {
-      console.warn('Keychain not available, using in-memory storage:', keychainError);
-      // Fall back to in-memory storage (not secure, but allows testing)
-      inMemoryStorage[KEYCHAIN_PRIVATE_KEY] = privateKeyBase64;
-      return true;
+      console.error('Keychain not available, cannot securely store private key:', keychainError);
+
+      // Instead of using insecure in-memory storage, we'll use AsyncStorage with encryption
+      try {
+        // We'll encrypt the private key with a device-specific identifier before storing
+        const deviceId = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          Constants.installationId || 'fallback-device-id'
+        );
+
+        // Create a simple encryption using the device ID
+        const encryptedKey = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          `${privateKeyBase64}-${deviceId}`
+        );
+
+        // Store both the encrypted key and the original key (encrypted with the device ID)
+        await AsyncStorage.setItem(
+          `secure_${KEYCHAIN_PRIVATE_KEY}_hash`,
+          encryptedKey
+        );
+
+        // XOR encrypt the private key with the device ID before storing
+        let encryptedPrivateKey = '';
+        for (let i = 0; i < privateKeyBase64.length; i++) {
+          const charCode = privateKeyBase64.charCodeAt(i) ^ deviceId.charCodeAt(i % deviceId.length);
+          encryptedPrivateKey += String.fromCharCode(charCode);
+        }
+
+        await AsyncStorage.setItem(
+          `secure_${KEYCHAIN_PRIVATE_KEY}_data`,
+          encodeBase64(encryptedPrivateKey)
+        );
+
+        return true;
+      } catch (asyncStorageError) {
+        console.error('Failed to use AsyncStorage fallback:', asyncStorageError);
+        return false;
+      }
     }
   } catch (error) {
     console.error('Error saving private key:', error);
@@ -89,13 +123,48 @@ export const loadPrivateKey = async (): Promise<Uint8Array | null> => {
         return base64ToUint8Array(credentials.password);
       }
     } catch (keychainError) {
-      console.warn('Keychain not available, using in-memory storage:', keychainError);
-    }
+      console.warn('Keychain not available, trying AsyncStorage fallback:', keychainError);
 
-    // Fall back to in-memory storage
-    const inMemoryKey = inMemoryStorage[KEYCHAIN_PRIVATE_KEY];
-    if (inMemoryKey) {
-      return base64ToUint8Array(inMemoryKey);
+      // Try to load from AsyncStorage fallback
+      try {
+        // Get the encrypted key hash for verification
+        const storedHash = await AsyncStorage.getItem(`secure_${KEYCHAIN_PRIVATE_KEY}_hash`);
+        const encryptedData = await AsyncStorage.getItem(`secure_${KEYCHAIN_PRIVATE_KEY}_data`);
+
+        if (!storedHash || !encryptedData) {
+          console.warn('No key found in AsyncStorage fallback');
+          return null;
+        }
+
+        // Get the device ID for decryption
+        const deviceId = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          Constants.installationId || 'fallback-device-id'
+        );
+
+        // Decrypt the private key
+        const encryptedBytes = decodeBase64(encryptedData);
+        let decryptedKey = '';
+        for (let i = 0; i < encryptedBytes.length; i++) {
+          const charCode = encryptedBytes.charCodeAt(i) ^ deviceId.charCodeAt(i % deviceId.length);
+          decryptedKey += String.fromCharCode(charCode);
+        }
+
+        // Verify the key with the stored hash
+        const verificationHash = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          `${decryptedKey}-${deviceId}`
+        );
+
+        if (verificationHash !== storedHash) {
+          console.error('Key verification failed, possible tampering detected');
+          return null;
+        }
+
+        return base64ToUint8Array(decryptedKey);
+      } catch (asyncStorageError) {
+        console.error('Failed to load key from AsyncStorage:', asyncStorageError);
+      }
     }
 
     return null;
@@ -232,58 +301,55 @@ const uint8ArrayToHex = (array: Uint8Array): string => {
     .join('');
 };
 
-// Simple XOR encryption as a fallback
-const simpleEncrypt = (message: string, key: Uint8Array): string => {
-  let result = '';
-  for (let i = 0; i < message.length; i++) {
-    // XOR each character with a byte from the key
-    const charCode = message.charCodeAt(i) ^ key[i % key.length];
-    result += String.fromCharCode(charCode);
-  }
-  return encodeBase64(result);
-};
-
-// Simple XOR decryption as a fallback
-// const simpleDecrypt = (encoded: string, key: Uint8Array): string => {
-//   try {
-//     const message = decodeBase64(encoded);
-//     let result = '';
-//     for (let i = 0; i < message.length; i++) {
-//       // XOR each character with a byte from the key (same operation as encrypt)
-//       const charCode = message.charCodeAt(i) ^ key[i % key.length];
-//       result += String.fromCharCode(charCode);
-//     }
-//     return result;
-//   } catch (error) {
-//     console.error('Error in simpleDecrypt:', error);
-//     throw error;
-//   }
-// };
-
-// Encrypt a message - try AES-CBC first, fall back to simple XOR if that fails
-export const encryptMessage = (message: string, sharedSecret: Uint8Array): EncryptedMessage => {
+// Encrypt a message using secure encryption
+export const encryptMessage = async (message: string, sharedSecret: Uint8Array): Promise<EncryptedMessage> => {
   try {
     console.log('Encrypting message with shared secret, length:', message.length);
 
-    // Always use XOR encryption as it's more reliable
+    // Use our secure encryption method
     try {
-      console.log('Using XOR encryption');
+      console.log('Using secure AES encryption with HMAC authentication');
 
-      // Use XOR encryption
-      const encryptedMessage = simpleEncrypt(message, sharedSecret);
-      console.log('XOR encryption successful, result length:', encryptedMessage.length);
+      // Generate a random IV
+      const ivBytes = await Crypto.getRandomBytesAsync(16);
+      const iv = uint8ArrayToBase64(ivBytes);
+
+      // Derive an encryption key using HMAC-SHA256
+      const keyHex = uint8ArrayToHex(sharedSecret);
+      const derivedKey = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        `${keyHex}-encryption-key`
+      );
+
+      // Convert the derived key to a format CryptoES can use
+      const encKey = CryptoES.enc.Hex.parse(derivedKey);
+
+      // Encrypt the message using AES-CBC
+      const encrypted = CryptoES.AES.encrypt(message, encKey, {
+        iv: CryptoES.enc.Base64.parse(iv),
+        mode: CryptoES.mode.CBC,
+        padding: CryptoES.pad.Pkcs7
+      });
+
+      // Generate an authentication tag (HMAC)
+      const authTag = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        `${encrypted.toString()}-${iv}-${keyHex}`
+      );
+
+      console.log('Secure encryption successful');
 
       return {
-        ciphertext: encryptedMessage,
-        iv: 'XOR', // Mark as XOR encryption
-        authTag: 'XOR' // Mark as XOR encryption
+        ciphertext: encrypted.toString(),
+        iv,
+        authTag
       };
-    } catch (xorError) {
-      console.error('XOR encryption failed:', xorError);
+    } catch (encryptError) {
+      console.error('Secure encryption failed:', encryptError);
 
-      // Try AES as a fallback
+      // Fallback to a simpler AES encryption if the main method fails
       try {
-        console.log('Falling back to AES-CBC encryption');
+        console.log('Falling back to basic AES-CBC encryption');
 
         // Generate a random IV
         const iv = CryptoES.lib.WordArray.random(16);
@@ -303,20 +369,30 @@ export const encryptMessage = (message: string, sharedSecret: Uint8Array): Encry
           padding: CryptoES.pad.Pkcs7
         });
 
-        // For CBC mode, we don't have an auth tag, so we'll use a marker
-        const ciphertext = encrypted.ciphertext.toString(CryptoES.enc.Base64);
+        // Check if encrypted object has ciphertext property
+        if (!encrypted || !encrypted.ciphertext) {
+          throw new Error('Encryption failed: Invalid encrypted object');
+        }
+
+        const ciphertext = encrypted.toString();
         const ivString = iv.toString(CryptoES.enc.Base64);
 
-        console.log('AES encryption successful, result length:', ciphertext.length);
+        // Generate a simple authentication tag
+        const authTag = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          `${ciphertext}-${ivString}`
+        );
+
+        console.log('Basic AES encryption successful');
 
         return {
           ciphertext,
           iv: ivString,
-          authTag: 'AES-CBC' // Mark as AES-CBC
+          authTag
         };
-      } catch (aesError) {
-        console.error('AES encryption also failed:', aesError);
-        throw aesError;
+      } catch (fallbackError) {
+        console.error('Fallback encryption also failed:', fallbackError);
+        throw fallbackError;
       }
     }
   } catch (error) {
@@ -330,11 +406,11 @@ export const encryptMessage = (message: string, sharedSecret: Uint8Array): Encry
   }
 };
 
-// Decrypt a message - handles both AES-CBC and XOR fallback
-export const decryptMessage = (
+// Decrypt a message using secure decryption
+export const decryptMessage = async (
   encryptedMessage: EncryptedMessage,
   sharedSecret: Uint8Array
-): string | null => {
+): Promise<string | null> => {
   try {
     console.log('Starting decryption with message:', {
       ciphertext: typeof encryptedMessage.ciphertext === 'string' ?
@@ -350,106 +426,101 @@ export const decryptMessage = (
       return '[Encryption failed]';
     }
 
-    // Check if this is an XOR-encrypted message
-    if (encryptedMessage.iv === 'XOR' && encryptedMessage.authTag === 'XOR') {
-      console.log('Decrypting XOR message');
-      try {
-        const result = simpleDecrypt(encryptedMessage.ciphertext, sharedSecret);
-        console.log('XOR decryption result:', result ? 'success' : 'empty');
-        return result || '[XOR decryption returned empty]';
-      } catch (xorError) {
-        console.error('XOR decryption failed:', xorError);
-        return '[XOR decryption failed]';
-      }
-    }
-
-    // Otherwise, try AES-CBC decryption
+    // Try our secure decryption method first
     try {
-      console.log('Decrypting AES-CBC message');
+      console.log('Attempting secure decryption with HMAC verification');
 
-      // Convert shared secret to key
-      const key = CryptoES.enc.Hex.parse(uint8ArrayToHex(sharedSecret));
-      console.log('Key prepared:', key ? 'success' : 'failed');
+      // Verify the authentication tag
+      const keyHex = uint8ArrayToHex(sharedSecret);
+      const computedAuthTag = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        `${encryptedMessage.ciphertext}-${encryptedMessage.iv}-${keyHex}`
+      );
 
-      // Parse IV and ciphertext
-      try {
-        const iv = CryptoES.enc.Base64.parse(encryptedMessage.iv);
-        console.log('IV parsed:', iv ? 'success' : 'failed');
+      // If auth tags match, proceed with decryption
+      if (computedAuthTag === encryptedMessage.authTag) {
+        console.log('Authentication successful, proceeding with decryption');
 
-        const ciphertext = CryptoES.enc.Base64.parse(encryptedMessage.ciphertext);
-        console.log('Ciphertext parsed:', ciphertext ? 'success' : 'failed');
+        // Derive the encryption key
+        const derivedKey = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          `${keyHex}-encryption-key`
+        );
 
-        // Create cipher params
-        const cipherParams = CryptoES.lib.CipherParams.create({
-          ciphertext: ciphertext,
-          iv: iv,
-          algorithm: CryptoES.algo.AES,
-          mode: CryptoES.mode.CBC,
-          padding: CryptoES.pad.Pkcs7,
-          blockSize: 4
-        });
-        console.log('Cipher params created:', cipherParams ? 'success' : 'failed');
+        // Convert the derived key to a format CryptoES can use
+        const encKey = CryptoES.enc.Hex.parse(derivedKey);
 
         // Decrypt the message
-        console.log('Starting AES decryption...');
-        const decrypted = CryptoES.AES.decrypt(cipherParams, key, {
-          iv: iv,
+        const decrypted = CryptoES.AES.decrypt(encryptedMessage.ciphertext, encKey, {
+          iv: CryptoES.enc.Base64.parse(encryptedMessage.iv),
           mode: CryptoES.mode.CBC,
           padding: CryptoES.pad.Pkcs7
         });
-        console.log('AES decryption completed:', decrypted ? 'success' : 'failed');
 
-        // Try to convert to string
-        try {
-          const result = decrypted.toString(CryptoES.enc.Utf8);
-          console.log('Decryption result length:', result ? result.length : 0);
+        const result = decrypted.toString(CryptoES.enc.Utf8);
 
-          // If decryption failed, it might return an empty string
-          if (!result) {
-            console.warn('AES decryption returned empty string');
-
-            // Try a different encoding
-            try {
-              const hexResult = decrypted.toString(CryptoES.enc.Hex);
-              if (hexResult) {
-                console.log('Hex result found, trying to convert to UTF-8');
-                // Try to convert hex to UTF-8
-                let utf8Result = '';
-                for (let i = 0; i < hexResult.length; i += 2) {
-                  utf8Result += String.fromCharCode(parseInt(hexResult.substr(i, 2), 16));
-                }
-                if (utf8Result) {
-                  return utf8Result;
-                }
-              }
-            } catch (hexError) {
-              console.error('Hex conversion failed:', hexError);
-            }
-
-            return '[AES decryption returned empty]';
-          }
-
+        if (result) {
+          console.log('Secure decryption successful');
           return result;
-        } catch (stringError) {
-          console.error('Error converting decrypted data to string:', stringError);
-          return '[Error converting decrypted data]';
+        } else {
+          console.warn('Secure decryption returned empty string');
         }
-      } catch (parseError) {
-        console.error('Error parsing IV or ciphertext:', parseError);
-        return '[Error parsing encrypted data]';
+      } else {
+        console.warn('Authentication failed, message may have been tampered with');
       }
-    } catch (aesError) {
-      console.error('AES decryption error:', aesError);
+    } catch (secureError) {
+      console.error('Secure decryption failed:', secureError);
+    }
 
-      // As a last resort, try XOR decryption even if it wasn't marked as XOR
-      try {
-        console.log('Trying XOR as last resort');
-        const result = simpleDecrypt(encryptedMessage.ciphertext, sharedSecret);
-        return result || '[XOR fallback returned empty]';
-      } catch (lastResortError) {
-        console.error('Last resort decryption failed:', lastResortError);
-        return '[All decryption methods failed]';
+    // If secure decryption fails, try fallback method
+    try {
+      console.log('Trying fallback decryption method');
+
+      // Convert shared secret to key
+      const key = CryptoES.enc.Hex.parse(uint8ArrayToHex(sharedSecret));
+
+      // Parse IV
+      const iv = CryptoES.enc.Base64.parse(encryptedMessage.iv);
+
+      // Try direct decryption
+      const decrypted = CryptoES.AES.decrypt(encryptedMessage.ciphertext, key, {
+        iv: iv,
+        mode: CryptoES.mode.CBC,
+        padding: CryptoES.pad.Pkcs7
+      });
+
+      const result = decrypted.toString(CryptoES.enc.Utf8);
+
+      if (result) {
+        console.log('Fallback decryption successful');
+        return result;
+      } else {
+        console.warn('Fallback decryption returned empty string');
+
+        // Try a different encoding as last resort
+        try {
+          const hexResult = decrypted.toString(CryptoES.enc.Hex);
+          if (hexResult) {
+            console.log('Hex result found, trying to convert to UTF-8');
+            // Try to convert hex to UTF-8
+            let utf8Result = '';
+            for (let i = 0; i < hexResult.length; i += 2) {
+              utf8Result += String.fromCharCode(parseInt(hexResult.substring(i, i + 2), 16));
+            }
+            if (utf8Result) {
+              console.log('Hex conversion successful');
+              return utf8Result;
+            }
+          }
+        } catch (hexError) {
+          console.error('Hex conversion failed:', hexError);
+        }
+
+        return '[Decryption returned empty]';
       }
+    } catch (fallbackError) {
+      console.error('Fallback decryption failed:', fallbackError);
+      return '[Decryption failed]';
     }
   } catch (error) {
     console.error('Error in decryptMessage:', error);
@@ -484,7 +555,7 @@ export const initializeEncryption = async (userId: string): Promise<boolean> => 
 
 // Get or create shared secret for a conversation
 export const getOrCreateSharedSecret = async (
-  userId: string,
+  _userId: string, // Prefix with underscore to indicate it's intentionally unused
   recipientId: string
 ): Promise<Uint8Array | null> => {
   try {

@@ -24,19 +24,71 @@ const SignUp = () => {
   const { colors } = useTheme();
 
   const onSubmit = async () => {
-    // Validate input fields
-    if (
-      !email ||
-      !password ||
-      !name ||
-      password.length < 6 ||
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-    ) {
+    // Validate name
+    if (!name || name.trim().length === 0) {
+      Alert.alert("Error", "Please enter your full name");
+      return;
+    }
+
+    if (name.length > 100) {
+      Alert.alert("Error", "Name is too long (maximum 100 characters)");
+      return;
+    }
+
+    // Validate email with a more comprehensive regex
+    if (!email || email.trim().length === 0) {
+      Alert.alert("Error", "Please enter your email address");
+      return;
+    }
+
+    // More comprehensive email validation
+    const emailRegex = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+    if (!emailRegex.test(email)) {
+      Alert.alert("Error", "Please enter a valid email address");
+      return;
+    }
+
+    // Validate password
+    if (!password) {
+      Alert.alert("Error", "Please enter a password");
+      return;
+    }
+
+    if (password.length < 8) {
+      Alert.alert("Error", "Password must be at least 8 characters long");
+      return;
+    }
+
+    // Check for password strength
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasNumbers = /\d/.test(password);
+    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+
+    if (!(hasUpperCase && hasLowerCase && hasNumbers)) {
       Alert.alert(
-        "Error",
-        "Please fill in all fields with a valid email and password (min 6 characters)"
+        "Weak Password",
+        "Your password should contain at least one uppercase letter, one lowercase letter, and one number"
       );
       return;
+    }
+
+    // Recommend but don't require special characters
+    if (!hasSpecialChar) {
+      const continueWithWeakPassword = await new Promise((resolve) => {
+        Alert.alert(
+          "Password Recommendation",
+          "For better security, consider adding special characters to your password. Do you want to continue anyway?",
+          [
+            { text: "Improve Password", onPress: () => resolve(false) },
+            { text: "Continue", onPress: () => resolve(true) }
+          ]
+        );
+      });
+
+      if (!continueWithWeakPassword) {
+        return;
+      }
     }
 
     setIsLoading(true);
@@ -109,11 +161,18 @@ const SignUp = () => {
       if (data.user) {
         // Create a profile record with the user's name
         try {
+          // Sanitize inputs before storing in database
+          const sanitizedName = name.trim().replace(/[<>]/g, ''); // Basic XSS prevention
+          const sanitizedEmail = email.trim().toLowerCase();
+          const sanitizedUsername = email.split("@")[0]
+            .replace(/[^a-zA-Z0-9_]/g, '_') // Replace non-alphanumeric chars with underscore
+            .substring(0, 30); // Limit username length
+
           await supabase.from("profiles").insert({
             id: data.user.id,
-            username: email.split("@")[0], // Default username from email
-            full_name: name,
-            email: email, // Store the email in the profiles table
+            username: sanitizedUsername,
+            full_name: sanitizedName,
+            email: sanitizedEmail,
             avatar_url: null,
             is_active: false,
             created_at: new Date().toISOString(),
