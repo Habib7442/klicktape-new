@@ -1,39 +1,33 @@
 import React from 'react';
-import { ViewStyle } from 'react-native';
-import { LinearGradient, LinearGradientProps } from 'expo-linear-gradient';
-import { useThemedGradient } from '@/hooks/useThemedGradient';
+import { View, ViewStyle } from 'react-native';
+import { useTheme } from '@/src/context/ThemeContext';
 
-interface ThemedGradientProps extends Omit<LinearGradientProps, 'colors'> {
+interface ThemedGradientProps {
   style?: ViewStyle;
   children: React.ReactNode;
-  customColors?: readonly string[];
 }
 
 /**
- * A LinearGradient component that automatically uses theme-appropriate colors
- * 
- * @param props.customColors - Optional custom colors to override the theme colors
- * @param props.style - Style to apply to the gradient
+ * A View component that automatically uses theme-appropriate solid background colors
+ *
+ * @param props.style - Style to apply to the view
  * @param props.children - Child components
  */
 export const ThemedGradient: React.FC<ThemedGradientProps> = ({
   style,
   children,
-  customColors,
-  ...props
 }) => {
-  const { gradientColors, start, end } = useThemedGradient();
-  
+  const { isDarkMode } = useTheme();
+
   return (
-    <LinearGradient
-      colors={customColors || gradientColors}
-      start={start}
-      end={end}
-      style={style}
-      {...props}
+    <View
+      style={[
+        { backgroundColor: isDarkMode ? '#000000' : '#FFFFFF' },
+        style
+      ]}
     >
       {children}
-    </LinearGradient>
+    </View>
   );
 };
 

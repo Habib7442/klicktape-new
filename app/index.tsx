@@ -115,7 +115,7 @@ const Page = () => {
 
   // Handle authentication routing
   if (!isSignedIn) {
-    return <Redirect href="/(auth)/sign-in" />;
+    return <Redirect href="/(auth)/welcome" />;
   }
 
   return hasProfile ? (

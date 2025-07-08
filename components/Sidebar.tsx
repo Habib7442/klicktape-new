@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Image,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
@@ -16,7 +17,6 @@ import { closeSidebar } from "@/src/store/slices/sidebarSlice";
 import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "@/src/context/ThemeContext";
-import ThemedGradient from "@/components/ThemedGradient";
 
 const Sidebar = () => {
   const dispatch = useDispatch();
@@ -184,7 +184,8 @@ const Sidebar = () => {
           },
         ]}
       >
-        <ThemedGradient style={styles.sidebar}>
+        <SafeAreaView style={{ flex: 1 }}>
+          <View style={[styles.sidebar, { backgroundColor: colors.backgroundSecondary }]}>
           <View style={[styles.header, { borderBottomColor: `${colors.primary}30` }]}>
             <Text style={[styles.headerText, { color: colors.primary }]}>Klicktape</Text>
           </View>
@@ -194,8 +195,8 @@ const Sidebar = () => {
               style={[
                 styles.userInfo,
                 {
-                  backgroundColor: `${colors.primary}05`,
-                  borderColor: `${colors.primary}10`
+                  backgroundColor: colors.card,
+                  borderColor: colors.cardBorder
                 }
               ]}
               onPress={() => {
@@ -231,19 +232,19 @@ const Sidebar = () => {
                   <Text style={[styles.statNumber, { color: colors.text }]}>
                     {userProfile.postsCount || 0}
                   </Text>
-                  <Text style={[styles.statLabel, { color: `${colors.primary}70` }]}>Posts</Text>
+                  <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Posts</Text>
                 </View>
                 <View style={styles.stat}>
                   <Text style={[styles.statNumber, { color: colors.text }]}>
                     {userProfile.followersCount || 0}
                   </Text>
-                  <Text style={[styles.statLabel, { color: `${colors.primary}70` }]}>Followers</Text>
+                  <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Followers</Text>
                 </View>
                 <View style={styles.stat}>
                   <Text style={[styles.statNumber, { color: colors.text }]}>
                     {userProfile.followingCount || 0}
                   </Text>
-                  <Text style={[styles.statLabel, { color: `${colors.primary}70` }]}>Following</Text>
+                  <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Following</Text>
                 </View>
               </View>
             </TouchableOpacity>
@@ -253,8 +254,8 @@ const Sidebar = () => {
             style={[
               styles.menuItem,
               {
-                backgroundColor: `${colors.primary}05`,
-                borderColor: `${colors.primary}10`
+                backgroundColor: colors.card,
+                borderColor: colors.cardBorder
               }
             ]}
             onPress={() => {
@@ -262,7 +263,7 @@ const Sidebar = () => {
               handleClose();
             }}
           >
-            <Feather name="user" size={24} color={colors.primary} />
+            <Feather name="user" size={24} color={colors.text} />
             <Text style={[styles.menuText, { color: colors.text }]}>Profile</Text>
           </TouchableOpacity>
 
@@ -270,8 +271,8 @@ const Sidebar = () => {
             style={[
               styles.menuItem,
               {
-                backgroundColor: `${colors.primary}05`,
-                borderColor: `${colors.primary}10`
+                backgroundColor: colors.card,
+                borderColor: colors.cardBorder
               }
             ]}
             onPress={() => {
@@ -279,7 +280,7 @@ const Sidebar = () => {
               handleClose();
             }}
           >
-            <Feather name="settings" size={24} color={colors.primary} />
+            <Feather name="settings" size={24} color={colors.text} />
             <Text style={[styles.menuText, { color: colors.text }]}>Settings</Text>
           </TouchableOpacity>
 
@@ -307,7 +308,8 @@ const Sidebar = () => {
             <Feather name="log-out" size={24} color={colors.error} />
             <Text style={[styles.menuText, { color: colors.error }]}>Logout</Text>
           </TouchableOpacity>
-        </ThemedGradient>
+          </View>
+        </SafeAreaView>
       </Animated.View>
     </Animated.View>
   );

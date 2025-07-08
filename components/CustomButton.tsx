@@ -4,15 +4,15 @@ import { ButtonProps } from "@/types/type";
 const getBgVariantStyle = (variant: ButtonProps["bgVariant"]) => {
   switch (variant) {
     case "secondary":
-      return "bg-[rgba(255,215,0,0.2)] border-[rgba(255,215,0,0.4)]";
+      return "bg-[rgba(128,128,128,0.2)] border-[rgba(128,128,128,0.4)]";
     case "danger":
       return "bg-[#8B0000] border-[rgba(255,0,0,0.3)]";
     case "success":
       return "bg-[#006400] border-[rgba(0,128,0,0.3)]";
     case "outline":
-      return "bg-transparent border-[rgba(255,215,0,0.5)] border-[1px]";
+      return "bg-transparent border-[rgba(128,128,128,0.5)] border-[1px]";
     default:
-      return "bg-[rgba(255,215,0,0.1)] border-[rgba(255,215,0,0.3)]";
+      return "bg-[rgba(128,128,128,0.1)] border-[rgba(128,128,128,0.3)]";
   }
 };
 
@@ -21,13 +21,13 @@ const getTextVariantStyle = (variant: ButtonProps["textVariant"]) => {
     case "primary":
       return "text-[#FFD700]";
     case "secondary":
-      return "text-[rgba(255,215,0,0.8)]";
+      return "text-[#FFFFFF]";
     case "danger":
       return "text-[#FF4040]";
     case "success":
       return "text-[#00FF7F]";
     default:
-      return "text-[#FFD700]";
+      return "text-[#FFFFFF]";
   }
 };
 

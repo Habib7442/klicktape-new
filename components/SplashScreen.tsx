@@ -53,8 +53,8 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
       >
         <Image
           source={isDarkMode
-            ? require("../assets/images/splash-dark.png")
-            : require("../assets/images/splash-light.png")}
+            ? require("../assets/images/splash-icon-dark.png")
+            : require("../assets/images/splash-icon-light.png")}
           style={styles.logo}
           resizeMode="contain"
         />

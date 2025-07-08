@@ -10,13 +10,14 @@ import {
   RefreshControl,
   Platform,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import moment from "moment";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { notificationsAPI } from "@/lib/notificationsApi";
 import { useTheme } from "@/src/context/ThemeContext";
+import ThemedGradient from "@/components/ThemedGradient";
 
 interface Notification {
   id: string;
@@ -171,14 +172,19 @@ export default function NotificationsScreen() {
       <TouchableOpacity
         style={[
           styles.notificationItem,
-          { borderBottomColor: `${colors.primary}20` },
-          !notification.is_read && { backgroundColor: `${colors.primary}10` },
+          {
+            borderBottomColor: colors.cardBorder,
+            backgroundColor: colors.card
+          },
+          !notification.is_read && {
+            backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.05)'
+          },
         ]}
         onPress={() => handleNotificationPress(notification)}
       >
         <Image
           source={{ uri: notification.sender.avatar_url }}
-          style={[styles.avatar, { borderColor: `${colors.primary}30` }]}
+          style={[styles.avatar, { borderColor: colors.cardBorder }]}
         />
         <View style={styles.notificationContent}>
           <Text className="font-rubik-bold" style={[styles.username, { color: colors.text }]}>
@@ -201,11 +207,11 @@ export default function NotificationsScreen() {
             handleDelete(notification.id);
           }}
         >
-          <Ionicons name="trash-outline" size={20} color={colors.primary} />
+          <Ionicons name="trash-outline" size={20} color={colors.error} />
         </TouchableOpacity>
         {!notification.is_read && (
           <View style={styles.unreadDot}>
-            <Ionicons name="ellipse" size={10} color={colors.primary} />
+            <Ionicons name="ellipse" size={10} color={isDarkMode ? '#808080' : '#606060'} />
           </View>
         )}
       </TouchableOpacity>
@@ -214,42 +220,30 @@ export default function NotificationsScreen() {
 
   if (loading) {
     return (
-      <LinearGradient
-        colors={isDarkMode
-          ? [colors.background, colors.backgroundSecondary, colors.backgroundTertiary]
-          : [colors.background, colors.backgroundSecondary, colors.backgroundTertiary]
-        }
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.centered}
-      >
-        <ActivityIndicator size="large" color={colors.primary} />
-      </LinearGradient>
+      <ThemedGradient style={styles.centered}>
+        <ActivityIndicator size="large" color={isDarkMode ? '#808080' : '#606060'} />
+      </ThemedGradient>
     );
   }
 
   return (
-    <LinearGradient
-      colors={isDarkMode
-        ? [colors.background, colors.backgroundSecondary, colors.backgroundTertiary]
-        : [colors.background, colors.backgroundSecondary, colors.backgroundTertiary]
-      }
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.container}
-    >
-      <View style={[styles.header, { borderBottomColor: `${colors.primary}20` }]}>
-        <Text className="font-rubik-bold" style={[styles.headerTitle, { color: colors.primary }]}>
+    <SafeAreaView style={{ flex: 1 }}>
+      <ThemedGradient style={styles.container}>
+      <View style={[styles.header, {
+        borderBottomColor: colors.cardBorder,
+        backgroundColor: colors.backgroundSecondary
+      }]}>
+        <Text className="font-rubik-bold" style={[styles.headerTitle, { color: colors.text }]}>
           Notifications
         </Text>
         <TouchableOpacity
           onPress={() => router.back()}
           style={[styles.closeButton, {
-            backgroundColor: `${colors.primary}10`,
-            borderColor: `${colors.primary}30`
+            backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+            borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)'
           }]}
         >
-          <Ionicons name="close" size={24} color={colors.primary} />
+          <Ionicons name="close" size={24} color={colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -264,8 +258,9 @@ export default function NotificationsScreen() {
               setRefreshing(true);
               fetchNotifications();
             }}
-            tintColor={colors.primary}
-            colors={[colors.primary]}
+            tintColor={isDarkMode ? '#808080' : '#606060'}
+            colors={[isDarkMode ? '#808080' : '#606060']}
+            progressBackgroundColor={colors.backgroundSecondary}
           />
         }
         ListEmptyComponent={
@@ -276,7 +271,8 @@ export default function NotificationsScreen() {
           </View>
         }
       />
-    </LinearGradient>
+      </ThemedGradient>
+    </SafeAreaView>
   );
 }
 

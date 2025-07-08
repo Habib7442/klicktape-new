@@ -44,7 +44,7 @@ interface CommentsModalProps {
 
 const CommentsModal: React.FC<CommentsModalProps> = React.memo(
   ({ entityType, entityId, onClose, entityOwnerUsername }) => {
-    const { colors } = useTheme();
+    const { colors, isDarkMode } = useTheme();
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState("");
     const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
@@ -797,15 +797,15 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
 
             <View style={[styles.inputContainer, {
               backgroundColor: colors.background,
-              borderTopColor: `${colors.primary}20`
+              borderTopColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
             }]}>
               {replyingTo && (
-                <View style={[styles.replyingToContainer, { backgroundColor: `${colors.primary}10` }]}>
-                  <Text style={[styles.replyingToText, { color: colors.primary }]}>
+                <View style={[styles.replyingToContainer, { backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)' }]}>
+                  <Text style={[styles.replyingToText, { color: isDarkMode ? '#808080' : '#606060' }]}>
                     Replying to @{replyingTo.user.username}
                   </Text>
                   <TouchableOpacity onPress={() => setReplyingTo(null)}>
-                    <Ionicons name="close" size={16} color={colors.primary} />
+                    <Ionicons name="close" size={16} color={isDarkMode ? '#808080' : '#606060'} />
                   </TouchableOpacity>
                 </View>
               )}
@@ -846,7 +846,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                       size={20}
                       color={
                         newComment.trim()
-                          ? colors.primary
+                          ? (isDarkMode ? '#808080' : '#606060')
                           : `${colors.textTertiary}80`
                       }
                     />

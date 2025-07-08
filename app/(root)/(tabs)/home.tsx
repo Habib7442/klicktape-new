@@ -1,11 +1,12 @@
 import {
   View,
-  SafeAreaView,
   TouchableOpacity,
   Text,
   StyleSheet,
   Platform,
+  StatusBar,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import React, { useEffect, useState } from "react";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
@@ -233,22 +234,22 @@ const Home = () => {
     }, [userId, supabase, fetchInitialData])
   );
 
-  const { colors } = useTheme();
+  const { colors, isDarkMode } = useTheme();
 
   return (
     <>
+      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
       <ThemedGradient style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
           <View style={[styles.header, {
-            backgroundColor: colors.backgroundSecondary,
-            borderBottomColor: `${colors.primary}20`
+            borderBottomColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
           }]}>
             <View style={styles.leftSection}>
               <TouchableOpacity
                 onPress={() => dispatch(openSidebar())}
                 style={[styles.menuButton, {
-                  backgroundColor: `${colors.primary}10`,
-                  borderColor: `${colors.primary}30`
+                  backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                  borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
                 }]}
               >
                 <Feather name="menu" size={24} color={colors.text} />
@@ -267,12 +268,15 @@ const Home = () => {
                   router.push("/chat");
                   dispatch(resetUnreadMessageCount());
                 }}
-                style={styles.iconButton}
+                style={[styles.iconButton, {
+                  backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                  borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
+                }]}
               >
-                <Ionicons name="chatbubble-outline" size={20} color={colors.primary} />
+                <Ionicons name="chatbubble-outline" size={20} color={colors.text} />
                 {unreadMessageCount > 0 && (
-                  <View style={[styles.badge, { backgroundColor: colors.primary }]}>
-                    <Text style={[styles.badgeText, { color: colors.background }]}>
+                  <View style={[styles.badge, { backgroundColor: isDarkMode ? '#808080' : '#606060' }]}>
+                    <Text style={[styles.badgeText, { color: '#FFFFFF' }]}>
                       {unreadMessageCount > 99 ? "99+" : unreadMessageCount}
                     </Text>
                   </View>
@@ -283,16 +287,19 @@ const Home = () => {
                   router.push("/notifications");
                   dispatch(resetUnreadCount());
                 }}
-                style={styles.iconButton}
+                style={[styles.iconButton, {
+                  backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                  borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
+                }]}
               >
                 <Ionicons
                   name="notifications-outline"
                   size={20}
-                  color={colors.primary}
+                  color={colors.text}
                 />
                 {unreadCount > 0 && (
-                  <View style={[styles.badge, { backgroundColor: colors.primary }]}>
-                    <Text style={[styles.badgeText, { color: colors.background }]}>
+                  <View style={[styles.badge, { backgroundColor: isDarkMode ? '#808080' : '#606060' }]}>
+                    <Text style={[styles.badgeText, { color: '#FFFFFF' }]}>
                       {unreadCount > 99 ? "99+" : unreadCount}
                     </Text>
                   </View>
@@ -360,10 +367,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 20,
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
     marginLeft: 12,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   badge: {
     position: "absolute",

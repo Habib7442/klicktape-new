@@ -8,15 +8,18 @@ import {
   Image,
   TouchableOpacity,
   ActivityIndicator,
+  StatusBar,
 } from 'react-native';
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import debounce from 'lodash/debounce';
 import { supabase } from '@/lib/supabase';
 import { postsAPI } from '@/lib/postsApi';
 import { reelsAPI } from '@/lib/reelsApi';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTheme } from '@/src/context/ThemeContext';
+import ThemedGradient from '@/components/ThemedGradient';
 
 interface User {
   id: string;
@@ -51,6 +54,7 @@ interface Reel {
 type PostOrReel = Post | Reel;
 
 const Search = () => {
+  const { colors, isDarkMode } = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState<User[]>([]);
   const [exploreItems, setExploreItems] = useState<PostOrReel[]>([]);
@@ -169,11 +173,11 @@ const Search = () => {
     >
       <Image source={{ uri: item.avatar }} style={styles.avatar} />
       <View style={styles.userInfo}>
-        <Text className="font-rubik-bold" style={styles.username}>
+        <Text className="font-rubik-bold" style={[styles.username, { color: colors.text }]}>
           {item.username}
         </Text>
         {item.bio && (
-          <Text className="font-rubik-regular" style={styles.bio}>
+          <Text className="font-rubik-regular" style={[styles.bio, { color: colors.textSecondary }]}>
             {item.bio}
           </Text>
         )}
@@ -208,24 +212,24 @@ const Search = () => {
   );
 
   return (
-    <LinearGradient
-      colors={['#000000', '#1a1a1a', '#2a2a2a']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.container}
-    >
-      <View style={styles.searchContainer}>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
+      <ThemedGradient style={styles.container}>
+      <View style={[styles.searchContainer, {
+        backgroundColor: colors.input,
+        borderColor: colors.inputBorder
+      }]}>
         <Feather
           name="search"
           size={20}
-          color="#FFD700"
+          color={colors.text}
           style={styles.searchIcon}
         />
         <TextInput
           className="font-rubik-medium"
-          style={styles.searchInput}
+          style={[styles.searchInput, { color: colors.text }]}
           placeholder="Search users..."
-          placeholderTextColor="rgba(255, 255, 255, 0.5)"
+          placeholderTextColor={colors.textTertiary}
           value={searchQuery}
           onChangeText={handleSearch}
         />
@@ -258,20 +262,23 @@ const Search = () => {
           columnWrapperStyle={styles.columnWrapper}
         />
       )}
-    </LinearGradient>
+      </ThemedGradient>
+    </SafeAreaView>
   );
 };
 
 export default Search;
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
   container: {
     flex: 1,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     margin: 16,
     borderRadius: 12,
     paddingHorizontal: 12,
@@ -281,7 +288,6 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
     borderWidth: 1,
-    borderColor: 'rgba(255, 215, 0, 0.3)',
   },
   searchIcon: {
     marginRight: 8,
@@ -290,7 +296,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#ffffff',
   },
   listContainer: {
     paddingHorizontal: 16,
@@ -324,11 +329,9 @@ const styles = StyleSheet.create({
   },
   username: {
     fontSize: 16,
-    color: '#ffffff',
   },
   bio: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
     marginTop: 2,
   },
   loader: {

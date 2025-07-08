@@ -11,10 +11,11 @@ import {
   Alert,
   Image,
   Pressable,
-  SafeAreaView,
   Share,
   BackHandler,
+  StatusBar,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useDispatch, useSelector } from "react-redux";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { LinearGradient } from "expo-linear-gradient";
@@ -46,7 +47,7 @@ const { width, height } = Dimensions.get("window");
 const REELS_PER_PAGE = 5;
 
 const Reels = () => {
-  const { colors } = useTheme();
+  const { colors, isDarkMode } = useTheme();
   const dispatch = useReduxDispatch<AppDispatch>();
   const reels = useSelector(selectReels);
   const loading = useSelector(selectLoading);
@@ -133,6 +134,7 @@ const Reels = () => {
   if (!loading && reels.length === 0) {
     return (
       <ThemedGradient style={styles.container}>
+        <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
         <SafeAreaView style={styles.emptyContainer}>
           <Text style={[styles.emptyText, { color: colors.text }]}>No reels available</Text>
           <TouchableOpacity
@@ -156,6 +158,7 @@ const Reels = () => {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
       <FlatList
         ref={flatListRef}
         data={reels}
@@ -493,9 +496,9 @@ const ReelItem: React.FC<{
               }
             ]}
           >
-            <Feather name="arrow-left" size={24} color={colors.primary} />
+            <Feather name="arrow-left" size={24} color="#FFFFFF" />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: colors.primary }]}>Reels</Text>
+          <Text style={[styles.headerTitle, { color: "#FFFFFF" }]}>Reels</Text>
           <View style={styles.headerRightPlaceholder} />
         </SafeAreaView>
       </LinearGradient>
@@ -524,16 +527,16 @@ const ReelItem: React.FC<{
               onPress={handleProfilePress}
             >
               <Image source={{ uri: reel.user.avatar_url || "https://via.placeholder.com/150" }} style={styles.avatar} />
-              <Text style={[styles.username, { color: colors.primary }]}>@{reel.user.username}</Text>
+              <Text style={[styles.username, { color: "white" }]}>@{reel.user.username}</Text>
             </Pressable>
 
             <View style={styles.captionContainer}>
-              <Text style={[styles.caption, { color: colors.text }]}>{caption}</Text>
+              <Text style={[styles.caption, { color: "white" }]}>{caption}</Text>
               {reel.caption.length > 100 && (
                 <TouchableOpacity
                   onPress={() => setShowFullCaption(!showFullCaption)}
                 >
-                  <Text style={[styles.showMore, { color: colors.primary }]}>
+                  <Text style={[styles.showMore, { color: "white" }]}>
                     {showFullCaption ? "Show less" : "Show more"}
                   </Text>
                 </TouchableOpacity>
@@ -558,11 +561,11 @@ const ReelItem: React.FC<{
                   <AntDesign
                     name={reel.is_liked ? "heart" : "hearto"}
                     size={28}
-                    color={reel.is_liked ? colors.error : colors.text}
+                    color={reel.is_liked ? colors.error : "white"}
                   />
                 </TouchableOpacity>
               </Animated.View>
-              <Text style={[styles.actionCount, { color: colors.text }]}>{reel.likes_count}</Text>
+              <Text style={[styles.actionCount, { color: "white" }]}>{reel.likes_count}</Text>
             </View>
 
             <View style={styles.actionWrapper}>
@@ -577,10 +580,10 @@ const ReelItem: React.FC<{
                 ]}
               >
                 <TouchableOpacity onPress={handleComment}>
-                  <Feather name="message-circle" size={28} color={colors.primary} />
+                  <Feather name="message-circle" size={28} color="white" />
                 </TouchableOpacity>
               </Animated.View>
-              <Text style={[styles.actionCount, { color: colors.text }]}>{reel.comments_count}</Text>
+              <Text style={[styles.actionCount, { color: "white" }]}>{reel.comments_count}</Text>
             </View>
 
             <Animated.View style={[
@@ -592,7 +595,7 @@ const ReelItem: React.FC<{
               animatedStyles.share
             ]}>
               <TouchableOpacity onPress={handleShare}>
-                <Feather name="share" size={28} color={colors.primary} />
+                <Feather name="share" size={28} color="white" />
               </TouchableOpacity>
             </Animated.View>
 
@@ -608,7 +611,7 @@ const ReelItem: React.FC<{
                 <Feather
                   name={isMuted ? "volume-x" : "volume-2"}
                   size={28}
-                  color={colors.primary}
+                  color="white"
                 />
               </TouchableOpacity>
             </Animated.View>
@@ -627,7 +630,7 @@ const ReelItem: React.FC<{
                 <Feather
                   name={isPlaying ? "pause" : "play"}
                   size={28}
-                  color={colors.primary}
+                  color="white"
                 />
               </TouchableOpacity>
             </Animated.View>

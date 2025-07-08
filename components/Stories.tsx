@@ -59,7 +59,7 @@ const StoryItem = ({
     <TouchableOpacity style={styles.storyContainer} onPress={onPress}>
       <View style={[
         styles.storyImageContainer,
-        { borderColor: `${colors.primary}70` }
+        { borderColor: 'rgba(128, 128, 128, 0.7)' }
       ]}>
         <Image source={{ uri: image }} style={styles.storyImage} />
         {isYourStory && (
@@ -431,18 +431,18 @@ const Stories = () => {
             style={[
               styles.storyImageContainer,
               {
-                borderColor: `${colors.primary}70`,
-                backgroundColor: `${colors.primary}10`
+                borderColor: 'rgba(128, 128, 128, 0.7)',
+                backgroundColor: 'rgba(128, 128, 128, 0.1)'
               }
             ]}
           >
             <View style={[
               styles.createStoryButton,
-              { backgroundColor: `${colors.primary}20` }
+              { backgroundColor: 'rgba(128, 128, 128, 0.2)' }
             ]}>
               <Text
                 className="font-rubik-medium"
-                style={[styles.createStoryText, { color: colors.primary }]}
+                style={[styles.createStoryText, { color: colors.text }]}
               >
                 +
               </Text>
@@ -494,29 +494,26 @@ const Stories = () => {
             {croppedImage && (
               <Image
                 source={{ uri: croppedImage }}
-                style={[styles.imagePreview, { borderColor: `${colors.primary}30` }]}
+                style={[styles.imagePreview, { borderColor: 'rgba(128, 128, 128, 0.3)' }]}
                 resizeMode="contain"
               />
             )}
           </View>
 
           <TouchableOpacity
-            style={[styles.postButton, { backgroundColor: `${colors.primary}10` }]}
+            style={[styles.postButton, { backgroundColor: 'rgba(128, 128, 128, 0.1)' }]}
             onPress={handlePostStory}
           >
-            <LinearGradient
-              colors={[colors.primary, colors.primaryDark]}
-              style={styles.postButtonGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
+            <View
+              style={[styles.postButtonGradient, { backgroundColor: 'rgba(128, 128, 128, 0.8)' }]}
             >
               <Text
                 className="font-rubik-bold"
-                style={[styles.postButtonText, { color: colors.background }]}
+                style={[styles.postButtonText, { color: colors.text }]}
               >
                 Post Story
               </Text>
-            </LinearGradient>
+            </View>
           </TouchableOpacity>
         </ThemedGradient>
       </Modal>

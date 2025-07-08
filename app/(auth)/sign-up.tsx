@@ -21,6 +21,7 @@ const SignUp = () => {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const { colors } = useTheme();
 
   const onSubmit = async () => {
@@ -70,6 +71,12 @@ const SignUp = () => {
         "Weak Password",
         "Your password should contain at least one uppercase letter, one lowercase letter, and one number"
       );
+      return;
+    }
+
+    // Validate terms acceptance
+    if (!acceptedTerms) {
+      Alert.alert("Error", "Please accept the Terms and Conditions to continue");
       return;
     }
 
@@ -210,11 +217,7 @@ const SignUp = () => {
           <View style={styles.inputGroup}>
             <Text style={[styles.label, { color: colors.text }]}>Full Name</Text>
             <TextInput
-              style={[styles.input, {
-                color: colors.text,
-                borderColor: `${colors.primary}30`,
-                backgroundColor: `${colors.backgroundTertiary}80`
-              }]}
+              style={styles.input}
               placeholder="Enter your full name"
               placeholderTextColor={`${colors.textTertiary}80`}
               value={name}
@@ -224,11 +227,7 @@ const SignUp = () => {
           <View style={styles.inputGroup}>
             <Text style={[styles.label, { color: colors.text }]}>Email</Text>
             <TextInput
-              style={[styles.input, {
-                color: colors.text,
-                borderColor: `${colors.primary}30`,
-                backgroundColor: `${colors.backgroundTertiary}80`
-              }]}
+              style={styles.input}
               placeholder="Enter your email"
               placeholderTextColor={`${colors.textTertiary}80`}
               keyboardType="email-address"
@@ -263,6 +262,43 @@ const SignUp = () => {
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Terms and Conditions Checkbox */}
+          <View style={styles.termsContainer}>
+            <TouchableOpacity
+              style={styles.checkboxContainer}
+              onPress={() => setAcceptedTerms(!acceptedTerms)}
+            >
+              <View style={[
+                styles.checkbox,
+                {
+                  borderColor: colors.primary,
+                  backgroundColor: acceptedTerms ? colors.primary : 'transparent'
+                }
+              ]}>
+                {acceptedTerms && (
+                  <Feather
+                    name="check"
+                    size={16}
+                    color="#000000"
+                  />
+                )}
+              </View>
+            </TouchableOpacity>
+            <View style={styles.termsTextContainer}>
+              <Text style={[styles.termsText, { color: colors.textSecondary }]}>
+                I agree to the{" "}
+              </Text>
+              <TouchableOpacity
+                onPress={() => router.push("/(root)/terms-and-conditions")}
+              >
+                <Text style={[styles.termsLink, { color: colors.primary }]}>
+                  Terms and Conditions
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
           <TouchableOpacity
             style={[styles.button, isLoading && styles.buttonDisabled]}
             onPress={onSubmit}
@@ -325,6 +361,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     fontSize: 16,
+    borderColor: "rgba(255, 215, 0, 0.3)",
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    color: "#ffffff",
   },
   passwordContainer: {
     flexDirection: "row",
@@ -368,6 +407,39 @@ const styles = StyleSheet.create({
   },
   linkText: {
     fontSize: 14
+  },
+  termsContainer: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 20,
+    paddingHorizontal: 4,
+  },
+  checkboxContainer: {
+    marginRight: 12,
+    marginTop: 2,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  termsTextContainer: {
+    flex: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+  },
+  termsText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  termsLink: {
+    fontSize: 14,
+    lineHeight: 20,
+    textDecorationLine: "underline",
   },
 });
 

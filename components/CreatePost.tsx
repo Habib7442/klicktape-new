@@ -530,11 +530,11 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
 
       <View style={[styles.nextButtonContainer, {
         backgroundColor: colors.backgroundSecondary,
-        borderTopColor: `${colors.primary}20`
+        borderTopColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
       }]}>
         <TouchableOpacity
           style={[styles.nextButton, {
-            backgroundColor: colors.primary,
+            backgroundColor: isDarkMode ? '#808080' : '#606060',
             shadowOpacity: 0
           }]}
           onPress={() => {
@@ -542,8 +542,8 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
             setStep("details");
           }}
         >
-          <Feather name="arrow-right" size={20} color={isDarkMode ? "#000" : "#FFF"} style={styles.nextButtonIcon} />
-          <Text style={[styles.nextButtonText, { color: isDarkMode ? "#000" : "#FFF" }]}>Next</Text>
+          <Feather name="arrow-right" size={20} color="#FFFFFF" style={styles.nextButtonIcon} />
+          <Text style={[styles.nextButtonText, { color: "#FFFFFF" }]}>Next</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -744,15 +744,21 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
           borderBottomColor: `${colors.primary}20`,
           backgroundColor: `${colors.backgroundSecondary}90`
         }]}>
-          <TouchableOpacity onPress={() => {
-            if (step !== "select") {
-              setMedia([]);
-              setStep("select");
-            } else {
-              onClose();
-            }
-          }}>
-            <Feather name={step === "select" ? "x" : "arrow-left"} size={24} color={colors.primary} />
+          <TouchableOpacity
+            onPress={() => {
+              if (step !== "select") {
+                setMedia([]);
+                setStep("select");
+              } else {
+                onClose();
+              }
+            }}
+            style={[styles.headerIconButton, {
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)'
+            }]}
+          >
+            <Feather name={step === "select" ? "x" : "arrow-left"} size={24} color="#FFFFFF" />
           </TouchableOpacity>
           <Text style={[styles.headerText, { color: colors.text }]}>Create Post</Text>
           <View style={{ width: 60 }} />
@@ -766,12 +772,12 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
             <View style={styles.content}>
               <TouchableOpacity
                 style={[styles.mediaPicker, {
-                  backgroundColor: `${colors.primary}10`,
-                  borderColor: `${colors.primary}30`
+                  backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                  borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
                 }]}
                 onPress={pickMedia}
               >
-                <Feather name="image" size={40} color={`${colors.primary}70`} />
+                <Feather name="image" size={40} color={isDarkMode ? '#808080' : '#606060'} />
                 <Text style={[styles.mediaPickerText, { color: colors.text }]}>Tap to select images</Text>
               </TouchableOpacity>
             </View>
@@ -792,11 +798,11 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
             {/* Share Post Button at extreme bottom */}
             <View style={[styles.shareButtonContainer, {
               backgroundColor: colors.backgroundSecondary,
-              borderTopColor: `${colors.primary}20`
+              borderTopColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
             }]}>
               <TouchableOpacity
                 style={[styles.shareButton, {
-                  backgroundColor: colors.primary,
+                  backgroundColor: isDarkMode ? '#808080' : '#606060',
                   shadowOpacity: 0
                 }]}
                 onPress={handlePost}
@@ -805,8 +811,8 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
                 onPressOut={handlePressOut}
               >
                 <Animated.View style={{ transform: [{ scale: scaleValue }], flexDirection: 'row', alignItems: 'center' }}>
-                  <Feather name="upload" size={20} color={isDarkMode ? "#000" : "#FFF"} style={styles.shareButtonIcon} />
-                  <Text style={[styles.shareButtonText, { color: isDarkMode ? "#000" : "#FFF" }]}>Share Post</Text>
+                  <Feather name="upload" size={20} color="#FFFFFF" style={styles.shareButtonIcon} />
+                  <Text style={[styles.shareButtonText, { color: "#FFFFFF" }]}>Share Post</Text>
                 </Animated.View>
               </TouchableOpacity>
             </View>
@@ -817,19 +823,19 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
       {showEmojiPicker && (
         <View style={[styles.emojiPickerContainer, {
           backgroundColor: colors.backgroundSecondary,
-          borderColor: `${colors.primary}30`
+          borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
         }]}>
           <TouchableOpacity
             style={[styles.closeEmojiPicker, {
               backgroundColor: `${colors.backgroundTertiary}`,
-              borderColor: `${colors.primary}30`
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
             }]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setShowEmojiPicker(false);
             }}
           >
-            <Feather name="x" size={20} color={colors.primary} />
+            <Feather name="x" size={20} color={isDarkMode ? '#808080' : '#606060'} />
           </TouchableOpacity>
 
           <ScrollView
@@ -841,8 +847,8 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
               <TouchableOpacity
                 key={index}
                 style={[styles.emojiItem, {
-                  backgroundColor: `${colors.primary}10`,
-                  borderColor: `${colors.primary}20`
+                  backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                  borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
                 }]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1159,6 +1165,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: "Rubik-Medium",
     color: "#ffffff",
+  },
+  headerIconButton: {
+    padding: 10,
+    borderRadius: 50,
+    borderWidth: 1.5,
   },
   mediaPickerText: {
     marginTop: 12,

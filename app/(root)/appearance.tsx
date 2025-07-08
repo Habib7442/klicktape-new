@@ -5,10 +5,10 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  StatusBar,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
-import { SafeAreaView } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { useTheme, ThemeType } from "@/src/context/ThemeContext";
 import * as Haptics from 'expo-haptics';
@@ -22,25 +22,22 @@ export default function AppearanceScreen() {
     setTheme(newTheme);
   };
 
-  // Define gradient colors based on theme
-  const gradientColors = isDarkMode
-    ? ["#000000", "#1a1a1a", "#2a2a2a"] as const
-    : ["#F8F9FA", "#F0F2F5", "#E9ECEF"] as const;
-
   return (
-    <LinearGradient
-      colors={gradientColors}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={{ flex: 1 }}
-    >
+    <View style={{ flex: 1, backgroundColor: isDarkMode ? '#000000' : '#FFFFFF' }}>
+      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
       <SafeAreaView style={{ flex: 1 }}>
-        <View style={[styles.header, { backgroundColor: colors.backgroundSecondary }]}>
+        <View style={[styles.header, {
+          backgroundColor: isDarkMode ? '#000000' : '#FFFFFF',
+          borderBottomColor: `${colors.primary}20`
+        }]}>
           <TouchableOpacity
             onPress={() => router.back()}
-            style={[styles.backButton, { backgroundColor: colors.backgroundTertiary, borderColor: colors.cardBorder }]}
+            style={[styles.headerIconButton, {
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)'
+            }]}
           >
-            <Feather name="arrow-left" size={24} color={colors.primary} />
+            <Feather name="arrow-left" size={24} color={colors.text} />
           </TouchableOpacity>
           <Text style={[styles.title, { color: colors.text }]}>
             Appearance
@@ -90,10 +87,10 @@ export default function AppearanceScreen() {
                 <View
                   style={[
                     styles.themeCheckmark,
-                    { backgroundColor: colors.primary }
+                    { backgroundColor: isDarkMode ? '#808080' : '#606060' }
                   ]}
                 >
-                  <Feather name="check" size={16} color="#000000" />
+                  <Feather name="check" size={16} color={isDarkMode ? "#000000" : "#FFFFFF"} />
                 </View>
               )}
             </TouchableOpacity>
@@ -129,10 +126,10 @@ export default function AppearanceScreen() {
                 <View
                   style={[
                     styles.themeCheckmark,
-                    { backgroundColor: colors.primary }
+                    { backgroundColor: isDarkMode ? '#808080' : '#606060' }
                   ]}
                 >
-                  <Feather name="check" size={16} color="#000000" />
+                  <Feather name="check" size={16} color={isDarkMode ? "#000000" : "#FFFFFF"} />
                 </View>
               )}
             </TouchableOpacity>
@@ -165,10 +162,10 @@ export default function AppearanceScreen() {
                 <View
                   style={[
                     styles.themeCheckmark,
-                    { backgroundColor: colors.primary }
+                    { backgroundColor: isDarkMode ? '#808080' : '#606060' }
                   ]}
                 >
-                  <Feather name="check" size={16} color="#000000" />
+                  <Feather name="check" size={16} color={isDarkMode ? "#000000" : "#FFFFFF"} />
                 </View>
               )}
             </TouchableOpacity>
@@ -179,7 +176,7 @@ export default function AppearanceScreen() {
           </Text>
         </ScrollView>
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -188,13 +185,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
   },
-  backButton: {
-    padding: 8,
+  headerIconButton: {
+    padding: 10,
     marginRight: 16,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 50,
+    borderWidth: 1.5,
   },
   title: {
     fontSize: 24,

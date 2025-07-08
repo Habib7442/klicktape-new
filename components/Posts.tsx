@@ -16,7 +16,6 @@ import { AntDesign, FontAwesome, Feather, Ionicons } from "@expo/vector-icons";
 import { useDispatch, useSelector } from "react-redux";
 import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
-import { LinearGradient } from "expo-linear-gradient";
 // import { formatDistanceToNow } from "date-fns";
 import { RootState } from "@/src/store/store";
 import {
@@ -26,7 +25,6 @@ import {
 } from "@/src/store/slices/postsSlice";
 import { Post } from "@/src/types/post";
 import { useTheme } from "@/src/context/ThemeContext";
-import ThemedGradient from "@/components/ThemedGradient";
 
 const Posts = () => {
   const { colors } = useTheme();
@@ -299,10 +297,7 @@ const Posts = () => {
     );
 
     return (
-      <ThemedGradient
-        style={styles.postContainer}
-        customColors={[`${colors.primary}20`, `${colors.primary}15`, `${colors.primary}10`]}
-      >
+      <View style={styles.postContainer}>
         <View style={styles.postHeader}>
           <View style={styles.userInfo}>
             <Image
@@ -330,8 +325,8 @@ const Posts = () => {
         <View style={styles.imageContainer}>
           <Carousel
             loop={false}
-            width={Dimensions.get("window").width - 32}
-            height={Dimensions.get("window").width - 32}
+            width={Dimensions.get("window").width}
+            height={Dimensions.get("window").width}
             data={post.image_urls}
             defaultIndex={activeImageIndexes[post.id] || 0}
             onSnapToItem={(index) =>
@@ -390,39 +385,41 @@ const Posts = () => {
         </View>
 
         <View style={[styles.postActions, { borderTopColor: `${colors.primary}20` }]}>
-          <TouchableOpacity
-            onPress={() => handleLike(post.id)}
-            style={styles.actionButton}
-          >
-            <AntDesign
-              name={post.is_liked ? "heart" : "hearto"}
-              size={24}
-              color={post.is_liked ? colors.error : colors.text}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() =>
-              router.replace({
-                pathname: "/(root)/posts-comments-screen",
-                params: {
-                  postId: post.id,
-                  postOwnerUsername: post.user.username,
-                },
-              })
-            }
-            style={styles.actionButton}
-          >
-            <Ionicons name="chatbubble-outline" size={24} color={colors.text} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => handleShare(post)}
-            style={styles.actionButton}
-          >
-            <Feather name="send" size={24} color={colors.text} />
-          </TouchableOpacity>
+          <View style={styles.leftActions}>
+            <TouchableOpacity
+              onPress={() => handleLike(post.id)}
+              style={styles.actionButton}
+            >
+              <AntDesign
+                name={post.is_liked ? "heart" : "hearto"}
+                size={24}
+                color={post.is_liked ? colors.error : colors.text}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() =>
+                router.replace({
+                  pathname: "/(root)/posts-comments-screen",
+                  params: {
+                    postId: post.id,
+                    postOwnerUsername: post.user.username,
+                  },
+                })
+              }
+              style={styles.actionButton}
+            >
+              <Ionicons name="chatbubble-outline" size={24} color={colors.text} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => handleShare(post)}
+              style={styles.actionButton}
+            >
+              <Feather name="send" size={24} color={colors.text} />
+            </TouchableOpacity>
+          </View>
           <TouchableOpacity
             onPress={() => handleBookmark(post.id)}
-            style={[styles.actionButton, { marginLeft: "auto" }]}
+            style={styles.bookmarkButton}
           >
             <FontAwesome
               name={post.is_bookmarked ? "bookmark" : "bookmark-o"}
@@ -433,7 +430,7 @@ const Posts = () => {
         </View>
 
         {/* Comment input section removed - now handled in the comments screen */}
-      </ThemedGradient>
+      </View>
     );
   };
 
@@ -483,9 +480,7 @@ const styles = StyleSheet.create({
   },
   postContainer: {
     marginBottom: 16,
-    borderRadius: 12,
     padding: 16,
-    marginHorizontal: 16,
   },
   postHeader: {
     flexDirection: "row",
@@ -524,10 +519,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   imageContainer: {
-    borderRadius: 12,
     overflow: "hidden",
     marginBottom: 12,
     position: "relative",
+    marginHorizontal: -16,
   },
   postImage: {
     width: "100%",
@@ -570,12 +565,22 @@ const styles = StyleSheet.create({
   postActions: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingVertical: 8,
+    paddingHorizontal: 16,
     borderTopWidth: 1,
+    marginHorizontal: -16,
+  },
+  leftActions: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   actionButton: {
     padding: 8,
     marginRight: 16,
+  },
+  bookmarkButton: {
+    padding: 8,
   },
   commentsSection: {
     marginTop: 12,

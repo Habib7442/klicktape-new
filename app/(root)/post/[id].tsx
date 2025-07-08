@@ -13,10 +13,11 @@ import {
   Dimensions,
   Animated,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import moment from "moment";
-import { LinearGradient } from "expo-linear-gradient";
+
 import { supabase } from "@/lib/supabase";
 import { useDispatch, useSelector } from "react-redux";
 import { toggleLike, toggleBookmark } from "@/src/store/slices/postsSlice";
@@ -64,10 +65,7 @@ const PostDetailScreen = () => {
   const dispatch = useDispatch();
   const { isDarkMode, colors } = useTheme();
 
-  // Define gradient colors based on theme
-  const gradientColors = isDarkMode
-    ? ["#121212", "#1e1e1e", "#2c2c2c"] as const
-    : ["#F8F9FA", "#F0F2F5", "#E9ECEF"] as const;
+
 
   // Get bookmark status from Redux store
   const bookmarkedPosts = useSelector(
@@ -307,54 +305,47 @@ const PostDetailScreen = () => {
 
   if (loading) {
     return (
-      <LinearGradient
-        colors={gradientColors}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.centered}
-      >
-        <ActivityIndicator size="large" color={colors.primary} />
-      </LinearGradient>
+      <SafeAreaView style={[styles.container, { backgroundColor: isDarkMode ? '#000000' : '#FFFFFF' }]}>
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </SafeAreaView>
     );
   }
 
   if (!post) {
     return (
-      <LinearGradient
-        colors={gradientColors}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.centered}
-      >
-        <Text style={[styles.errorText, { color: colors.text }]}>Post not found</Text>
-      </LinearGradient>
+      <SafeAreaView style={[styles.container, { backgroundColor: isDarkMode ? '#000000' : '#FFFFFF' }]}>
+        <View style={styles.centered}>
+          <Text style={[styles.errorText, { color: colors.text }]}>Post not found</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <LinearGradient
-      colors={gradientColors}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.container}
-    >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "padding"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}
-        style={styles.container}
-      >
+    <SafeAreaView style={[styles.container, { backgroundColor: isDarkMode ? '#000000' : '#FFFFFF' }]}>
+      <View style={styles.container}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "padding"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}
+          style={styles.container}
+        >
         <ScrollView style={styles.scrollView}>
-          <View style={[styles.header, { borderBottomColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.1)` }]}>
+          <View style={[styles.header, { borderBottomColor: colors.cardBorder }]}>
             <TouchableOpacity
               onPress={() => router.back()}
-              style={[styles.backButton, { backgroundColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.15)` }]}
+              style={[styles.backButton, {
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.2)'
+              }]}
             >
-              <Ionicons name="arrow-back" size={24} color={colors.primary} />
+              <Ionicons name="arrow-back" size={24} color={colors.text} />
             </TouchableOpacity>
             <View style={styles.userInfo}>
               <Image
                 source={{ uri: post.user.avatar_url }}
-                style={[styles.avatar, { borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.4)` }]}
+                style={[styles.avatar, { borderColor: colors.cardBorder }]}
               />
               <Text style={[styles.username, { color: colors.text }]}>{post.user.username}</Text>
             </View>
@@ -372,7 +363,7 @@ const PostDetailScreen = () => {
                 <Image
                   key={index}
                   source={{ uri: url }}
-                  style={[styles.image, { borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.2)` }]}
+                  style={[styles.image, { borderColor: colors.cardBorder }]}
                   resizeMode="contain"
                 />
               ))}
@@ -385,7 +376,7 @@ const PostDetailScreen = () => {
                     style={[
                       styles.paginationDot,
                       { backgroundColor: isDarkMode ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.3)" },
-                      currentImageIndex === index && [styles.activeDot, { backgroundColor: colors.primary }],
+                      currentImageIndex === index && [styles.activeDot, { backgroundColor: isDarkMode ? '#808080' : '#606060' }],
                     ]}
                   />
                 ))}
@@ -400,7 +391,7 @@ const PostDetailScreen = () => {
                   <Ionicons
                     name={isLiked ? "heart" : "heart-outline"}
                     size={28}
-                    color={isLiked ? colors.primary : colors.text}
+                    color={isLiked ? colors.primary : "white"}
                   />
                 </Animated.View>
               </TouchableOpacity>
@@ -414,7 +405,7 @@ const PostDetailScreen = () => {
               <Ionicons
                 name={isBookmarked ? "bookmark" : "bookmark-outline"}
                 size={28}
-                color={isBookmarked ? colors.primary : colors.text}
+                color={isBookmarked ? colors.primary : "white"}
               />
             </TouchableOpacity>
           </View>
@@ -433,13 +424,13 @@ const PostDetailScreen = () => {
             </Text>
             {comments.map((comment) => (
               <View key={comment.id} style={[styles.commentItem, {
-                backgroundColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.05)`,
-                borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.1)`
+                backgroundColor: colors.card,
+                borderColor: colors.cardBorder
               }]}>
                 <Image
                   source={{ uri: comment.user.avatar_url }}
                   style={[styles.commentAvatar, {
-                    borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.3)`
+                    borderColor: colors.cardBorder
                   }]}
                 />
                 <View style={styles.commentContent}>
@@ -458,7 +449,7 @@ const PostDetailScreen = () => {
 
         <View style={[styles.commentInput, {
           backgroundColor: isDarkMode ? "rgba(18, 18, 18, 0.9)" : "rgba(248, 249, 250, 0.9)",
-          borderTopColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.1)`
+          borderTopColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
         }]}>
           <TextInput
             placeholder="Add a comment..."
@@ -467,8 +458,8 @@ const PostDetailScreen = () => {
             onChangeText={setNewComment}
             style={[styles.input, {
               color: colors.text,
-              backgroundColor: isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.05)",
-              borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.3)`
+              backgroundColor: colors.input,
+              borderColor: colors.inputBorder
             }]}
             multiline
           />
@@ -478,8 +469,8 @@ const PostDetailScreen = () => {
             style={[
               styles.postButton,
               {
-                backgroundColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.3)`,
-                borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.4)`
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.4)' : 'rgba(128, 128, 128, 0.3)'
               },
               !newComment.trim() && styles.disabledButton,
             ]}
@@ -488,7 +479,8 @@ const PostDetailScreen = () => {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
-    </LinearGradient>
+    </View>
+    </SafeAreaView>
   );
 };
 
@@ -520,6 +512,7 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 20,
     marginRight: 16,
+    borderWidth: 1,
   },
   userInfo: {
     flexDirection: "row",

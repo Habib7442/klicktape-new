@@ -12,7 +12,8 @@ import {
   Keyboard,
   RefreshControl,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { SafeAreaView } from "react-native-safe-area-context";
+
 import { useLocalSearchParams, router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { Feather } from "@expo/vector-icons";
@@ -57,10 +58,7 @@ export default function RoomChat() {
   const subscriptionRef = useRef<RealtimeChannel | null>(null);
   const { isDarkMode, colors } = useTheme();
 
-  // Define gradient colors based on theme
-  const gradientColors = isDarkMode
-    ? ["#000000", "#1a1a1a", "#2a2a2a"] as const
-    : ["#F8F9FA", "#F0F2F5", "#E9ECEF"] as const;
+
 
   useEffect(() => {
     const getUser = async () => {
@@ -457,16 +455,16 @@ export default function RoomChat() {
       backgroundColor:
         item.sender_id === userId
           ? isDarkMode
-            ? "rgba(255, 229, 92, 0.2)"
-            : "rgba(184, 134, 11, 0.1)"
+            ? "rgba(128, 128, 128, 0.2)"
+            : "rgba(128, 128, 128, 0.1)"
           : isDarkMode
             ? "rgba(255, 255, 255, 0.1)"
             : "rgba(0, 0, 0, 0.05)",
       borderColor:
         item.sender_id === userId
           ? isDarkMode
-            ? "rgba(255, 229, 92, 0.3)"
-            : "rgba(184, 134, 11, 0.2)"
+            ? "rgba(128, 128, 128, 0.3)"
+            : "rgba(128, 128, 128, 0.2)"
           : isDarkMode
             ? "rgba(255, 255, 255, 0.2)"
             : "rgba(0, 0, 0, 0.1)",
@@ -486,7 +484,7 @@ export default function RoomChat() {
               style={[
                 styles.username,
                 item.sender_id === userId
-                  ? { color: colors.primary }
+                  ? { color: isDarkMode ? '#808080' : '#606060' }
                   : { color: colors.textSecondary },
               ]}
             >
@@ -497,7 +495,7 @@ export default function RoomChat() {
                 onPress={() => handleDeleteMessage(item.id)}
                 style={styles.deleteButton}
               >
-                <Feather name="trash-2" size={14} color={colors.primary} />
+                <Feather name="trash-2" size={14} color={colors.error} />
               </TouchableOpacity>
             )}
           </View>
@@ -568,12 +566,8 @@ export default function RoomChat() {
   }, []);
 
   return (
-    <LinearGradient
-      colors={gradientColors}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.container}
-    >
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: isDarkMode ? '#000000' : '#FFFFFF' }]}>
+      <View style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "padding"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
@@ -595,8 +589,8 @@ export default function RoomChat() {
               <TouchableOpacity
                 onPress={handleLeaveRoom}
                 style={[styles.leaveButton, {
-                  backgroundColor: isDarkMode ? "rgba(255, 229, 92, 0.2)" : "rgba(184, 134, 11, 0.1)",
-                  borderColor: `rgba(${isDarkMode ? '255, 229, 92' : '184, 134, 11'}, 0.3)`
+                  backgroundColor: isDarkMode ? "rgba(128, 128, 128, 0.2)" : "rgba(128, 128, 128, 0.1)",
+                  borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
                 }]}
                 disabled={isLeaving}
               >
@@ -643,12 +637,12 @@ export default function RoomChat() {
                 <TextInput
                   ref={textInputRef}
                   style={[styles.textInput, {
-                    backgroundColor: isDarkMode ? "rgba(255, 229, 92, 0.1)" : "rgba(184, 134, 11, 0.05)",
-                    borderColor: `rgba(${isDarkMode ? '255, 229, 92' : '184, 134, 11'}, 0.3)`,
+                    backgroundColor: colors.input,
+                    borderColor: colors.inputBorder,
                     color: colors.text
                   }]}
                   placeholder="Type a message..."
-                  placeholderTextColor={isDarkMode ? "rgba(255, 229, 92, 0.7)" : "rgba(184, 134, 11, 0.7)"}
+                  placeholderTextColor={colors.textTertiary}
                   value={newMessage}
                   onChangeText={setNewMessage}
                   multiline
@@ -656,11 +650,11 @@ export default function RoomChat() {
                 <TouchableOpacity
                   onPress={sendMessage}
                   style={[styles.sendButton, {
-                    backgroundColor: isDarkMode ? "rgba(255, 229, 92, 0.2)" : "rgba(184, 134, 11, 0.1)",
-                    borderColor: `rgba(${isDarkMode ? '255, 229, 92' : '184, 134, 11'}, 0.4)`
+                    backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+                    borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.4)' : 'rgba(128, 128, 128, 0.3)'
                   }]}
                 >
-                  <Feather name="send" size={20} color={colors.primary} />
+                  <Feather name="send" size={20} color={isDarkMode ? '#808080' : '#606060'} />
                 </TouchableOpacity>
               </View>
             ) : (
@@ -676,11 +670,15 @@ export default function RoomChat() {
           </View>
         </View>
       </KeyboardAvoidingView>
-    </LinearGradient>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
   container: {
     flex: 1,
   },

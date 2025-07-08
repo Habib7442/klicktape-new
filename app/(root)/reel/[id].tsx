@@ -11,7 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
+
 import { Feather, AntDesign, Ionicons } from '@expo/vector-icons';
 import { Share } from 'react-native';
 import Animated, {
@@ -381,27 +381,17 @@ const ReelDetail = () => {
 
   if (loading) {
     return (
-      <LinearGradient
-        colors={['#000000', '#1a1a1a', '#2a2a2a']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.loadingContainer}
-      >
+      <View style={[styles.loadingContainer, { backgroundColor: '#000000' }]}>
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color="#FFD700" />
         </View>
-      </LinearGradient>
+      </View>
     );
   }
 
   if (error) {
     return (
-      <LinearGradient
-        colors={['#000000', '#1a1a1a', '#2a2a2a']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.errorContainer}
-      >
+      <View style={[styles.errorContainer, { backgroundColor: '#000000' }]}>
         <Text className="font-rubik-regular" style={styles.errorText}>
           {error}
         </Text>
@@ -410,7 +400,7 @@ const ReelDetail = () => {
             Go Back
           </Text>
         </TouchableOpacity>
-      </LinearGradient>
+      </View>
     );
   }
 
@@ -423,11 +413,7 @@ const ReelDetail = () => {
     : reel.caption;
 
   return (
-    <LinearGradient
-      colors={['#000000', '#1a1a1a', '#2a2a2a']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.container}
+    <View style={[styles.container, { backgroundColor: '#000000' }]}
     >
       <VideoView
         style={styles.video}
@@ -437,13 +423,10 @@ const ReelDetail = () => {
       />
 
       <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-        <Ionicons name="arrow-back" size={24} color="#FFD700" />
+        <Ionicons name="arrow-back" size={24} color="white" />
       </TouchableOpacity>
 
-      <LinearGradient
-        colors={['transparent', 'rgba(0, 0, 0, 0.9)']}
-        style={styles.gradientOverlay}
-      >
+      <View style={styles.gradientOverlay}>
         <Pressable style={styles.userInfo} onPress={handleProfilePress}>
           <Image source={{ uri: reel.user.avatar }} style={styles.avatar} />
           <Text className="font-rubik-bold" style={styles.username}>
@@ -470,7 +453,7 @@ const ReelDetail = () => {
               <AntDesign
                 name={isLiked ? 'heart' : 'hearto'}
                 size={24}
-                color={isLiked ? '#FFD700' : '#ffffff'}
+                color={isLiked ? 'red' : 'white'}
               />
               <Text className="font-rubik-regular" style={styles.actionText}>
                 {reel.likesCount}
@@ -480,7 +463,7 @@ const ReelDetail = () => {
 
           <Animated.View style={[styles.actionButton, animatedStyles.comment]}>
             <TouchableOpacity onPress={handleComment}>
-              <Feather name="message-circle" size={24} color="#FFD700" />
+              <Feather name="message-circle" size={24} color="#FFFFFF" />
               <Text className="font-rubik-regular" style={styles.actionText}>
                 {reel.commentsCount}
               </Text>
@@ -489,7 +472,7 @@ const ReelDetail = () => {
 
           <Animated.View style={[styles.actionButton, animatedStyles.share]}>
             <TouchableOpacity onPress={handleShare}>
-              <Feather name="share" size={24} color="#FFD700" />
+              <Feather name="share" size={24} color="#FFFFFF" />
             </TouchableOpacity>
           </Animated.View>
 
@@ -498,7 +481,7 @@ const ReelDetail = () => {
               <Feather
                 name={isMuted ? 'volume-x' : 'volume-2'}
                 size={24}
-                color="#FFD700"
+                color="#FFFFFF"
               />
             </TouchableOpacity>
           </Animated.View>
@@ -508,13 +491,13 @@ const ReelDetail = () => {
               <Feather
                 name={isPlaying ? 'pause' : 'play'}
                 size={24}
-                color="#FFD700"
+                color="#FFFFFF"
               />
             </TouchableOpacity>
           </Animated.View>
         </View>
-      </LinearGradient>
-    </LinearGradient>
+      </View>
+    </View>
   );
 };
 

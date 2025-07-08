@@ -24,6 +24,9 @@ const Layout = () => {
       <Stack.Screen name="settings" options={{ headerShown: false }} />
       <Stack.Screen name="welcome-main" options={{ headerShown: false }} />
       <Stack.Screen name="appearance" options={{ headerShown: false }} />
+      <Stack.Screen name="terms-and-conditions" options={{ headerShown: false }} />
+      <Stack.Screen name="privacy-policy" options={{ headerShown: false }} />
+
     </Stack>
   );
 };

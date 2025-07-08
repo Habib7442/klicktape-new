@@ -7,9 +7,10 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
+  StatusBar,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { SafeAreaView } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import DeleteModal from "@/components/DeleteModal";
@@ -307,18 +308,19 @@ export default function SettingsScreen() {
 
   return (
     <ThemedGradient style={{ flex: 1 }}>
+      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
       <SafeAreaView style={{ flex: 1 }}>
-        <View style={[styles.header, { backgroundColor: `${colors.primary}05` }]}>
+        <View style={[styles.header, { backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.05)' : 'rgba(128, 128, 128, 0.05)' }]}>
           <TouchableOpacity
             onPress={() => router.back()}
             style={[styles.backButton, {
-              backgroundColor: `${colors.primary}20`,
-              borderColor: `${colors.primary}30`
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
             }]}
           >
-            <Feather name="arrow-left" size={24} color={colors.primary} />
+            <Feather name="arrow-left" size={24} color={colors.text} />
           </TouchableOpacity>
-          <Text className="font-rubik-bold" style={[styles.title, { color: colors.text }]}>
+          <Text className="font-rubik-bold" style={[styles.title, { color: '#FFFFFF' }]}>
             Settings
           </Text>
         </View>
@@ -333,19 +335,19 @@ export default function SettingsScreen() {
             </Text>
             <TouchableOpacity
               style={[styles.settingItem, {
-                backgroundColor: `${colors.primary}10`,
-                borderColor: `${colors.primary}20`
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
               }]}
               onPress={() => router.push("/edit-profile")}
             >
-              <Feather name="user" size={22} color={colors.primary} />
+              <Feather name="user" size={22} color={colors.text} />
               <Text className="font-rubik-regular" style={[styles.settingText, { color: colors.text }]}>
                 Edit Profile
               </Text>
               <Feather
                 name="chevron-right"
                 size={22}
-                color={`${colors.primary}70`}
+                color={colors.text}
               />
             </TouchableOpacity>
             {/* <TouchableOpacity style={styles.settingItem}>
@@ -361,36 +363,36 @@ export default function SettingsScreen() {
             </Text>
             <TouchableOpacity
               style={[styles.settingItem, {
-                backgroundColor: `${colors.primary}10`,
-                borderColor: `${colors.primary}20`
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
               }]}
               onPress={() => router.push("/notifications")}
             >
-              <Feather name="bell" size={22} color={colors.primary} />
+              <Feather name="bell" size={22} color={colors.text} />
               <Text className="font-rubik-regular" style={[styles.settingText, { color: colors.text }]}>
                 Notifications
               </Text>
               <Feather
                 name="chevron-right"
                 size={22}
-                color={`${colors.primary}70`}
+                color={colors.text}
               />
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.settingItem, {
-                backgroundColor: `${colors.primary}10`,
-                borderColor: `${colors.primary}20`
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
               }]}
               onPress={() => router.push("/appearance")}
             >
-              <Feather name="eye" size={22} color={colors.primary} />
+              <Feather name="eye" size={22} color={colors.text} />
               <Text className="font-rubik-regular" style={[styles.settingText, { color: colors.text }]}>
                 Appearance
               </Text>
               <Feather
                 name="chevron-right"
                 size={22}
-                color={`${colors.primary}70`}
+                color={colors.text}
               />
             </TouchableOpacity>
           </View>
@@ -400,45 +402,51 @@ export default function SettingsScreen() {
               Support
             </Text>
             <TouchableOpacity style={[styles.settingItem, {
-              backgroundColor: `${colors.primary}10`,
-              borderColor: `${colors.primary}20`
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
             }]}>
-              <Feather name="help-circle" size={22} color={colors.primary} />
+              <Feather name="help-circle" size={22} color={colors.text} />
               <Text className="font-rubik-regular" style={[styles.settingText, { color: colors.text }]}>
                 Help Center
               </Text>
               <Feather
                 name="chevron-right"
                 size={22}
-                color={`${colors.primary}70`}
+                color={colors.text}
               />
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.settingItem, {
-              backgroundColor: `${colors.primary}10`,
-              borderColor: `${colors.primary}20`
-            }]}>
-              <Feather name="file-text" size={22} color={colors.primary} />
+            <TouchableOpacity
+              style={[styles.settingItem, {
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
+              }]}
+              onPress={() => router.push("/terms-and-conditions")}
+            >
+              <Feather name="file-text" size={22} color={colors.text} />
               <Text className="font-rubik-regular" style={[styles.settingText, { color: colors.text }]}>
-                Terms of Service
+                Terms and Conditions
               </Text>
               <Feather
                 name="chevron-right"
                 size={22}
-                color={`${colors.primary}70`}
+                color={colors.text}
               />
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.settingItem, {
-              backgroundColor: `${colors.primary}10`,
-              borderColor: `${colors.primary}20`
-            }]}>
-              <Feather name="shield" size={22} color={colors.primary} />
+            <TouchableOpacity
+              style={[styles.settingItem, {
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
+              }]}
+              onPress={() => router.push("/privacy-policy")}
+            >
+              <Feather name="shield" size={22} color={colors.text} />
               <Text className="font-rubik-regular" style={[styles.settingText, { color: colors.text }]}>
                 Privacy Policy
               </Text>
               <Feather
                 name="chevron-right"
                 size={22}
-                color={`${colors.primary}70`}
+                color={colors.text}
               />
             </TouchableOpacity>
           </View>
@@ -449,25 +457,25 @@ export default function SettingsScreen() {
             </Text>
             <TouchableOpacity
               style={[styles.signOutButton, {
-                backgroundColor: `${colors.primary}10`,
-                borderColor: `${colors.primary}20`
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
               }]}
               onPress={handleSignOut}
             >
-              <Feather name="log-out" size={22} color={colors.primary} />
+              <Feather name="log-out" size={22} color={colors.text} />
               <Text className="font-rubik-medium" style={[styles.signOutText, { color: colors.text }]}>
                 Sign Out
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.deleteButton, {
-                backgroundColor: `${colors.primary}10`,
-                borderColor: `${colors.primary}20`
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
               }]}
               onPress={handleDeleteAccount}
               disabled={isDeleting}
             >
-              <Feather name="trash-2" size={22} color={colors.primary} />
+              <Feather name="trash-2" size={22} color="#FFFFFF" />
               <Text
                 className="font-rubik-medium"
                 style={[styles.deleteButtonText, { color: colors.text }]}

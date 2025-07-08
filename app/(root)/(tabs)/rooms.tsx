@@ -9,7 +9,9 @@ import {
   StyleSheet,
   Animated,
   RefreshControl,
+  Platform,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { Feather, MaterialIcons } from "@expo/vector-icons";
@@ -223,23 +225,15 @@ export default function RoomsScreen() {
               styles.roomItem,
               {
                 transform: [{ scale: scaleAnim }],
-                backgroundColor: `${colors.primary}10`,
-                borderColor: `${colors.primary}20`
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
               }
             ]}
           >
-            <LinearGradient
-              colors={[
-                `${colors.primary}20`,
-                `${colors.primary}15`
-              ]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{ borderRadius: 16, flex: 1, padding: 16 }}
-            >
+            <View style={{ borderRadius: 16, flex: 1, padding: 16, backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.15)' : 'rgba(128, 128, 128, 0.1)' }}>
               <View style={styles.roomHeader}>
                 <Text
-                  style={[styles.roomName, { color: colors.primary }]}
+                  style={[styles.roomName, { color: colors.text }]}
                   numberOfLines={1}
                   ellipsizeMode="tail"
                 >
@@ -265,9 +259,9 @@ export default function RoomsScreen() {
               >
                 {item.description}
               </Text>
-              <View style={[styles.participantsContainer, { backgroundColor: `${colors.primary}10` }]}>
-                <Feather name="users" size={14} color={colors.primary} />
-                <Text style={[styles.participantsCount, { color: colors.primary }]}>
+              <View style={[styles.participantsContainer, { backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)' }]}>
+                <Feather name="users" size={14} color={colors.text} />
+                <Text style={[styles.participantsCount, { color: colors.text }]}>
                   {item.participants_count || 0} participants
                 </Text>
               </View>
@@ -276,20 +270,20 @@ export default function RoomsScreen() {
                   <TouchableOpacity
                     onPress={handleJoinRoom}
                     style={[styles.joinButton, {
-                      backgroundColor: colors.primary,
-                      borderColor: `${colors.primary}70`,
+                      backgroundColor: isDarkMode ? '#808080' : '#606060',
+                      borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.7)' : 'rgba(96, 96, 96, 0.7)',
                       shadowOpacity: 0
                     }]}
                     disabled={joining}
                     activeOpacity={0.8}
                   >
-                    <Text style={[styles.joinButtonText, { color: isDarkMode ? "#2d2d2d" : "#2d2d2d" }]}>
+                    <Text style={[styles.joinButtonText, { color: "#FFFFFF" }]}>
                       {joining ? "Joining..." : "Join to Chat"}
                     </Text>
                   </TouchableOpacity>
                 </Animated.View>
               )}
-            </LinearGradient>
+            </View>
           </Animated.View>
         </TouchableOpacity>
 
@@ -309,43 +303,26 @@ export default function RoomsScreen() {
   );
 
   return (
-    <ThemedGradient style={styles.container}>
+    <SafeAreaView style={styles.safeArea}>
+      <ThemedGradient style={styles.container}>
       <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
-        <View style={[styles.headerContainer, { shadowOpacity: 0 }]}>
-          <LinearGradient
-            colors={[
-              isDarkMode
-                ? `${colors.backgroundSecondary}E6`
-                : `${colors.backgroundSecondary}E6`,
-              isDarkMode
-                ? `${colors.backgroundTertiary}E6`
-                : `${colors.backgroundTertiary}E6`
-            ]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.headerGradient}
-          >
-            <View style={[styles.header, { borderBottomColor: `${colors.primary}30` }]}>
-              <Text style={[styles.headerTitle, { color: colors.primary }]}>
-                <MaterialIcons name="forum" size={24} color={colors.primary} style={styles.headerIcon} />
-                Anonymous Rooms
-              </Text>
-              <View style={styles.headerButtons}>
-
-                <TouchableOpacity
-                  onPress={() => setShowCreateRoom(true)}
-                  style={[styles.createButton, {
-                    backgroundColor: `${colors.primary}20`,
-                    borderColor: `${colors.primary}50`,
-                    shadowOpacity: 0
-                  }]}
-                  activeOpacity={0.7}
-                >
-                  <Feather name="plus" size={22} color={colors.primary} />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </LinearGradient>
+        <View style={[styles.header, { borderBottomColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)' }]}>
+          <Text className="font-rubik-bold" style={[styles.headerTitle, { color: colors.text }]}>
+            <MaterialIcons name="forum" size={24} color={colors.text} style={styles.headerIcon} />
+            Anonymous Rooms
+          </Text>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity
+              onPress={() => setShowCreateRoom(true)}
+              style={[styles.createButton, {
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)'
+              }]}
+              activeOpacity={0.7}
+            >
+              <Feather name="plus" size={24} color={colors.text} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {loading ? (
@@ -386,7 +363,7 @@ export default function RoomsScreen() {
               transform: [{ scale: new Animated.Value(0.95) }],
               opacity: new Animated.Value(1),
               backgroundColor: colors.modalBackground,
-              borderColor: `${colors.primary}50`
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)'
             }]}
           >
             <Text style={[styles.modalTitle, { color: colors.primary }]}>Create New Room</Text>
@@ -445,46 +422,36 @@ export default function RoomsScreen() {
           </Animated.View>
         </BlurView>
       )}
-    </ThemedGradient>
+      </ThemedGradient>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
   },
-  headerContainer: {
-    marginBottom: 15,
-  },
-  headerGradient: {
-    borderBottomLeftRadius: 15,
-    borderBottomRightRadius: 15,
-    overflow: 'hidden',
+  container: {
+    flex: 1,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 16,
     paddingHorizontal: 16,
+    paddingTop: Platform.OS === "ios" ? 10 : 20,
+    paddingBottom: 12,
     borderBottomWidth: 1,
   },
   headerTitle: {
-    fontSize: 22,
-    fontFamily: "Rubik-Bold",
+    fontSize: 20,
   },
   headerIcon: {
     marginRight: 8,
   },
   headerButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  refreshButton: {
-    padding: 10,
-    borderRadius: 50,
-    borderWidth: 1.5,
-    marginRight: 10,
+    flexDirection: "row",
+    gap: 12,
   },
   createButton: {
     padding: 10,

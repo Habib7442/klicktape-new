@@ -8,26 +8,26 @@ export type ThemeType = 'light' | 'dark' | 'system';
 // Define theme colors for light and dark modes
 export const lightTheme = {
   // Background colors
-  background: '#F8F9FA',
-  backgroundSecondary: '#F0F2F5',
-  backgroundTertiary: '#E9ECEF',
+  background: '#FFFFFF',
+  backgroundSecondary: '#F5F5F5',
+  backgroundTertiary: '#E0E0E0',
 
   // Text colors
-  text: '#212529',
-  textSecondary: '#495057',
-  textTertiary: '#6C757D',
+  text: '#000000',
+  textSecondary: '#000000',
+  textTertiary: '#666666',
 
   // Brand colors
-  primary: '#B8860B', // Darker gold for better visibility in light mode
-  primaryDark: '#8B6914',
-  primaryLight: '#DAA520',
+  primary: '#FFD700', // Keep gold for primary actions
+  primaryDark: '#E6C200',
+  primaryLight: '#FFF0AA',
 
   // UI element colors
-  card: '#F0F2F5',
-  cardBorder: 'rgba(184, 134, 11, 0.2)', // Subtle gold border
+  card: '#F5F5F5', // Gray card background
+  cardBorder: 'rgba(128, 128, 128, 0.2)', // Gray border
   divider: 'rgba(0, 0, 0, 0.1)',
-  input: '#F8F9FA',
-  inputBorder: 'rgba(184, 134, 11, 0.3)',
+  input: '#F5F5F5',
+  inputBorder: 'rgba(128, 128, 128, 0.3)',
 
   // Status colors
   success: '#4CAF50',
@@ -37,19 +37,19 @@ export const lightTheme = {
 
   // Overlay colors
   overlay: 'rgba(0, 0, 0, 0.5)',
-  modalBackground: '#F0F2F5',
+  modalBackground: '#F5F5F5',
 };
 
 export const darkTheme = {
   // Background colors
   background: '#000000',
-  backgroundSecondary: '#1A1A1A',
-  backgroundTertiary: '#2A2A2A',
+  backgroundSecondary: '#2A2A2A',
+  backgroundTertiary: '#404040',
 
   // Text colors
   text: '#FFFFFF',
-  textSecondary: '#CCCCCC',
-  textTertiary: '#999999',
+  textSecondary: '#FFFFFF',
+  textTertiary: '#CCCCCC',
 
   // Brand colors
   primary: '#FFD700', // Gold
@@ -57,11 +57,11 @@ export const darkTheme = {
   primaryLight: '#FFF0AA',
 
   // UI element colors
-  card: '#1A1A1A',
-  cardBorder: 'rgba(255, 215, 0, 0.1)',
+  card: '#2A2A2A', // Gray card background
+  cardBorder: 'rgba(128, 128, 128, 0.2)', // Gray border
   divider: 'rgba(255, 255, 255, 0.1)',
-  input: '#2A2A2A',
-  inputBorder: 'rgba(255, 215, 0, 0.2)',
+  input: '#404040',
+  inputBorder: 'rgba(128, 128, 128, 0.3)',
 
   // Status colors
   success: '#4CAF50',
@@ -71,7 +71,7 @@ export const darkTheme = {
 
   // Overlay colors
   overlay: 'rgba(0, 0, 0, 0.7)',
-  modalBackground: '#1A1A1A',
+  modalBackground: '#2A2A2A',
 };
 
 // Define the context type

@@ -12,6 +12,8 @@ import {
   ActivityIndicator,
   Share,
   Alert,
+  Platform,
+  StatusBar,
 } from "react-native";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
@@ -23,9 +25,10 @@ import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
 import DeleteModal from "@/components/DeleteModal";
 import ThemedGradient from "@/components/ThemedGradient";
 import { useTheme } from "@/src/context/ThemeContext";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const Profile = () => {
-  const { colors } = useTheme();
+  const { colors, isDarkMode } = useTheme();
   const [userId, setUserId] = useState<string | null>(null);
   const [posts, setPosts] = useState<any[]>([]);
   const [bookmarks, setBookmarks] = useState<any[]>([]);
@@ -454,19 +457,39 @@ const Profile = () => {
   });
 
   return (
-    <ThemedGradient style={styles.container}>
-      <View style={[styles.header, { borderBottomColor: `${colors.primary}20` }]}>
-        <Text className="font-rubik-bold" style={[styles.headerTitle, { color: colors.primary }]}>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
+      <ThemedGradient style={styles.container}>
+        <View style={[styles.header, { borderBottomColor: `${colors.primary}20` }]}>
+        <Text className="font-rubik-bold" style={[styles.headerTitle, { color: colors.text }]}>
           Profile
         </Text>
         <View style={styles.headerButtons}>
-          <TouchableOpacity onPress={() => router.push("/create")}>
-            <Feather name="plus-square" size={24} color={colors.primary} />
+          <TouchableOpacity
+            onPress={() => router.push("/create")}
+            style={[styles.headerIconButton, {
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)'
+            }]}
+          >
+            <Feather name="plus-square" size={24} color={colors.text} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleShare}>
-            <Feather name="share-2" size={24} color={colors.primary} />
+          <TouchableOpacity
+            onPress={handleShare}
+            style={[styles.headerIconButton, {
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)'
+            }]}
+          >
+            <Feather name="share-2" size={24} color={colors.text} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleLogout}>
+          <TouchableOpacity
+            onPress={handleLogout}
+            style={[styles.headerIconButton, {
+              backgroundColor: `${colors.error}20`,
+              borderColor: `${colors.error}50`
+            }]}
+          >
             <Feather name="log-out" size={24} color={colors.error} />
           </TouchableOpacity>
         </View>
@@ -492,7 +515,7 @@ const Profile = () => {
           <View style={styles.profileInfo}>
             <Image
               source={{ uri: userInfo.avatar }}
-              style={[styles.profileImage, { borderColor: `${colors.primary}30` }]}
+              style={[styles.profileImage, { borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)' }]}
             />
             <View style={styles.statsContainer}>
               <View style={styles.stat}>
@@ -548,12 +571,12 @@ const Profile = () => {
             </View>
             <TouchableOpacity
               style={[styles.editButton, {
-                backgroundColor: `${colors.primary}10`,
-                borderColor: `${colors.primary}30`
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
               }]}
               onPress={() => router.push("/edit-profile")}
             >
-              <Text className="font-rubik-bold" style={[styles.editButtonText, { color: colors.primary }]}>
+              <Text className="font-rubik-bold" style={[styles.editButtonText, { color: colors.text }]}>
                 Edit Profile
               </Text>
             </TouchableOpacity>
@@ -566,7 +589,7 @@ const Profile = () => {
             <TouchableOpacity
               style={[
                 styles.tab,
-                activeTab === "posts" && [styles.activeTab, { borderBottomColor: colors.primary }]
+                activeTab === "posts" && [styles.activeTab, { borderBottomColor: colors.text }]
               ]}
               onPress={() => {
                 pauseAllVideos();
@@ -577,14 +600,14 @@ const Profile = () => {
                 name="grid"
                 size={24}
                 color={
-                  activeTab === "posts" ? colors.primary : `${colors.primary}70`
+                  activeTab === "posts" ? colors.text : colors.textTertiary
                 }
               />
             </TouchableOpacity>
             <TouchableOpacity
               style={[
                 styles.tab,
-                activeTab === "saved" && [styles.activeTab, { borderBottomColor: colors.primary }]
+                activeTab === "saved" && [styles.activeTab, { borderBottomColor: colors.text }]
               ]}
               onPress={() => {
                 pauseAllVideos();
@@ -595,14 +618,14 @@ const Profile = () => {
                 name="bookmark"
                 size={24}
                 color={
-                  activeTab === "saved" ? colors.primary : `${colors.primary}70`
+                  activeTab === "saved" ? colors.text : colors.textTertiary
                 }
               />
             </TouchableOpacity>
             <TouchableOpacity
               style={[
                 styles.tab,
-                activeTab === "reels" && [styles.activeTab, { borderBottomColor: colors.primary }]
+                activeTab === "reels" && [styles.activeTab, { borderBottomColor: colors.text }]
               ]}
               onPress={() => {
                 pauseAllVideos();
@@ -613,7 +636,7 @@ const Profile = () => {
                 name="video"
                 size={24}
                 color={
-                  activeTab === "reels" ? colors.primary : `${colors.primary}70`
+                  activeTab === "reels" ? colors.text : colors.textTertiary
                 }
               />
             </TouchableOpacity>
@@ -651,11 +674,15 @@ const Profile = () => {
         }}
         confirm={handleConfirmDelete}
       />
-    </ThemedGradient>
+      </ThemedGradient>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
   container: {
     flex: 1,
   },
@@ -664,7 +691,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingTop: Platform.OS === "ios" ? 10 : 20,
     paddingBottom: 12,
     borderBottomWidth: 1,
   },
@@ -673,7 +700,12 @@ const styles = StyleSheet.create({
   },
   headerButtons: {
     flexDirection: "row",
-    gap: 16,
+    gap: 12,
+  },
+  headerIconButton: {
+    padding: 10,
+    borderRadius: 50,
+    borderWidth: 1.5,
   },
   profileInfo: {
     flexDirection: "row",

@@ -8,13 +8,14 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import { router } from "expo-router";
 import { AntDesign } from "@expo/vector-icons";
 import { messagesAPI } from "@/lib/messagesApi";
 import { encryption } from "@/lib/encryption";
 import { useTheme } from "@/src/context/ThemeContext";
+import ThemedGradient from "@/components/ThemedGradient";
 
 export default function ChatList() {
   const [conversations, setConversations] = useState<any[]>([]);
@@ -130,14 +131,14 @@ export default function ChatList() {
   const renderConversation = ({ item }: any) => (
     <TouchableOpacity
       style={[styles.userItem, {
-        backgroundColor: `${colors.primary}05`,
-        borderBottomColor: `${colors.primary}20`
+        backgroundColor: colors.card,
+        borderBottomColor: colors.cardBorder
       }]}
       onPress={() => router.push(`/chat/${item.userId}`)}
     >
       <Image
         source={{ uri: item.avatar }}
-        style={[styles.avatar, { borderColor: `${colors.primary}30` }]}
+        style={[styles.avatar, { borderColor: colors.cardBorder }]}
       />
       <View style={styles.userInfo}>
         <Text className="font-rubik-bold" style={[styles.username, { color: colors.text }]}>
@@ -149,7 +150,7 @@ export default function ChatList() {
             styles.lastMessage,
             { color: colors.textSecondary },
             item.lastMessage && item.lastMessage.includes("encrypted")
-              ? [styles.encryptedMessage, { color: `${colors.primary}80` }]
+              ? [styles.encryptedMessage, { color: colors.textTertiary }]
               : null
           ]}
           numberOfLines={1}
@@ -166,26 +167,22 @@ export default function ChatList() {
   );
 
   return (
-    <LinearGradient
-      colors={isDarkMode
-        ? [colors.background, colors.backgroundSecondary, colors.backgroundTertiary]
-        : [colors.background, colors.backgroundSecondary, colors.backgroundTertiary]
-      }
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.container}
-    >
-      <View style={[styles.header, { borderBottomColor: `${colors.primary}20` }]}>
+    <SafeAreaView style={{ flex: 1 }}>
+      <ThemedGradient style={styles.container}>
+      <View style={[styles.header, {
+        borderBottomColor: colors.cardBorder,
+        backgroundColor: colors.backgroundSecondary
+      }]}>
         <TouchableOpacity
           onPress={() => router.back()}
           style={[styles.backButton, {
-            backgroundColor: `${colors.primary}10`,
-            borderColor: `${colors.primary}30`
+            backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+            borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)'
           }]}
         >
-          <AntDesign name="arrowleft" size={24} color={colors.primary} />
+          <AntDesign name="arrowleft" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text className="font-rubik-bold" style={[styles.title, { color: colors.primary }]}>
+        <Text className="font-rubik-bold" style={[styles.title, { color: colors.text }]}>
           Messages
         </Text>
       </View>
@@ -207,7 +204,8 @@ export default function ChatList() {
           contentContainerStyle={styles.flatListContent}
         />
       )}
-    </LinearGradient>
+      </ThemedGradient>
+    </SafeAreaView>
   );
 }
 

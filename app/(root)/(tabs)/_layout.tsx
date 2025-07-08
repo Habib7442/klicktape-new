@@ -13,24 +13,24 @@ const TabIcon = ({
   focused: boolean;
   title: string;
 }) => {
-  const { colors } = useTheme();
+  const { colors, isDarkMode } = useTheme();
 
   return (
     <View style={styles.tabIconContainer}>
       <View style={[
         styles.iconWrapper,
-        focused && { backgroundColor: `${colors.primary}20` }
+        focused && { backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)' }
       ]}>
         <Feather
           name={iconName}
           size={24}
-          color={focused ? colors.primary : colors.textTertiary}
+          color={colors.text}
         />
       </View>
       <Text
         style={[
           styles.title,
-          { color: focused ? colors.primary : colors.textTertiary },
+          { color: colors.text },
         ]}
       >
         {title}
@@ -40,7 +40,7 @@ const TabIcon = ({
 };
 
 export default function Layout() {
-  const { colors } = useTheme();
+  const { colors, isDarkMode } = useTheme();
 
   return (
     <Tabs
@@ -51,7 +51,7 @@ export default function Layout() {
           styles.tabBar,
           {
             backgroundColor: colors.backgroundSecondary,
-            borderColor: `${colors.primary}20`
+            borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
           }
         ],
       }}

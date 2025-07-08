@@ -12,8 +12,8 @@ import {
   Alert,
   Keyboard,
   TouchableWithoutFeedback,
-  SafeAreaView,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { router } from "expo-router";
@@ -502,16 +502,16 @@ export default function ChatScreen() {
       backgroundColor:
         item.sender_id === userId
           ? isDarkMode
-            ? "rgba(255, 229, 92, 0.2)"
-            : "rgba(184, 134, 11, 0.1)"
+            ? "rgba(128, 128, 128, 0.2)"
+            : "rgba(128, 128, 128, 0.1)"
           : isDarkMode
             ? "rgba(255, 255, 255, 0.1)"
             : "rgba(0, 0, 0, 0.05)",
       borderColor:
         item.sender_id === userId
           ? isDarkMode
-            ? "rgba(255, 229, 92, 0.3)"
-            : "rgba(184, 134, 11, 0.2)"
+            ? "rgba(128, 128, 128, 0.3)"
+            : "rgba(128, 128, 128, 0.2)"
           : isDarkMode
             ? "rgba(255, 255, 255, 0.2)"
             : "rgba(0, 0, 0, 0.1)",
@@ -531,7 +531,7 @@ export default function ChatScreen() {
               style={[
                 styles.username,
                 item.sender_id === userId
-                  ? { color: colors.primary }
+                  ? { color: isDarkMode ? '#808080' : '#606060' }
                   : { color: colors.textSecondary },
               ]}
             >
@@ -572,7 +572,7 @@ export default function ChatScreen() {
                     : "clock"
                 }
                 size={14}
-                color={item.status === "read" ? colors.primary : colors.textSecondary}
+                color={item.status === "read" ? (isDarkMode ? '#808080' : '#606060') : colors.textSecondary}
                 style={styles.statusIcon}
               />
             )}
@@ -652,19 +652,19 @@ export default function ChatScreen() {
             )}
 
             <View style={[styles.inputContainer, {
-              borderTopColor: `rgba(${isDarkMode ? '255, 229, 92' : '184, 134, 11'}, 0.2)`,
-              backgroundColor: isDarkMode ? "rgba(40, 50, 50, 0.5)" : "rgba(248, 249, 250, 0.8)"
+              borderTopColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)',
+              backgroundColor: colors.backgroundSecondary
             }]}>
               <View style={styles.inputWrapper}>
                 <TextInput
                   ref={textInputRef}
                   style={[styles.textInput, {
-                    backgroundColor: isDarkMode ? "rgba(255, 229, 92, 0.1)" : "rgba(184, 134, 11, 0.05)",
-                    borderColor: `rgba(${isDarkMode ? '255, 229, 92' : '184, 134, 11'}, 0.3)`,
+                    backgroundColor: colors.input,
+                    borderColor: colors.inputBorder,
                     color: colors.text
                   }]}
                   placeholder="Type a message..."
-                  placeholderTextColor={isDarkMode ? "rgba(255, 229, 92, 0.7)" : "rgba(184, 134, 11, 0.7)"}
+                  placeholderTextColor={colors.textTertiary}
                   value={newMessage}
                   onChangeText={(text) => {
                     setNewMessage(text);
@@ -675,11 +675,11 @@ export default function ChatScreen() {
                 <TouchableOpacity
                   onPress={sendMessage}
                   style={[styles.sendButton, {
-                    backgroundColor: isDarkMode ? "rgba(255, 229, 92, 0.2)" : "rgba(184, 134, 11, 0.1)",
-                    borderColor: `rgba(${isDarkMode ? '255, 229, 92' : '184, 134, 11'}, 0.4)`
+                    backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+                    borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.4)' : 'rgba(128, 128, 128, 0.3)'
                   }]}
                 >
-                  <Feather name="send" size={20} color={colors.primary} />
+                  <Feather name="send" size={20} color={isDarkMode ? '#808080' : '#606060'} />
                 </TouchableOpacity>
               </View>
             </View>

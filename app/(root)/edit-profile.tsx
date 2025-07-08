@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import { Picker } from "@react-native-picker/picker";
 import { supabase } from "@/lib/supabase";
@@ -233,11 +234,18 @@ const EditProfile = () => {
   };
 
   return (
-    <ThemedGradient style={styles.container}>
+    <SafeAreaView style={{ flex: 1 }}>
+      <ThemedGradient style={styles.container}>
       <View style={[styles.header, { borderBottomColor: `${colors.primary}20` }]}>
-        <Text style={[styles.headerTitle, { color: colors.primary }]}>Edit Profile</Text>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Feather name="x" size={24} color={colors.primary} />
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Edit Profile</Text>
+        <TouchableOpacity onPress={() => router.back()} style={[{
+          backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+          borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)',
+          borderWidth: 1,
+          borderRadius: 50,
+          padding: 8
+        }]}>
+          <Feather name="x" size={24} color={colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -248,7 +256,7 @@ const EditProfile = () => {
       ) : (
         <View style={[styles.card, {
           backgroundColor: `${colors.backgroundSecondary}90`,
-          borderColor: `${colors.primary}20`
+          borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
         }]}>
           <TouchableOpacity
             style={styles.avatarContainer}
@@ -257,16 +265,16 @@ const EditProfile = () => {
           >
             <Image
               source={{ uri: newAvatar || avatar || "https://via.placeholder.com/150" }}
-              style={[styles.avatar, { borderColor: colors.primary }]}
+              style={[styles.avatar, { borderColor: isDarkMode ? '#808080' : '#606060' }]}
             />
             <View style={[styles.avatarOverlay, {
               backgroundColor: `${colors.backgroundTertiary}E6`,
-              borderColor: `${colors.primary}30`
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
             }]}>
               {uploadingImage ? (
-                <ActivityIndicator size="small" color={colors.primary} />
+                <ActivityIndicator size="small" color={isDarkMode ? '#808080' : '#606060'} />
               ) : (
-                <Feather name="camera" size={24} color={colors.primary} />
+                <Feather name="camera" size={24} color={isDarkMode ? '#808080' : '#606060'} />
               )}
             </View>
           </TouchableOpacity>
@@ -277,47 +285,47 @@ const EditProfile = () => {
             </Text>
           )}
 
-          <Text style={[styles.label, { color: colors.text }]}>Username</Text>
+          <Text style={[styles.label, { color: "#FFFFFF" }]}>Username</Text>
           <TextInput
             style={[styles.input, {
-              backgroundColor: `${colors.primary}10`,
-              borderColor: `${colors.primary}30`,
-              color: colors.primary
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)',
+              color: isDarkMode ? '#808080' : '#606060'
             }]}
             value={username}
             onChangeText={setUsername}
             placeholder="Enter username"
-            placeholderTextColor={`${colors.primary}50`}
+            placeholderTextColor={isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(96, 96, 96, 0.5)'}
           />
 
-          <Text style={[styles.label, { color: colors.text }]}>Bio</Text>
+          <Text style={[styles.label, { color: "#FFFFFF" }]}>Bio</Text>
           <TextInput
             style={[
               styles.input,
               styles.bioInput,
               {
-                backgroundColor: `${colors.primary}10`,
-                borderColor: `${colors.primary}30`,
-                color: colors.primary
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)',
+                color: isDarkMode ? '#808080' : '#606060'
               }
             ]}
             value={bio}
             onChangeText={setBio}
             placeholder="Tell us about yourself"
-            placeholderTextColor={`${colors.primary}50`}
+            placeholderTextColor={isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(96, 96, 96, 0.5)'}
             multiline
           />
 
-          <Text style={[styles.label, { color: colors.text }]}>Gender</Text>
+          <Text style={[styles.label, { color: "#FFFFFF" }]}>Gender</Text>
           <View style={[styles.pickerContainer, {
             backgroundColor: "#000000",
-            borderColor: `${colors.primary}30`
+            borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
           }]}>
             <Picker
               selectedValue={gender}
               onValueChange={setGender}
               style={[styles.picker, { color: "#FFFFFF" }]}
-              dropdownIconColor={colors.primary}
+              dropdownIconColor={isDarkMode ? '#808080' : '#606060'}
             >
               <Picker.Item label="Select Gender" value="" color="black" />
               <Picker.Item label="Male" value="male" color="black" />
@@ -326,16 +334,16 @@ const EditProfile = () => {
             </Picker>
           </View>
 
-          <Text style={[styles.label, { color: colors.text }]}>Account Type</Text>
+          <Text style={[styles.label, { color: "#FFFFFF" }]}>Account Type</Text>
           <View style={[styles.pickerContainer, {
             backgroundColor: "#000000",
-            borderColor: `${colors.primary}30`
+            borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
           }]}>
             <Picker
               selectedValue={accountType}
               onValueChange={setAccountType}
               style={[styles.picker, { color: "#FFFFFF" }]}
-              dropdownIconColor={colors.primary}
+              dropdownIconColor={isDarkMode ? '#808080' : '#606060'}
             >
               <Picker.Item label="Personal" value="personal" color="black" />
               <Picker.Item label="Business" value="business" color="black" />
@@ -347,7 +355,8 @@ const EditProfile = () => {
             style={[
               styles.saveButton,
               {
-                backgroundColor: colors.primary,
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)',
                 shadowOpacity: 0
               },
               (updating || uploadingImage) && styles.saveButtonDisabled
@@ -356,9 +365,9 @@ const EditProfile = () => {
             disabled={updating || uploadingImage}
           >
             {updating || uploadingImage ? (
-              <ActivityIndicator color={isDarkMode ? "#000000" : "#FFFFFF"} />
+              <ActivityIndicator color={colors.text} />
             ) : (
-              <Text style={[styles.saveButtonText, { color: isDarkMode ? "#000000" : "#FFFFFF" }]}>
+              <Text style={[styles.saveButtonText, { color: colors.text }]}>
                 Save Changes
               </Text>
             )}
@@ -366,6 +375,7 @@ const EditProfile = () => {
         </View>
       )}
     </ThemedGradient>
+    </SafeAreaView>
   );
 };
 

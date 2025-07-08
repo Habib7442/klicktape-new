@@ -1,7 +1,7 @@
 import { View, Text, Image, StyleSheet, Animated } from "react-native";
 import { useEffect, useRef, useState } from "react";
 import { Redirect } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
+
 
 export default function Welcome() {
   const [shouldRedirect, setShouldRedirect] = useState(false);
@@ -35,12 +35,7 @@ export default function Welcome() {
   }
 
   return (
-    <LinearGradient
-      colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.container}
-    >
+    <View style={[styles.container, { backgroundColor: '#000000' }]}>
       <Animated.View
         style={[
           styles.imageContainer,
@@ -48,7 +43,7 @@ export default function Welcome() {
         ]}
       >
         <Image
-          source={require("../../assets/images/icon.png")}
+          source={require("../../assets/images/adaptive-icon.png")}
           style={styles.logo}
           resizeMode="contain"
         />
@@ -63,7 +58,7 @@ export default function Welcome() {
       <Text className="font-rubik-medium" style={styles.subtitle}>
         The ultimate social experience
       </Text>
-    </LinearGradient>
+    </View>
   );
 }
 

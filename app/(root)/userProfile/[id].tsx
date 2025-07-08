@@ -12,6 +12,7 @@ import {
   Share,
   ScrollView,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Video } from "expo-av";
@@ -288,9 +289,11 @@ const UserProfile = () => {
         end={{ x: 1, y: 1 }}
         style={styles.container}
       >
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        </SafeAreaView>
       </LinearGradient>
     );
   }
@@ -303,17 +306,30 @@ const UserProfile = () => {
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
-      <View style={[styles.header, { borderBottomColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.2)` }]}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Feather name="arrow-left" size={24} color={colors.primary} />
-        </TouchableOpacity>
-        <Text className="font-rubik-bold" style={[styles.headerTitle, { color: colors.text }]}>
-          {userProfile.username}
-        </Text>
-        <TouchableOpacity onPress={handleShare}>
-          <Feather name="share-2" size={24} color={colors.primary} />
-        </TouchableOpacity>
-      </View>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.header, { borderBottomColor: `${colors.primary}20` }]}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={[styles.headerIconButton, {
+              backgroundColor: `${colors.primary}20`,
+              borderColor: `${colors.primary}50`
+            }]}
+          >
+            <Feather name="arrow-left" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+          <Text className="font-rubik-bold" style={[styles.headerTitle, { color: '#FFFFFF' }]}>
+            {userProfile.username}
+          </Text>
+          <TouchableOpacity
+            onPress={handleShare}
+            style={[styles.headerIconButton, {
+              backgroundColor: `${colors.primary}20`,
+              borderColor: `${colors.primary}50`
+            }]}
+          >
+            <Feather name="share-2" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
 
       <ScrollView
         refreshControl={
@@ -406,11 +422,14 @@ const UserProfile = () => {
           )}
         </View>
 
-        <View style={[styles.tabsContainer, { borderTopColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.2)` }]}>
+        <View style={[styles.tabsContainer, {
+          borderTopColor: `${colors.primary}20`,
+          backgroundColor: `${colors.backgroundSecondary}80`
+        }]}>
           <TouchableOpacity
             style={[
               styles.tab,
-              activeTab === "posts" && [styles.activeTab, { borderBottomColor: colors.primary }]
+              activeTab === "posts" && [styles.activeTab, { borderBottomColor: '#FFFFFF' }]
             ]}
             onPress={() => setActiveTab("posts")}
           >
@@ -418,14 +437,14 @@ const UserProfile = () => {
               name="grid"
               size={24}
               color={
-                activeTab === "posts" ? colors.primary : colors.textSecondary
+                activeTab === "posts" ? '#FFFFFF' : 'rgba(255, 255, 255, 0.7)'
               }
             />
           </TouchableOpacity>
           <TouchableOpacity
             style={[
               styles.tab,
-              activeTab === "reels" && [styles.activeTab, { borderBottomColor: colors.primary }]
+              activeTab === "reels" && [styles.activeTab, { borderBottomColor: '#FFFFFF' }]
             ]}
             onPress={() => setActiveTab("reels")}
           >
@@ -433,7 +452,7 @@ const UserProfile = () => {
               name="video"
               size={24}
               color={
-                activeTab === "reels" ? colors.primary : colors.textSecondary
+                activeTab === "reels" ? '#FFFFFF' : 'rgba(255, 255, 255, 0.7)'
               }
             />
           </TouchableOpacity>
@@ -455,11 +474,15 @@ const UserProfile = () => {
           }
         />
       </ScrollView>
+      </SafeAreaView>
     </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
   container: {
     flex: 1,
   },
@@ -474,6 +497,11 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
+  },
+  headerIconButton: {
+    padding: 10,
+    borderRadius: 50,
+    borderWidth: 1.5,
   },
   profileInfo: {
     flexDirection: "row",

@@ -615,19 +615,22 @@ const CreateReel = () => {
       <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
       <ThemedGradient style={styles.container}>
         <View style={[styles.header, {
-          borderBottomColor: `${colors.primary}20`,
+          borderBottomColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)',
           backgroundColor: `${colors.backgroundSecondary}90`
         }]}>
           <TouchableOpacity
-            style={styles.headerButton}
+            style={[styles.headerButton, {
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)'
+            }]}
             onPress={handleClose}
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
           >
-            <AntDesign name="close" size={24} color={colors.primary} />
+            <AntDesign name="close" size={24} color="#FFFFFF" />
           </TouchableOpacity>
 
-          <Text style={[styles.headerTitle, { color: colors.text }]}>New Reel</Text>
+          <Text style={[styles.headerTitle, { color: '#FFFFFF' }]}>New Reel</Text>
 
           <TouchableOpacity
             onPress={() => {
@@ -642,15 +645,15 @@ const CreateReel = () => {
             style={[
               styles.postButton,
               {
-                backgroundColor: colors.primary,
-                shadowOpacity: 0
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
               },
               (!video || !thumbnail || loading) && [styles.disabledButton, { opacity: 0.5 }],
             ]}
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
           >
-            <Text style={[styles.postButtonText, { color: isDarkMode ? "#000" : "#FFF" }]}>
+            <Text style={[styles.postButtonText, { color: '#FFFFFF' }]}>
               {loading ? "Uploading..." : "Share"}
             </Text>
           </TouchableOpacity>
@@ -753,9 +756,9 @@ const CreateReel = () => {
                     backgroundColor: colors.backgroundSecondary,
                     borderColor: `${colors.primary}30`
                   }]}>
-                    <FontAwesome5 name="video" size={32} color={colors.primary} />
-                    <Text style={[styles.uploadText, { color: colors.primary }]}>Select Video</Text>
-                    <Text style={[styles.fileSizeText, { color: `${colors.text}70` }]}>
+                    <FontAwesome5 name="video" size={32} color="#FFFFFF" />
+                    <Text style={[styles.uploadText, { color: '#FFFFFF' }]}>Select Video</Text>
+                    <Text style={[styles.fileSizeText, { color: `#FFFFFF70` }]}>
                       Max {MAX_FILE_SIZE_MB}MB
                     </Text>
                   </View>
@@ -774,9 +777,9 @@ const CreateReel = () => {
                     backgroundColor: colors.backgroundSecondary,
                     borderColor: `${colors.primary}30`
                   }]}>
-                    <FontAwesome5 name="camera" size={32} color={colors.primary} />
-                    <Text style={[styles.uploadText, { color: colors.primary }]}>Record Video</Text>
-                    <Text style={[styles.fileSizeText, { color: `${colors.text}70` }]}>Max 30 seconds</Text>
+                    <FontAwesome5 name="camera" size={32} color="#FFFFFF" />
+                    <Text style={[styles.uploadText, { color: '#FFFFFF' }]}>Record Video</Text>
+                    <Text style={[styles.fileSizeText, { color: `#FFFFFF70` }]}>Max 30 seconds</Text>
                   </View>
                 </TouchableOpacity>
               </View>
@@ -956,14 +959,11 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'android' ? 40 : 16,
   },
   headerButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    padding: 10,
+    borderRadius: 50,
+    borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 215, 0, 0.3)',
   },
   headerTitle: {
     fontSize: 20,
@@ -974,17 +974,12 @@ const styles = StyleSheet.create({
     textShadowRadius: 3,
   },
   postButton: {
-    backgroundColor: "#FFD700",
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#FFD700",
+    alignItems: "center",
+    justifyContent: "center",
   },
   postButtonText: {
     color: "#000000",

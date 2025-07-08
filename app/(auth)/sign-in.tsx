@@ -9,12 +9,13 @@ import {
   StyleSheet,
 } from "react-native";
 import { Link, router } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "@/lib/supabase";
 import { useDispatch } from "react-redux";
 import { setUser } from "@/src/store/slices/authSlice";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
+import ThemedGradient from "@/components/ThemedGradient";
+import { useTheme } from "@/src/context/ThemeContext";
 
 const SignIn = () => {
   const [email, setEmail] = useState("");
@@ -22,6 +23,7 @@ const SignIn = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const dispatch = useDispatch();
+  const { colors } = useTheme();
 
   const onSubmit = async () => {
     // Validate email
@@ -208,20 +210,17 @@ const SignIn = () => {
   };
 
   return (
-    <LinearGradient
-      colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-      style={styles.container}
-    >
-      <View style={styles.overlay}>
-        <View style={styles.card}>
-          <Text style={styles.title}>Welcome Back</Text>
-          <Text style={styles.subtitle}>Please sign in to continue</Text>
+    <ThemedGradient style={styles.container}>
+      <View style={[styles.overlay, { backgroundColor: `${colors.background}80` }]}>
+        <View style={[styles.card, { backgroundColor: `${colors.backgroundSecondary}90` }]}>
+          <Text style={[styles.title, { color: colors.primary }]}>Welcome Back</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Please sign in to continue</Text>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email or Mobile Number</Text>
+            <Text style={[styles.label, { color: colors.text }]}>Email or Mobile Number</Text>
             <TextInput
               style={styles.input}
               placeholder="Enter your email"
-              placeholderTextColor="rgba(255, 255, 255, 0.5)"
+              placeholderTextColor={`${colors.textTertiary}80`}
               keyboardType="email-address"
               autoCapitalize="none"
               value={email}
@@ -229,12 +228,15 @@ const SignIn = () => {
             />
           </View>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Password</Text>
-            <View style={styles.passwordContainer}>
+            <Text style={[styles.label, { color: colors.text }]}>Password</Text>
+            <View style={[styles.passwordContainer, {
+                borderColor: `${colors.primary}30`,
+                backgroundColor: `${colors.backgroundTertiary}80`
+              }]}>
               <TextInput
-                style={styles.passwordInput}
+                style={[styles.passwordInput, { color: colors.text }]}
                 placeholder="Enter your password"
-                placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                placeholderTextColor={`${colors.textTertiary}80`}
                 secureTextEntry={!showPassword}
                 value={password}
                 onChangeText={setPassword}
@@ -246,7 +248,7 @@ const SignIn = () => {
                 <Feather
                   name={showPassword ? "eye" : "eye-off"}
                   size={20}
-                  color="rgba(255, 215, 0, 0.7)"
+                  color={colors.primary}
                 />
               </TouchableOpacity>
             </View>
@@ -255,7 +257,7 @@ const SignIn = () => {
             style={styles.forgotLink}
             onPress={handleForgotPassword}
           >
-            <Text style={styles.linkText}>Forgot Password?</Text>
+            <Text style={[styles.linkText, { color: colors.primary }]}>Forgot Password?</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.button, isLoading && styles.buttonDisabled]}
@@ -269,58 +271,67 @@ const SignIn = () => {
             )}
           </TouchableOpacity>
           <View style={styles.signUpContainer}>
-            <Text style={styles.signUpText}>Don't have an account?</Text>
+            <Text style={[styles.signUpText, { color: colors.textSecondary }]}>Don't have an account?</Text>
             <Link href="/sign-up" style={styles.signUpLink}>
-              <Text style={styles.linkText}>Sign Up</Text>
+              <Text style={[styles.linkText, { color: colors.primary }]}>Sign Up</Text>
             </Link>
           </View>
         </View>
       </View>
-    </LinearGradient>
+    </ThemedGradient>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: {
+    flex: 1
+  },
   overlay: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   card: {
     width: "90%",
     maxWidth: 400,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
     padding: 20,
     borderRadius: 16,
     alignItems: "center",
   },
   title: {
     fontSize: 32,
-    color: "#FFD700",
     fontWeight: "bold",
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
-    color: "rgba(255, 255, 255, 0.7)",
     marginBottom: 20,
   },
-  inputGroup: { width: "100%", marginBottom: 16 },
-  label: { fontSize: 14, color: "#ffffff", marginBottom: 6 },
+  inputGroup: {
+    width: "100%",
+    marginBottom: 16
+  },
+  label: {
+    fontSize: 14,
+    marginBottom: 6
+  },
   input: {
     width: "100%",
     padding: 12,
     borderRadius: 12,
     borderWidth: 1,
+    fontSize: 16,
     borderColor: "rgba(255, 215, 0, 0.3)",
     backgroundColor: "rgba(255, 255, 255, 0.15)",
     color: "#ffffff",
-    fontSize: 16,
   },
-  forgotLink: { alignSelf: "flex-end", marginBottom: 16 },
-  linkText: { fontSize: 14, color: "#FFD700" },
+  forgotLink: {
+    alignSelf: "flex-end",
+    marginBottom: 16
+  },
+  linkText: {
+    fontSize: 14
+  },
   button: {
     width: "100%",
     padding: 14,
@@ -329,24 +340,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
-  buttonDisabled: { opacity: 0.7 },
-  buttonText: { fontSize: 16, color: "#000000", fontWeight: "bold" },
-  signUpContainer: { flexDirection: "row", justifyContent: "center" },
-  signUpText: { fontSize: 14, color: "rgba(255, 255, 255, 0.7)" },
-  signUpLink: { marginLeft: 4 },
+  buttonDisabled: {
+    opacity: 0.7
+  },
+  buttonText: {
+    fontSize: 16,
+    color: "#000000",
+    fontWeight: "bold"
+  },
+  signUpContainer: {
+    flexDirection: "row",
+    justifyContent: "center"
+  },
+  signUpText: {
+    fontSize: 14
+  },
+  signUpLink: {
+    marginLeft: 4
+  },
   passwordContainer: {
-    width: "100%",
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    borderRadius: 12,
   },
   passwordInput: {
     flex: 1,
     padding: 12,
-    color: "#ffffff",
     fontSize: 16,
   },
   eyeButton: {

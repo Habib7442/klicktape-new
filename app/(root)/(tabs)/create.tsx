@@ -1,4 +1,4 @@
-import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, Text, StyleSheet, StatusBar } from 'react-native';
 import React, { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { AntDesign } from '@expo/vector-icons';
@@ -6,14 +6,17 @@ import CreatePost from '@/components/CreatePost';
 import CreateReel from '@/components/CreateReel';
 import ThemedGradient from '@/components/ThemedGradient';
 import { useTheme } from '@/src/context/ThemeContext';
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const Create = () => {
   const router = useRouter();
   const [mode, setMode] = useState<'post' | 'reel'>('post');
-  const { colors } = useTheme();
+  const { colors, isDarkMode } = useTheme();
 
   return (
-    <ThemedGradient style={styles.container}>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
+      <ThemedGradient style={styles.container}>
       <View style={[styles.header, {
         borderBottomColor: `${colors.primary}20`,
         backgroundColor: `${colors.backgroundSecondary}90`
@@ -28,11 +31,11 @@ const Create = () => {
           <AntDesign
             name="picture"
             size={24}
-            color={mode === 'post' ? colors.primary : `${colors.primary}70`}
+            color={mode === 'post' ? colors.text : colors.textTertiary}
           />
           <Text style={[
             styles.tabText,
-            { color: `${colors.primary}70` },
+            { color: colors.textTertiary },
             mode === 'post' && [styles.activeTabText, { color: colors.text }]
           ]}>
             Post
@@ -49,11 +52,11 @@ const Create = () => {
           <AntDesign
             name="videocamera"
             size={24}
-            color={mode === 'reel' ? colors.primary : `${colors.primary}70`}
+            color={mode === 'reel' ? colors.text : colors.textTertiary}
           />
           <Text style={[
             styles.tabText,
-            { color: `${colors.primary}70` },
+            { color: colors.textTertiary },
             mode === 'reel' && [styles.activeTabText, { color: colors.text }]
           ]}>
             Reel
@@ -70,11 +73,15 @@ const Create = () => {
       ) : (
         <CreateReel />
       )}
-    </ThemedGradient>
+      </ThemedGradient>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
   container: {
     flex: 1,
   },

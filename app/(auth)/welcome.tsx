@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { Image, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Swiper from "react-native-swiper";
-import { LinearGradient } from "expo-linear-gradient";
+
 import CustomButton from "@/components/CustomButton";
 import { onboarding } from "@/constants";
 
@@ -14,18 +14,14 @@ const Home = () => {
   const isLastSlide = activeIndex === onboarding.length - 1;
 
   return (
-    <LinearGradient
-      colors={["#000000", "#1a1a1a", "#2a2a2a"]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      className="flex-1"
+    <View className="flex-1 bg-black"
     >
       <SafeAreaView className="flex-1 pb-5">
         <TouchableOpacity
           onPress={() => {
-            router.replace("/(auth)/sign-up");
+            router.replace("/(auth)/sign-in");
           }}
-          className="w-[80px] h-[40px] items-center justify-center rounded-[20px] bg-[rgba(255,215,0,0.1)] border border-[rgba(255,215,0,0.3)] ml-auto mr-4 mt-2.5"
+          className="w-[80px] h-[40px] items-center justify-center rounded-[20px] bg-[rgba(128,128,128,0.1)] border border-[rgba(128,128,128,0.3)] ml-auto mr-4 mt-2.5"
         >
           <Text className="text-[#FFD700] text-base font-rubik-medium">
             Skip
@@ -77,7 +73,7 @@ const Home = () => {
           textVariant="primary"
         />
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 };
 
