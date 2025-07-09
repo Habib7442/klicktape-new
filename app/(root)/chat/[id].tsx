@@ -23,15 +23,20 @@ import { messagesAPI } from "@/lib/messagesApi";
 import { useDispatch } from "react-redux";
 import { setUnreadMessageCount } from "@/src/store/slices/messageSlice";
 import { useTheme } from "@/src/context/ThemeContext";
+import { messageStatusManager } from "@/lib/messageStatusManager";
+import { useSocketChat } from "@/hooks/useSocketChat";
 
 interface Message {
   id: string;
   encrypted_content: string;
   content?: string;
   sender_id: string;
+  receiver_id: string;
   created_at: string;
   is_read: boolean;
   status: "sent" | "delivered" | "read";
+  delivered_at?: string;
+  read_at?: string;
 }
 
 interface MessageCache {
@@ -46,6 +51,7 @@ export default function ChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [recipientTyping, setRecipientTyping] = useState(false);
@@ -63,6 +69,78 @@ export default function ChatScreen() {
   const dispatch = useDispatch();
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
   const { isDarkMode, colors } = useTheme();
+
+  // Generate chat ID for real-time subscription
+  const chatId = userId && recipientId ? [userId, recipientId].sort().join("-") : "";
+
+
+
+  // Socket.IO real-time chat
+  const {
+    isConnected,
+    connectionStatus: realtimeStatus,
+    sendMessage: sendSocketMessage,
+    sendTypingStatus,
+    markAsDelivered,
+    markAsRead,
+  } = useSocketChat({
+    userId: userId || "",
+    chatId,
+    onNewMessage: (message) => {
+      console.log('🔥 Socket.IO: New message received!', message.id);
+
+      setMessages(prev => {
+        // Avoid duplicates
+        if (prev.some(m => m.id === message.id)) {
+          return prev;
+        }
+
+        const newMessages = [...prev, message].sort((a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+
+        // Update cache
+        if (chatId) {
+          setCachedMessages(chatId, newMessages);
+        }
+
+        return newMessages;
+      });
+
+      // Auto-scroll to bottom
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+
+      // Mark as delivered if user is receiver
+      if (message.receiver_id === userId && message.sender_id !== userId) {
+        markAsDelivered(message.id);
+      }
+    },
+    onMessageStatusUpdate: ({ messageId, status, isRead }) => {
+      console.log('🔥 Socket.IO: Message status update!', { messageId, status, isRead });
+
+      setMessages(prev => {
+        const updated = prev.map(m =>
+          m.id === messageId
+            ? { ...m, status, is_read: isRead }
+            : m
+        );
+
+        // Update cache
+        if (chatId) {
+          setCachedMessages(chatId, updated);
+        }
+
+        return updated;
+      });
+    },
+    onTypingUpdate: ({ userId: typingUserId, isTyping }) => {
+      if (typingUserId !== userId) {
+        setRecipientTyping(isTyping);
+      }
+    },
+  });
 
   // Define gradient colors based on theme
   const gradientColors = isDarkMode
@@ -120,19 +198,12 @@ export default function ChatScreen() {
         recipient
       );
 
-      const unreadMessages = messages.documents.filter(
-        (msg) => msg.sender_id === recipient && !msg.is_read
-      );
+      // Initialize message status manager
+      messageStatusManager.setUserId(currentUserId);
 
-      if (unreadMessages.length > 0) {
-        await Promise.all(
-          unreadMessages.map(async (msg) => {
-            await messagesAPI.markAsRead(msg.id);
-            msg.is_read = true;
-            msg.status = "read";
-          })
-        );
-      }
+      // Mark messages as delivered and read
+      await messageStatusManager.markMessagesAsDelivered(recipient, currentUserId);
+      await messageStatusManager.markMessagesAsRead(recipient, currentUserId);
 
       const sortedMessages = messages.documents.sort((a, b) =>
         new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -154,65 +225,124 @@ export default function ChatScreen() {
   }, [getCachedMessages, setCachedMessages]);
 
   const sendMessage = async () => {
-    if (!newMessage.trim()) return;
-    if (!userId || !recipientId || !supabase) {
+    console.log('🔍 Chat sendMessage called:', {
+      hasMessage: !!newMessage.trim(),
+      userId,
+      recipientId,
+      isConnected,
+      realtimeStatus
+    });
+
+    console.log('🔍 Step 1: Checking message content...');
+    if (!newMessage.trim()) {
+      console.log('❌ No message content, returning early');
+      return;
+    }
+
+    console.log('🔍 Step 2: Checking user IDs...');
+    if (!userId || !recipientId) {
+      console.log('❌ Missing user IDs:', { userId, recipientId });
       Alert.alert("Error", "Cannot send message: Missing user or recipient ID");
       return;
     }
 
+    console.log('🔍 Step 3: Stopping typing indicator...');
+    // Stop typing indicator
     try {
-      const { data: recipientExists, error: checkError } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("id", recipientId)
-        .single();
+      setIsTyping(false);
+      sendTypingStatus(false);
+      console.log('✅ Typing status stopped successfully');
+    } catch (typingError) {
+      console.error('❌ Error stopping typing status:', typingError);
+    }
 
-      if (checkError || !recipientExists) {
-        Alert.alert(
-          "Error",
-          "Recipient not found. They may have deleted their account."
-        );
+    console.log('🔍 Step 4: About to enter try block (moving setSending later)...');
+
+    console.log('🔍 Step 5: Entering try block...');
+
+    try {
+      console.log('🔍 Step 6: Inside try block, preparing message data...');
+
+      const messageData = {
+        sender_id: userId,
+        receiver_id: recipientId,
+        content: newMessage.trim(),
+        is_read: false,
+      };
+
+      console.log('📤 About to send via Socket.IO:', messageData);
+
+      // Send via Socket.IO for real-time delivery
+      let socketMessage;
+
+      console.log('🔍 sendSocketMessage function:', typeof sendSocketMessage);
+      console.log('🔍 sendSocketMessage exists:', !!sendSocketMessage);
+
+      if (!sendSocketMessage) {
+        throw new Error('sendSocketMessage function is not available');
+      }
+
+      // Set sending state here, after we know we're going to attempt sending
+      setSending(true);
+
+      try {
+        console.log('🚀 Calling sendSocketMessage...');
+        socketMessage = sendSocketMessage({
+          sender_id: userId,
+          receiver_id: recipientId,
+          content: newMessage.trim(),
+          is_read: false,
+        });
+        console.log('✅ Socket message sent, returned:', socketMessage);
+      } catch (socketError) {
+        console.error('❌ Socket message sending failed:', socketError);
+        Alert.alert("Error", "Failed to send message via Socket.IO: " + socketError.message);
+        setSending(false);
         return;
       }
 
-      const messageData = await messagesAPI.sendMessage(
-        userId,
-        recipientId as string,
-        newMessage
-      );
+      // Also save to Supabase database for persistence
+      try {
+        await messagesAPI.sendMessage(userId, recipientId, newMessage.trim());
+        console.log('💾 Message saved to database');
+      } catch (dbError) {
+        console.error("Database save error:", dbError);
+        // Continue even if DB save fails - Socket.IO handles real-time
+      }
 
-      const newMessageObj = {
-        id: messageData.id,
-        encrypted_content: newMessage,
-        content: newMessage,
-        sender_id: userId,
-        created_at: messageData.created_at,
-        is_read: false,
-        status: "sent" as const,
+      // Optimistic update (Socket.IO will also trigger onNewMessage)
+      const optimisticMessage: Message = {
+        ...socketMessage,
+        encrypted_content: newMessage.trim(),
+        delivered_at: null,
+        read_at: null,
       };
 
-      setMessages((prev) => {
-         if (prev.some((m) => m.id === newMessageObj.id)) return prev;
-        const updatedMessages = [...prev, newMessageObj].sort((a, b) =>
+      setMessages(prev => {
+        if (prev.some(m => m.id === optimisticMessage.id)) return prev;
+
+        const updated = [...prev, optimisticMessage].sort((a, b) =>
           new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
         );
-        return updatedMessages;
-      });
 
-      const chatId = [userId, recipientId].sort().join("-");
-      const cachedMessages = getCachedMessages(chatId) || [];
-      const updatedCache = [...cachedMessages, newMessageObj].sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      );
-      setCachedMessages(chatId, updatedCache);
+        if (chatId) {
+          setCachedMessages(chatId, updated);
+        }
+
+        return updated;
+      });
 
       setNewMessage("");
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     } catch (error: any) {
-      Alert.alert("Error", error.message || "Failed to send message");
+      console.log('🔍 Step X: Caught error in sendMessage:', error);
       console.error("Send message error:", error);
+      Alert.alert("Error", error.message || "Failed to send message");
+    } finally {
+      console.log('🔍 Step Final: Setting sending to false...');
+      setSending(false);
     }
   };
 
@@ -225,30 +355,15 @@ export default function ChatScreen() {
 
     if (!isTyping) {
       setIsTyping(true);
-      try {
-        await messagesAPI.setTypingStatus(
-          userId,
-          [userId, recipientId].sort().join("-"),
-          true
-        );
-      } catch (error) {
-        console.error("Failed to set typing status:", error);
-      }
+      // Send typing status via Socket.IO
+      sendTypingStatus(true);
     }
 
     typingTimeoutRef.current = setTimeout(async () => {
       setIsTyping(false);
-      try {
-        await messagesAPI.setTypingStatus(
-          userId,
-          [userId, recipientId].sort().join("-"),
-          false
-        );
-      } catch (error) {
-        console.error("Failed to clear typing status:", error);
-      }
+      sendTypingStatus(false);
     }, 3000);
-  }, [userId, recipientId, isTyping]);
+  }, [userId, recipientId, isTyping, sendTypingStatus]);
 
   useEffect(() => {
     const setupChat = async () => {
@@ -274,6 +389,9 @@ export default function ChatScreen() {
 
         setUserId(user.id);
         await loadMessages(user.id, recipientId);
+
+        // Start delivery tracking for this chat
+        messageStatusManager.startDeliveryTracking();
       } catch (error) {
         console.error("Chat setup error:", error);
         Alert.alert("Error", "Failed to set up chat: " + (error as Error).message);
@@ -292,165 +410,16 @@ export default function ChatScreen() {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
+      // Cleanup message status manager
+      messageStatusManager.cleanup();
     };
   }, [recipientId, loadMessages]);
 
-  useEffect(() => {
-    if (!userId || !recipientId || !supabase) return;
+  // Socket.IO real-time is now handled by useSocketChat hook above
+  // No need for Supabase real-time subscriptions
 
-    const chatId = [userId, recipientId].sort().join("-");
 
-    const setupSubscriptions = async () => {
-      if (subscriptionRef.current && supabase) {
-        try {
-          await supabase.removeChannel(subscriptionRef.current);
-        } catch (e) {
-          console.warn("Failed to remove channel:", e);
-        }
-        subscriptionRef.current = null;
-      }
 
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-
-      if (isUnmountedRef.current) {
-        return;
-      }
-
-      if (retryCountRef.current >= maxRetries) {
-        console.error("Max retries reached for subscriptions");
-        setConnectionStatus("disconnected");
-        Alert.alert(
-          "Connection Error",
-          "Unable to connect to real-time chat. Please check your network and try again."
-        );
-        return;
-      }
-
-      setConnectionStatus("connecting");
-
-      try {
-        if (!supabase) {
-          throw new Error("Supabase client not initialized");
-        }
-
-        subscriptionRef.current = supabase
-          .channel(`chat:${chatId}`)
-          .on(
-            'postgres_changes',
-            {
-              event: '*',
-              schema: 'public',
-              table: 'messages',
-              filter: `or(sender_id.eq.${userId},receiver_id.eq.${recipientId},sender_id.eq.${recipientId},receiver_id.eq.${userId})`,
-            },
-            (payload) => {
-              if (isUnmountedRef.current) return;
-              console.log("Message event:", payload.eventType, payload);
-
-              switch (payload.eventType) {
-                case 'INSERT':
-                  const newMessage = payload.new as Message;
-                  setMessages((prev) => {
-                    if (prev.some((m) => m.id === newMessage.id)) return prev;
-                    const updatedMessages = [...prev, newMessage].sort((a, b) =>
-                      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-                    );
-                    return updatedMessages;
-                  });
-                  setTimeout(() => {
-                    flatListRef.current?.scrollToEnd({ animated: true });
-                  }, 100);
-                  if (newMessage.sender_id !== userId && !newMessage.is_read) {
-                    messagesAPI.markAsRead(newMessage.id).catch(console.error);
-                    dispatch(setUnreadMessageCount(0));
-                  }
-                  break;
-
-                case 'UPDATE':
-                  const updatedMessage = payload.new as Message;
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === updatedMessage.id
-                        ? { ...m, is_read: updatedMessage.is_read, status: updatedMessage.is_read ? "read" : m.status }
-                        : m
-                    )
-                  );
-                  break;
-
-                case 'DELETE':
-                  const deletedMessage = payload.old as Message;
-                  setMessages((prev) => prev.filter((m) => m.id !== deletedMessage.id));
-                  break;
-              }
-            }
-          )
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'typing_status',
-              filter: `chat_id=eq.${chatId}`,
-            },
-            (payload) => {
-              if (isUnmountedRef.current) return;
-              const typingStatus = payload.new as { user_id: string; is_typing: boolean };
-              if (typingStatus.user_id === recipientId) {
-                setRecipientTyping(typingStatus.is_typing);
-              }
-            }
-          )
-          .subscribe((status, error) => {
-            if (isUnmountedRef.current) return;
-            console.log("Subscription status:", status, error ? error.message : "");
-
-            if (status === 'SUBSCRIBED') {
-              console.log("Successfully subscribed to chat channel");
-              setConnectionStatus("connected");
-              retryCountRef.current = 0;
-            } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-              console.warn("Subscription error, retrying...");
-              setConnectionStatus("disconnected");
-              if (retryCountRef.current < maxRetries) {
-                retryCountRef.current += 1;
-                reconnectTimeoutRef.current = setTimeout(() => {
-                  if (!isUnmountedRef.current) {
-                    setupSubscriptions();
-                  }
-                }, retryDelay);
-              } else {
-                console.error("Max retries reached for subscriptions");
-              }
-            }
-          });
-      } catch (error) {
-        console.error("Error setting up subscription:", error);
-        if (!isUnmountedRef.current && retryCountRef.current < maxRetries) {
-          retryCountRef.current += 1;
-          reconnectTimeoutRef.current = setTimeout(setupSubscriptions, retryDelay);
-        }
-      }
-    };
-
-    setupSubscriptions();
-
-    return () => {
-      if (subscriptionRef.current && supabase) {
-        try {
-          supabase.removeChannel(subscriptionRef.current).catch(console.error);
-        } catch (e) {
-          console.warn("Failed to remove channel during cleanup:", e);
-        }
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      retryCountRef.current = 0;
-    };
-  }, [userId, recipientId, dispatch]);
 
   // Effect to scroll to bottom when messages change
   useEffect(() => {
@@ -563,18 +532,38 @@ export default function ChatScreen() {
               })}
             </Text>
             {item.sender_id === userId && (
-              <Feather
-                name={
-                  item.status === "read"
-                    ? "check-circle"
-                    : item.status === "delivered"
-                    ? "check"
-                    : "clock"
-                }
-                size={14}
-                color={item.status === "read" ? (isDarkMode ? '#808080' : '#606060') : colors.textSecondary}
-                style={styles.statusIcon}
-              />
+              <View style={styles.statusIconContainer}>
+                {item.status === "read" ? (
+                  <Feather
+                    name="check-circle"
+                    size={14}
+                    color={isDarkMode ? '#4CAF50' : '#2196F3'}
+                    style={styles.statusIcon}
+                  />
+                ) : item.status === "delivered" ? (
+                  <View style={styles.doubleCheck}>
+                    <Feather
+                      name="check"
+                      size={12}
+                      color={colors.textSecondary}
+                      style={[styles.statusIcon, { marginRight: -8 }]}
+                    />
+                    <Feather
+                      name="check"
+                      size={12}
+                      color={colors.textSecondary}
+                      style={styles.statusIcon}
+                    />
+                  </View>
+                ) : (
+                  <Feather
+                    name="clock"
+                    size={12}
+                    color={colors.textSecondary}
+                    style={styles.statusIcon}
+                  />
+                )}
+              </View>
             )}
           </View>
         </View>
@@ -605,9 +594,19 @@ export default function ChatScreen() {
                 <Feather name="arrow-left" size={24} color={colors.primary} />
               </TouchableOpacity>
               <Text style={[styles.headerTitle, { color: colors.text }]}>Chat</Text>
-              {connectionStatus === "disconnected" && (
-                <Text style={styles.connectionWarning}>Offline</Text>
-              )}
+              <View style={styles.connectionStatus}>
+                <View style={[
+                  styles.connectionDot,
+                  {
+                    backgroundColor: realtimeStatus === 'connected' ? '#4CAF50' :
+                                   realtimeStatus === 'connecting' ? '#FF9800' : '#F44336'
+                  }
+                ]} />
+                <Text style={[styles.connectionText, { color: colors.textSecondary }]}>
+                  {realtimeStatus === 'connected' ? 'Online' :
+                   realtimeStatus === 'connecting' ? 'Connecting...' : 'Offline'}
+                </Text>
+              </View>
             </View>
 
             {loading ? (
@@ -797,6 +796,15 @@ const styles = StyleSheet.create({
   statusIcon: {
     marginLeft: 4,
   },
+  statusIconContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 4,
+  },
+  doubleCheck: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   inputContainer: {
     padding: 8,
     paddingHorizontal: 4,
@@ -845,5 +853,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "Rubik-Medium",
     fontStyle: "italic",
+  },
+  connectionStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  connectionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  connectionText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
 });

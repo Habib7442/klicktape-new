@@ -17,6 +17,7 @@ export const messagesAPI = {
         throw new Error("Recipient does not exist");
       }
 
+      // Send message with optimistic update support
       const { data, error } = await supabase
         .from("messages")
         .insert({
@@ -27,7 +28,11 @@ export const messagesAPI = {
           status: "sent",
           created_at: new Date().toISOString(),
         })
-        .select()
+        .select(`
+          *,
+          sender:profiles!messages_sender_id_fkey(id, username, avatar_url),
+          receiver:profiles!messages_receiver_id_fkey(id, username, avatar_url)
+        `)
         .single();
 
       if (error) throw error;
@@ -56,30 +61,101 @@ export const messagesAPI = {
     }
   },
 
-  markAsRead: async (messageId: string) => {
+  markAsRead: async (messageId: string, userId: string) => {
     try {
       const { data: message, error: checkError } = await supabase
         .from("messages")
-        .select("is_read")
+        .select("is_read, receiver_id, sender_id")
         .eq("id", messageId)
         .single();
 
       if (checkError) throw checkError;
+
+      // Only mark as read if current user is the receiver
+      if (message.receiver_id !== userId) {
+        console.log("User is not the receiver of this message");
+        return;
+      }
+
       if (message.is_read) {
         console.log("Message already read:", messageId);
         return;
       }
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("messages")
-        .update({ is_read: true, status: "read" })
-        .eq("id", messageId);
+        .update({
+          is_read: true,
+          status: "read",
+          read_at: new Date().toISOString()
+        })
+        .eq("id", messageId)
+        .select()
+        .single();
 
       if (error) throw error;
       console.log("Message marked as read:", messageId);
+      return data;
     } catch (error) {
       console.error("Error marking message as read:", error);
       throw new Error(`Failed to mark message as read: ${(error as Error).message}`);
+    }
+  },
+
+  markAsDelivered: async (messageId: string) => {
+    try {
+      const { data: message, error: checkError } = await supabase
+        .from("messages")
+        .select("status")
+        .eq("id", messageId)
+        .single();
+
+      if (checkError) throw checkError;
+
+      // Only update if status is still "sent"
+      if (message.status !== "sent") {
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("messages")
+        .update({
+          status: "delivered",
+          delivered_at: new Date().toISOString()
+        })
+        .eq("id", messageId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      console.log("Message marked as delivered:", messageId);
+      return data;
+    } catch (error) {
+      console.error("Error marking message as delivered:", error);
+      throw new Error(`Failed to mark message as delivered: ${(error as Error).message}`);
+    }
+  },
+
+  markConversationAsRead: async (userId: string, otherUserId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("messages")
+        .update({
+          is_read: true,
+          status: "read",
+          read_at: new Date().toISOString()
+        })
+        .eq("receiver_id", userId)
+        .eq("sender_id", otherUserId)
+        .eq("is_read", false)
+        .select();
+
+      if (error) throw error;
+      console.log(`Marked ${data.length} messages as read in conversation`);
+      return data;
+    } catch (error) {
+      console.error("Error marking conversation as read:", error);
+      throw new Error(`Failed to mark conversation as read: ${(error as Error).message}`);
     }
   },
 
@@ -135,11 +211,15 @@ export const messagesAPI = {
 
       const { data, error } = await supabase
         .from("messages")
-        .select("*")
+        .select(`
+          *,
+          sender:profiles!messages_sender_id_fkey(id, username, avatar_url),
+          receiver:profiles!messages_receiver_id_fkey(id, username, avatar_url)
+        `)
         .or(
           `and(sender_id.eq.${userId},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${userId})`
         )
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: true });
 
       if (error) throw error;
       return { documents: data };
