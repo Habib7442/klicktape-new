@@ -143,7 +143,23 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`📡 WebSocket endpoint: ws://0.0.0.0:${PORT}`);
   console.log(`🌐 Health check: http://localhost:${PORT}/health`);
   console.log(`🌐 Android emulator: http://10.0.2.2:${PORT}/health`);
-  console.log(`🌐 Network access: http://192.168.52.201:${PORT}/health`);
+  console.log(`🌐 Network access (old): http://192.168.52.201:${PORT}/health`);
+  console.log(`🌐 Network access (new): http://192.168.38.201:${PORT}/health`);
+  
+  // Get and display actual network interfaces
+  const os = require('os');
+  const networkInterfaces = os.networkInterfaces();
+  console.log('\n📡 Available network interfaces:');
+  
+  Object.keys(networkInterfaces).forEach(interfaceName => {
+    const interfaces = networkInterfaces[interfaceName];
+    interfaces.forEach(interface => {
+      if (interface.family === 'IPv4' && !interface.internal) {
+        console.log(`   ${interfaceName}: http://${interface.address}:${PORT}/health`);
+      }
+    });
+  });
+  console.log('');
 });
 
 // Graceful shutdown

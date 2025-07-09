@@ -56,15 +56,21 @@ class SocketService {
 
         if (Platform.OS === 'android') {
           urls.push('http://10.0.2.2:3000');
-          urls.push('http://192.168.52.201:3000');
+          urls.push('http://192.168.31.241:3000'); // Current network IP
+          urls.push('http://192.168.38.201:3000'); // Previous IP
+          urls.push('http://192.168.52.201:3000'); // Older IP
           urls.push('http://localhost:3000');
         } else if (Platform.OS === 'ios') {
           urls.push('http://localhost:3000');
+          urls.push('http://192.168.31.241:3000'); // Current network IP
           urls.push('http://10.0.2.2:3000');
-          urls.push('http://192.168.52.201:3000');
+          urls.push('http://192.168.38.201:3000'); // Previous IP
+          urls.push('http://192.168.52.201:3000'); // Older IP
         } else {
           urls.push('http://localhost:3000');
-          urls.push('http://192.168.52.201:3000');
+          urls.push('http://192.168.31.241:3000'); // Current network IP
+          urls.push('http://192.168.38.201:3000'); // Previous IP
+          urls.push('http://192.168.52.201:3000'); // Older IP
         }
 
         return urls;
@@ -117,7 +123,7 @@ class SocketService {
       this.notifyConnectionListeners(false);
     });
 
-    this.socket.on('connect_error', (error) => {
+    this.socket.on('connect_error', (error: any) => {
       console.error('❌ Socket connection error:', error);
       this.isConnected = false;
       this.notifyConnectionListeners(false);
