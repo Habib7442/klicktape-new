@@ -22,7 +22,7 @@ export class MessageStatusManager {
 
   // Mark messages as delivered when user opens the chat
   async markMessagesAsDelivered(senderId: string, receiverId: string) {
-    if (!this.userId || this.userId !== receiverId) return;
+    if (!this.userId || this.userId !== receiverId) return null;
 
     try {
       // Get undelivered messages from the sender
@@ -35,22 +35,30 @@ export class MessageStatusManager {
 
       if (error) throw error;
 
+      const updatedMessages = [];
+
       // Mark each message as delivered
       for (const message of messages) {
         if (!this.pendingDeliveries.has(message.id)) {
           this.pendingDeliveries.add(message.id);
-          await messagesAPI.markAsDelivered(message.id);
+          const updatedMessage = await messagesAPI.markAsDelivered(message.id);
+          if (updatedMessage) {
+            updatedMessages.push(updatedMessage);
+          }
           this.pendingDeliveries.delete(message.id);
         }
       }
+
+      return updatedMessages;
     } catch (error) {
       console.error('Error marking messages as delivered:', error);
+      return null;
     }
   }
 
   // Mark messages as read when user views them
   async markMessagesAsRead(senderId: string, receiverId: string) {
-    if (!this.userId || this.userId !== receiverId) return;
+    if (!this.userId || this.userId !== receiverId) return null;
 
     try {
       const data = await messagesAPI.markConversationAsRead(receiverId, senderId);
@@ -58,6 +66,7 @@ export class MessageStatusManager {
       return data;
     } catch (error) {
       console.error('Error marking messages as read:', error);
+      return null;
     }
   }
 

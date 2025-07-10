@@ -25,6 +25,7 @@ import { setUnreadMessageCount } from "@/src/store/slices/messageSlice";
 import { useTheme } from "@/src/context/ThemeContext";
 import { messageStatusManager } from "@/lib/messageStatusManager";
 import { useSocketChat } from "@/hooks/useSocketChat";
+import { useFocusEffect } from '@react-navigation/native';
 
 interface Message {
   id: string;
@@ -90,8 +91,23 @@ export default function ChatScreen() {
       console.log('🔥 Socket.IO: New message received!', message.id);
 
       setMessages(prev => {
-        // Avoid duplicates
-        if (prev.some(m => m.id === message.id)) {
+        // Check for duplicates by ID or by content + timestamp (for optimistic updates)
+        const isDuplicate = prev.some(m =>
+          m.id === message.id ||
+          (m.sender_id === message.sender_id &&
+           m.receiver_id === message.receiver_id &&
+           m.content === message.content &&
+           Math.abs(new Date(m.created_at).getTime() - new Date(message.created_at).getTime()) < 5000) // Within 5 seconds
+        );
+
+        if (isDuplicate) {
+          console.log('🔄 Duplicate message detected, skipping:', message.id);
+          return prev;
+        }
+
+        // Only add messages from other users (not our own sent messages)
+        if (message.sender_id === userId) {
+          console.log('🔄 Ignoring our own message from Socket.IO:', message.id);
           return prev;
         }
 
@@ -107,25 +123,49 @@ export default function ChatScreen() {
         return newMessages;
       });
 
-      // Auto-scroll to bottom
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      // Auto-scroll to bottom only for messages from others
+      if (message.sender_id !== userId) {
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
 
-      // Mark as delivered if user is receiver
+      // Mark as delivered and read if user is receiver
       if (message.receiver_id === userId && message.sender_id !== userId) {
+        // Mark as delivered immediately
         markAsDelivered(message.id);
+
+        // Mark as read after a short delay (simulating user seeing the message)
+        setTimeout(() => {
+          markAsRead(message.id);
+        }, 1000);
       }
     },
     onMessageStatusUpdate: ({ messageId, status, isRead }) => {
       console.log('🔥 Socket.IO: Message status update!', { messageId, status, isRead });
 
       setMessages(prev => {
+        const messageFound = prev.find(m => m.id === messageId);
+        console.log('📊 Message found for status update:', messageFound ? 'YES' : 'NO');
+
+        if (!messageFound) {
+          console.log('📊 Available message IDs:', prev.map(m => m.id));
+          return prev;
+        }
+
         const updated = prev.map(m =>
           m.id === messageId
-            ? { ...m, status, is_read: isRead }
+            ? {
+                ...m,
+                status: status as "sent" | "delivered" | "read",
+                is_read: isRead,
+                delivered_at: status === 'delivered' ? new Date().toISOString() : m.delivered_at,
+                read_at: status === 'read' ? new Date().toISOString() : m.read_at
+              }
             : m
         );
+
+        console.log('📊 Updated message status:', updated.find(m => m.id === messageId)?.status);
 
         // Update cache
         if (chatId) {
@@ -202,8 +242,25 @@ export default function ChatScreen() {
       messageStatusManager.setUserId(currentUserId);
 
       // Mark messages as delivered and read
-      await messageStatusManager.markMessagesAsDelivered(recipient, currentUserId);
-      await messageStatusManager.markMessagesAsRead(recipient, currentUserId);
+      const deliveredMessages = await messageStatusManager.markMessagesAsDelivered(recipient, currentUserId);
+      const readMessages = await messageStatusManager.markMessagesAsRead(recipient, currentUserId);
+
+      // Send real-time status updates via Socket.IO
+      if (deliveredMessages) {
+        deliveredMessages.forEach(msg => {
+          if (markAsDelivered) {
+            markAsDelivered(msg.id);
+          }
+        });
+      }
+
+      if (readMessages) {
+        readMessages.forEach(msg => {
+          if (markAsRead) {
+            markAsRead(msg.id);
+          }
+        });
+      }
 
       const sortedMessages = messages.documents.sort((a, b) =>
         new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -233,93 +290,76 @@ export default function ChatScreen() {
       realtimeStatus
     });
 
-    console.log('🔍 Step 1: Checking message content...');
     if (!newMessage.trim()) {
       console.log('❌ No message content, returning early');
       return;
     }
 
-    console.log('🔍 Step 2: Checking user IDs...');
     if (!userId || !recipientId) {
       console.log('❌ Missing user IDs:', { userId, recipientId });
       Alert.alert("Error", "Cannot send message: Missing user or recipient ID");
       return;
     }
 
-    console.log('🔍 Step 3: Stopping typing indicator...');
+    if (!isConnected) {
+      console.log('❌ Socket not connected, status:', realtimeStatus);
+      Alert.alert("Error", "Not connected to chat server. Please check your connection.");
+      return;
+    }
+
+    if (sending) {
+      console.log('❌ Already sending a message, ignoring...');
+      return;
+    }
+
+    if (!sendSocketMessage) {
+      Alert.alert("Error", "Chat service not available");
+      return;
+    }
+
     // Stop typing indicator
     try {
       setIsTyping(false);
       sendTypingStatus(false);
-      console.log('✅ Typing status stopped successfully');
     } catch (typingError) {
       console.error('❌ Error stopping typing status:', typingError);
     }
 
-    console.log('🔍 Step 4: About to enter try block (moving setSending later)...');
+    const messageContent = newMessage.trim();
 
-    console.log('🔍 Step 5: Entering try block...');
+    // Clear input immediately for instant feedback
+    setNewMessage("");
+    setSending(true);
 
     try {
-      console.log('🔍 Step 6: Inside try block, preparing message data...');
-
-      const messageData = {
+      // Create optimistic message for instant UI update
+      const optimisticMessage: Message = {
+        id: `optimistic_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         sender_id: userId,
         receiver_id: recipientId,
-        content: newMessage.trim(),
+        content: messageContent,
+        encrypted_content: messageContent,
+        created_at: new Date().toISOString(),
         is_read: false,
-      };
-
-      console.log('📤 About to send via Socket.IO:', messageData);
-
-      // Send via Socket.IO for real-time delivery
-      let socketMessage;
-
-      console.log('🔍 sendSocketMessage function:', typeof sendSocketMessage);
-      console.log('🔍 sendSocketMessage exists:', !!sendSocketMessage);
-
-      if (!sendSocketMessage) {
-        throw new Error('sendSocketMessage function is not available');
-      }
-
-      // Set sending state here, after we know we're going to attempt sending
-      setSending(true);
-
-      try {
-        console.log('🚀 Calling sendSocketMessage...');
-        socketMessage = sendSocketMessage({
-          sender_id: userId,
-          receiver_id: recipientId,
-          content: newMessage.trim(),
-          is_read: false,
-        });
-        console.log('✅ Socket message sent, returned:', socketMessage);
-      } catch (socketError) {
-        console.error('❌ Socket message sending failed:', socketError);
-        Alert.alert("Error", "Failed to send message via Socket.IO: " + socketError.message);
-        setSending(false);
-        return;
-      }
-
-      // Also save to Supabase database for persistence
-      try {
-        await messagesAPI.sendMessage(userId, recipientId, newMessage.trim());
-        console.log('💾 Message saved to database');
-      } catch (dbError) {
-        console.error("Database save error:", dbError);
-        // Continue even if DB save fails - Socket.IO handles real-time
-      }
-
-      // Optimistic update (Socket.IO will also trigger onNewMessage)
-      const optimisticMessage: Message = {
-        ...socketMessage,
-        encrypted_content: newMessage.trim(),
+        status: 'sent',
         delivered_at: null,
         read_at: null,
       };
 
+      // Instant UI update - show message immediately
       setMessages(prev => {
-        if (prev.some(m => m.id === optimisticMessage.id)) return prev;
+        // Check if we already have this message (avoid duplicates)
+        const isDuplicate = prev.some(m =>
+          (m.sender_id === userId &&
+           m.receiver_id === recipientId &&
+           m.content === messageContent &&
+           Math.abs(new Date(m.created_at).getTime() - new Date(optimisticMessage.created_at).getTime()) < 2000)
+        );
+
+        if (isDuplicate) {
+          console.log('🔄 Optimistic message already exists, skipping');
+          return prev;
+        }
 
         const updated = [...prev, optimisticMessage].sort((a, b) =>
           new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -332,16 +372,40 @@ export default function ChatScreen() {
         return updated;
       });
 
-      setNewMessage("");
+      // Scroll to bottom immediately
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      }, 50);
+
+      // Send via Socket.IO (async, don't wait)
+      const socketMessage = sendSocketMessage({
+        sender_id: userId,
+        receiver_id: recipientId,
+        content: messageContent,
+        is_read: false,
+      });
+
+      console.log('✅ Socket message sent:', socketMessage.id);
+
+      // Update the optimistic message with the real Socket.IO message ID
+      setMessages(prev => prev.map(m =>
+        m.id === optimisticMessage.id
+          ? { ...m, id: socketMessage.id }
+          : m
+      ));
+
+      // Save to database in background (don't wait)
+      messagesAPI.sendMessage(userId, recipientId, messageContent)
+        .then(() => console.log('💾 Message saved to database'))
+        .catch(dbError => console.error("Database save error:", dbError));
+
     } catch (error: any) {
-      console.log('🔍 Step X: Caught error in sendMessage:', error);
       console.error("Send message error:", error);
       Alert.alert("Error", error.message || "Failed to send message");
+
+      // Restore message content if sending failed
+      setNewMessage(messageContent);
     } finally {
-      console.log('🔍 Step Final: Setting sending to false...');
       setSending(false);
     }
   };
@@ -414,6 +478,77 @@ export default function ChatScreen() {
       messageStatusManager.cleanup();
     };
   }, [recipientId, loadMessages]);
+
+  // Periodic status check to ensure real-time updates are working
+  useEffect(() => {
+    if (!userId || !recipientId) return;
+
+    const statusCheckInterval = setInterval(async () => {
+      try {
+        // Refresh messages to get latest status from database
+        const freshMessages = await messagesAPI.getConversationBetweenUsers(userId, recipientId);
+        if (freshMessages && freshMessages.documents) {
+          const sortedMessages = freshMessages.documents.sort((a, b) =>
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          );
+
+          // Only update if there are actual status changes
+          setMessages(prev => {
+            const hasChanges = prev.some(prevMsg => {
+              const freshMsg = sortedMessages.find(fm => fm.id === prevMsg.id);
+              return freshMsg && (freshMsg.status !== prevMsg.status || freshMsg.is_read !== prevMsg.is_read);
+            });
+
+            if (hasChanges) {
+              console.log('📊 Status changes detected, updating messages');
+              if (chatId) {
+                setCachedMessages(chatId, sortedMessages);
+              }
+              return sortedMessages;
+            }
+
+            return prev;
+          });
+        }
+      } catch (error) {
+        console.error('Error in periodic status check:', error);
+      }
+    }, 3000); // Check every 3 seconds
+
+    return () => clearInterval(statusCheckInterval);
+  }, [userId, recipientId, chatId, setCachedMessages]);
+
+  // Auto-mark messages as read when chat is focused
+  useFocusEffect(
+    useCallback(() => {
+      if (userId && recipientId && markAsRead) {
+        const markMessagesAsReadOnFocus = async () => {
+          try {
+            // Mark all unread messages from the other user as read
+            const readMessages = await messageStatusManager.markMessagesAsRead(recipientId, userId);
+
+            // Send real-time status updates via Socket.IO
+            if (readMessages && readMessages.length > 0) {
+              readMessages.forEach(msg => {
+                markAsRead(msg.id);
+              });
+
+              // Update local state to reflect read status
+              setMessages(prev => prev.map(m =>
+                readMessages.some(rm => rm.id === m.id)
+                  ? { ...m, is_read: true, status: 'read' as const }
+                  : m
+              ));
+            }
+          } catch (error) {
+            console.error('Error marking messages as read on focus:', error);
+          }
+        };
+
+        markMessagesAsReadOnFocus();
+      }
+    }, [userId, recipientId, markAsRead])
+  );
 
   // Socket.IO real-time is now handled by useSocketChat hook above
   // No need for Supabase real-time subscriptions
@@ -580,8 +715,8 @@ export default function ChatScreen() {
         style={styles.container}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "padding"}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
           style={styles.keyboardAvoidingView}
           enabled
         >

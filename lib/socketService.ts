@@ -48,12 +48,16 @@ class SocketService {
       const getAllUrls = () => {
         const urls = [];
 
-        // Check for environment variable first
+        // Check for environment variable first (deployed server)
         const SERVER_URL = process.env.EXPO_PUBLIC_SOCKET_SERVER_URL;
+        console.log('🌐 Environment SERVER_URL:', SERVER_URL);
+
         if (SERVER_URL) {
           urls.push(SERVER_URL);
+          console.log('✅ Using deployed server URL from environment:', SERVER_URL);
         }
 
+        // Fallback URLs for local development
         if (Platform.OS === 'android') {
           urls.push('http://10.0.2.2:3000');
           urls.push('http://192.168.31.241:3000'); // Current network IP
@@ -73,6 +77,7 @@ class SocketService {
           urls.push('http://192.168.52.201:3000'); // Older IP
         }
 
+        console.log('🔗 Available URLs:', urls);
         return urls;
       };
 
