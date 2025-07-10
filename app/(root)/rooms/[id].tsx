@@ -531,20 +531,29 @@ export default function RoomChat() {
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
       "keyboardDidShow",
-      () => {
+      (event) => {
         // Scroll to the bottom to ensure the input is visible
         if (flatListRef.current) {
           setTimeout(() => {
             flatListRef.current?.scrollToEnd({ animated: true });
-          }, 100);
+          }, 150);
         }
       }
     );
 
     const keyboardWillShowListener = Platform.OS === 'ios'
-      ? Keyboard.addListener("keyboardWillShow", () => {
+      ? Keyboard.addListener("keyboardWillShow", (event) => {
+          // Ensure input stays focused and visible
           if (textInputRef.current) {
-            textInputRef.current.focus();
+            setTimeout(() => {
+              textInputRef.current?.focus();
+            }, 100);
+          }
+          // Scroll to bottom with keyboard height consideration
+          if (flatListRef.current) {
+            setTimeout(() => {
+              flatListRef.current?.scrollToEnd({ animated: true });
+            }, 150);
           }
         })
       : { remove: () => {} };
@@ -553,8 +562,12 @@ export default function RoomChat() {
     const keyboardDidHideListener = Keyboard.addListener(
       "keyboardDidHide",
       () => {
-        // We don't want to automatically blur the input when keyboard hides
-        // This allows users to continue typing after dismissing keyboard
+        // Keep input focused but ensure proper layout
+        if (flatListRef.current) {
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+        }
       }
     );
 
@@ -569,8 +582,8 @@ export default function RoomChat() {
     <SafeAreaView style={[styles.safeArea, { backgroundColor: isDarkMode ? '#000000' : '#FFFFFF' }]}>
       <View style={styles.container}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "padding"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
         style={styles.keyboardAvoidingView}
         enabled
       >
@@ -777,15 +790,14 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   inputContainer: {
-    padding: 8,
-    paddingHorizontal: 4,
+    padding: 16,
+    paddingHorizontal: 12,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 24,
+    paddingTop: 16,
     borderTopWidth: 1,
-    position: 'relative',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    minHeight: 60,
+    minHeight: 80,
+    justifyContent: 'center',
+    alignItems: 'stretch',
   },
   inputWrapper: {
     flexDirection: "row",
@@ -796,12 +808,14 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 25,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     fontSize: 16,
     fontFamily: "Rubik-Medium",
     marginRight: 12,
-    maxHeight: 100,
+    maxHeight: 120,
+    minHeight: 44,
     borderWidth: 1,
+    textAlignVertical: 'center',
   },
   sendButton: {
     width: 44,

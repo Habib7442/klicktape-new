@@ -308,7 +308,7 @@ export default function RoomsScreen() {
       <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
         <View style={[styles.header, { borderBottomColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)' }]}>
           <Text className="font-rubik-bold" style={[styles.headerTitle, { color: colors.text }]}>
-            <MaterialIcons name="forum" size={24} color={colors.text} style={styles.headerIcon} />
+            {/* <MaterialIcons name="forum" size={24} color={colors.text} style={styles.headerIcon} /> */}
             Anonymous Rooms
           </Text>
           <View style={styles.headerButtons}>

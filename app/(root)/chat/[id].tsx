@@ -49,6 +49,7 @@ interface MessageCache {
 
 export default function ChatScreen() {
   const { id: recipientId } = useLocalSearchParams();
+  const recipientIdString = Array.isArray(recipientId) ? recipientId[0] : recipientId;
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -72,7 +73,7 @@ export default function ChatScreen() {
   const { isDarkMode, colors } = useTheme();
 
   // Generate chat ID for real-time subscription
-  const chatId = userId && recipientId ? [userId, recipientId].sort().join("-") : "";
+  const chatId = userId && recipientIdString ? [userId, recipientIdString].sort().join("-") : "";
 
 
 
@@ -87,31 +88,37 @@ export default function ChatScreen() {
   } = useSocketChat({
     userId: userId || "",
     chatId,
-    onNewMessage: (message) => {
+    onNewMessage: (message: any) => {
       console.log('🔥 Socket.IO: New message received!', message.id);
 
       setMessages(prev => {
+        // Ensure message has encrypted_content
+        const messageWithEncrypted: Message = {
+          ...message,
+          encrypted_content: message.encrypted_content || message.content || '',
+        };
+
         // Check for duplicates by ID or by content + timestamp (for optimistic updates)
         const isDuplicate = prev.some(m =>
-          m.id === message.id ||
-          (m.sender_id === message.sender_id &&
-           m.receiver_id === message.receiver_id &&
-           m.content === message.content &&
-           Math.abs(new Date(m.created_at).getTime() - new Date(message.created_at).getTime()) < 5000) // Within 5 seconds
+          m.id === messageWithEncrypted.id ||
+          (m.sender_id === messageWithEncrypted.sender_id &&
+           m.receiver_id === messageWithEncrypted.receiver_id &&
+           m.content === messageWithEncrypted.content &&
+           Math.abs(new Date(m.created_at).getTime() - new Date(messageWithEncrypted.created_at).getTime()) < 5000) // Within 5 seconds
         );
 
         if (isDuplicate) {
-          console.log('🔄 Duplicate message detected, skipping:', message.id);
+          console.log('🔄 Duplicate message detected, skipping:', messageWithEncrypted.id);
           return prev;
         }
 
         // Only add messages from other users (not our own sent messages)
-        if (message.sender_id === userId) {
-          console.log('🔄 Ignoring our own message from Socket.IO:', message.id);
+        if (messageWithEncrypted.sender_id === userId) {
+          console.log('🔄 Ignoring our own message from Socket.IO:', messageWithEncrypted.id);
           return prev;
         }
 
-        const newMessages = [...prev, message].sort((a, b) =>
+        const newMessages = [...prev, messageWithEncrypted].sort((a, b) =>
           new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
         );
 
@@ -295,8 +302,8 @@ export default function ChatScreen() {
       return;
     }
 
-    if (!userId || !recipientId) {
-      console.log('❌ Missing user IDs:', { userId, recipientId });
+    if (!userId || !recipientIdString) {
+      console.log('❌ Missing user IDs:', { userId, recipientId: recipientIdString });
       Alert.alert("Error", "Cannot send message: Missing user or recipient ID");
       return;
     }
@@ -336,14 +343,14 @@ export default function ChatScreen() {
       const optimisticMessage: Message = {
         id: `optimistic_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         sender_id: userId,
-        receiver_id: recipientId,
+        receiver_id: recipientIdString,
         content: messageContent,
         encrypted_content: messageContent,
         created_at: new Date().toISOString(),
         is_read: false,
         status: 'sent',
-        delivered_at: null,
-        read_at: null,
+        delivered_at: undefined,
+        read_at: undefined,
       };
 
       // Instant UI update - show message immediately
@@ -351,7 +358,7 @@ export default function ChatScreen() {
         // Check if we already have this message (avoid duplicates)
         const isDuplicate = prev.some(m =>
           (m.sender_id === userId &&
-           m.receiver_id === recipientId &&
+           m.receiver_id === recipientIdString &&
            m.content === messageContent &&
            Math.abs(new Date(m.created_at).getTime() - new Date(optimisticMessage.created_at).getTime()) < 2000)
         );
@@ -380,7 +387,7 @@ export default function ChatScreen() {
       // Send via Socket.IO (async, don't wait)
       const socketMessage = sendSocketMessage({
         sender_id: userId,
-        receiver_id: recipientId,
+        receiver_id: recipientIdString,
         content: messageContent,
         is_read: false,
       });
@@ -395,7 +402,7 @@ export default function ChatScreen() {
       ));
 
       // Save to database in background (don't wait)
-      messagesAPI.sendMessage(userId, recipientId, messageContent)
+      messagesAPI.sendMessage(userId, recipientIdString, messageContent)
         .then(() => console.log('💾 Message saved to database'))
         .catch(dbError => console.error("Database save error:", dbError));
 
@@ -411,7 +418,7 @@ export default function ChatScreen() {
   };
 
   const handleTyping = useCallback(async () => {
-    if (!userId || !recipientId) return;
+    if (!userId || !recipientIdString) return;
 
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
@@ -427,7 +434,7 @@ export default function ChatScreen() {
       setIsTyping(false);
       sendTypingStatus(false);
     }, 3000);
-  }, [userId, recipientId, isTyping, sendTypingStatus]);
+  }, [userId, recipientIdString, isTyping, sendTypingStatus]);
 
   useEffect(() => {
     const setupChat = async () => {
@@ -445,14 +452,14 @@ export default function ChatScreen() {
           return;
         }
 
-        if (!recipientId || typeof recipientId !== "string") {
+        if (!recipientIdString || typeof recipientIdString !== "string") {
           Alert.alert("Error", "Invalid recipient ID");
           router.back();
           return;
         }
 
         setUserId(user.id);
-        await loadMessages(user.id, recipientId);
+        await loadMessages(user.id, recipientIdString);
 
         // Start delivery tracking for this chat
         messageStatusManager.startDeliveryTracking();
@@ -477,16 +484,16 @@ export default function ChatScreen() {
       // Cleanup message status manager
       messageStatusManager.cleanup();
     };
-  }, [recipientId, loadMessages]);
+  }, [recipientIdString, loadMessages]);
 
   // Periodic status check to ensure real-time updates are working
   useEffect(() => {
-    if (!userId || !recipientId) return;
+    if (!userId || !recipientIdString) return;
 
     const statusCheckInterval = setInterval(async () => {
       try {
         // Refresh messages to get latest status from database
-        const freshMessages = await messagesAPI.getConversationBetweenUsers(userId, recipientId);
+        const freshMessages = await messagesAPI.getConversationBetweenUsers(userId, recipientIdString);
         if (freshMessages && freshMessages.documents) {
           const sortedMessages = freshMessages.documents.sort((a, b) =>
             new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -516,16 +523,16 @@ export default function ChatScreen() {
     }, 3000); // Check every 3 seconds
 
     return () => clearInterval(statusCheckInterval);
-  }, [userId, recipientId, chatId, setCachedMessages]);
+  }, [userId, recipientIdString, chatId, setCachedMessages]);
 
   // Auto-mark messages as read when chat is focused
   useFocusEffect(
     useCallback(() => {
-      if (userId && recipientId && markAsRead) {
+      if (userId && recipientIdString && markAsRead) {
         const markMessagesAsReadOnFocus = async () => {
           try {
             // Mark all unread messages from the other user as read
-            const readMessages = await messageStatusManager.markMessagesAsRead(recipientId, userId);
+            const readMessages = await messageStatusManager.markMessagesAsRead(recipientIdString, userId);
 
             // Send real-time status updates via Socket.IO
             if (readMessages && readMessages.length > 0) {
@@ -547,7 +554,7 @@ export default function ChatScreen() {
 
         markMessagesAsReadOnFocus();
       }
-    }, [userId, recipientId, markAsRead])
+    }, [userId, recipientIdString, markAsRead])
   );
 
   // Socket.IO real-time is now handled by useSocketChat hook above
@@ -568,19 +575,29 @@ export default function ChatScreen() {
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
       "keyboardDidShow",
-      () => {
+      (event) => {
+        // Scroll to bottom when keyboard shows
         if (flatListRef.current) {
           setTimeout(() => {
             flatListRef.current?.scrollToEnd({ animated: true });
-          }, 100);
+          }, 150);
         }
       }
     );
 
     const keyboardWillShowListener = Platform.OS === 'ios'
-      ? Keyboard.addListener("keyboardWillShow", () => {
+      ? Keyboard.addListener("keyboardWillShow", (event) => {
+          // Ensure input stays focused and visible
           if (textInputRef.current) {
-            textInputRef.current.focus();
+            setTimeout(() => {
+              textInputRef.current?.focus();
+            }, 100);
+          }
+          // Scroll to bottom with keyboard height consideration
+          if (flatListRef.current) {
+            setTimeout(() => {
+              flatListRef.current?.scrollToEnd({ animated: true });
+            }, 150);
           }
         })
       : { remove: () => {} };
@@ -588,8 +605,12 @@ export default function ChatScreen() {
     const keyboardDidHideListener = Keyboard.addListener(
       "keyboardDidHide",
       () => {
-        // We don't want to automatically blur the input when keyboard hides
-        // This allows users to continue typing after dismissing keyboard
+        // Keep input focused but ensure proper layout
+        if (flatListRef.current) {
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+        }
       }
     );
 
@@ -716,7 +737,7 @@ export default function ChatScreen() {
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
           style={styles.keyboardAvoidingView}
           enabled
         >
@@ -835,10 +856,12 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
   },
+  messagesContainer: {
+    flex: 1,
+  },
   content: {
     flex: 1,
     flexDirection: "column",
-    justifyContent: "space-between",
   },
   header: {
     flexDirection: "row",
@@ -941,16 +964,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   inputContainer: {
-    padding: 8,
-    paddingHorizontal: 4,
+    padding: 16,
+    paddingHorizontal: 12,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 24,
+    paddingTop: 16,
     borderTopWidth: 1,
-    position: 'relative',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    minHeight: 60,
-    justifyContent: 'flex-end',
+    minHeight: 80,
+    justifyContent: 'center',
+    alignItems: 'stretch',
+    backgroundColor: 'transparent',
   },
   inputWrapper: {
     flexDirection: "row",
@@ -961,12 +983,14 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 25,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     fontSize: 16,
     fontFamily: "Rubik-Medium",
     marginRight: 12,
-    maxHeight: 100,
+    maxHeight: 120,
+    minHeight: 44,
     borderWidth: 1,
+    textAlignVertical: 'center',
   },
   sendButton: {
     width: 44,
