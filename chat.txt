@@ -900,7 +900,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginHorizontal: 1, // Reduced margin to 1px on both sides
     maxWidth: "100%", // Slightly reduced max width
-    borderRadius: 16,
+    borderRadius: 14,
   },
   messageLeft: {
     alignItems: "flex-start",
@@ -910,7 +910,7 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     padding: 12,
-    borderRadius: 16,
+    borderRadius: 14,
   },
   messageHeader: {
     flexDirection: "row",
