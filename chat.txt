@@ -18,7 +18,7 @@ import { useLocalSearchParams } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-
+import { LinearGradient } from "expo-linear-gradient";
 import { messagesAPI } from "@/lib/messagesApi";
 import { useDispatch } from "react-redux";
 import { setUnreadMessageCount } from "@/src/store/slices/messageSlice";
@@ -130,10 +130,11 @@ export default function ChatScreen() {
         return newMessages;
       });
 
-      // Auto-scroll to bottom only for messages from others and only if user is near bottom
+      // Auto-scroll to bottom only for messages from others
       if (message.sender_id !== userId) {
-        // Don't auto-scroll to prevent interrupting manual scrolling
-        // User can manually scroll to see new messages
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
       }
 
       // Mark as delivered and read if user is receiver
@@ -188,8 +189,10 @@ export default function ChatScreen() {
     },
   });
 
-  // Define solid colors based on theme (no gradients)
-  const backgroundColor = isDarkMode ? "#000000" : "#FFFFFF";
+  // Define gradient colors based on theme
+  const gradientColors = isDarkMode
+    ? ["#000000", "#1a1a1a", "#2a2a2a"] as const
+    : ["#F8F9FA", "#F0F2F5", "#E9ECEF"] as const;
 
   // Memoized functions
   const getCachedMessages = useCallback((chatId: string) => {
@@ -272,7 +275,7 @@ export default function ChatScreen() {
       setMessages(sortedMessages);
       setCachedMessages(chatId, sortedMessages);
 
-      // Scroll to bottom only on initial load
+      // Scroll to bottom after messages are loaded
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: false });
       }, 300);
@@ -376,7 +379,7 @@ export default function ChatScreen() {
         return updated;
       });
 
-      // Scroll to bottom immediately when sending our own message
+      // Scroll to bottom immediately
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 50);
@@ -560,33 +563,41 @@ export default function ChatScreen() {
 
 
 
-  // Effect to scroll to bottom only when new messages are added (not on every change)
-  const previousMessageCount = useRef(0);
+  // Effect to scroll to bottom when messages change
   useEffect(() => {
-    if (messages.length > previousMessageCount.current && !loading && flatListRef.current) {
+    if (messages.length > 0 && !loading && flatListRef.current) {
       setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+        flatListRef.current?.scrollToEnd({ animated: false });
+      }, 200);
     }
-    previousMessageCount.current = messages.length;
-  }, [messages.length, loading]);
+  }, [messages, loading]);
 
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
       "keyboardDidShow",
-      () => {
-        // Only scroll to bottom if user is already at the bottom
-        // This prevents interrupting manual scrolling
+      (event) => {
+        // Scroll to bottom when keyboard shows
+        if (flatListRef.current) {
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }, 150);
+        }
       }
     );
 
     const keyboardWillShowListener = Platform.OS === 'ios'
-      ? Keyboard.addListener("keyboardWillShow", () => {
+      ? Keyboard.addListener("keyboardWillShow", (event) => {
           // Ensure input stays focused and visible
           if (textInputRef.current) {
             setTimeout(() => {
               textInputRef.current?.focus();
             }, 100);
+          }
+          // Scroll to bottom with keyboard height consideration
+          if (flatListRef.current) {
+            setTimeout(() => {
+              flatListRef.current?.scrollToEnd({ animated: true });
+            }, 150);
           }
         })
       : { remove: () => {} };
@@ -594,7 +605,12 @@ export default function ChatScreen() {
     const keyboardDidHideListener = Keyboard.addListener(
       "keyboardDidHide",
       () => {
-        // Keep input focused but don't auto-scroll
+        // Keep input focused but ensure proper layout
+        if (flatListRef.current) {
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+        }
       }
     );
 
@@ -712,8 +728,13 @@ export default function ChatScreen() {
   }, [userId, isDarkMode, colors]);
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: backgroundColor }]}>
-      <View style={[styles.container, { backgroundColor: backgroundColor }]}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: isDarkMode ? "#000000" : "#F8F9FA" }]}>
+      <LinearGradient
+        colors={gradientColors}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.container}
+      >
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
@@ -722,11 +743,11 @@ export default function ChatScreen() {
         >
           <View style={styles.content}>
             <View style={[styles.header, {
-              borderBottomColor: `rgba(${isDarkMode ? '255, 255, 255' : '0, 0, 0'}, 0.1)`,
-              backgroundColor: backgroundColor
+              borderBottomColor: `rgba(${isDarkMode ? '255, 229, 92' : '184, 134, 11'}, 0.2)`,
+              backgroundColor: isDarkMode ? "rgba(40, 50, 50, 0.5)" : "rgba(248, 249, 250, 0.8)"
             }]}>
               <TouchableOpacity onPress={() => router.back()}>
-                <Feather name="arrow-left" size={24} color={isDarkMode ? "#808080" : "#606060"} />
+                <Feather name="arrow-left" size={24} color={colors.primary} />
               </TouchableOpacity>
               <Text style={[styles.headerTitle, { color: colors.text }]}>Chat</Text>
               <View style={styles.connectionStatus}>
@@ -766,9 +787,12 @@ export default function ChatScreen() {
                   maxToRenderPerBatch={10}
                   windowSize={5}
                   removeClippedSubviews={Platform.OS === "android"}
-                  maintainVisibleContentPosition={{
-                    minIndexForVisible: 0,
-                    autoscrollToTopThreshold: 10
+                  onContentSizeChange={() => {
+                    flatListRef.current?.scrollToEnd({ animated: false });
+                  }}
+                  onLayout={() => {
+                    // Scroll to bottom when the layout is first calculated
+                    flatListRef.current?.scrollToEnd({ animated: false });
                   }}
                 />
               </TouchableWithoutFeedback>
@@ -776,7 +800,7 @@ export default function ChatScreen() {
 
             {recipientTyping && (
               <View style={[styles.typingIndicator, {
-                backgroundColor: backgroundColor
+                backgroundColor: isDarkMode ? 'rgba(40, 50, 50, 0.7)' : 'rgba(248, 249, 250, 0.7)'
               }]}>
                 <Text style={[styles.typingText, { color: colors.textSecondary }]}>User is typing...</Text>
               </View>
@@ -784,7 +808,7 @@ export default function ChatScreen() {
 
             <View style={[styles.inputContainer, {
               borderTopColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)',
-              backgroundColor: backgroundColor
+              backgroundColor: colors.backgroundSecondary
             }]}>
               <View style={styles.inputWrapper}>
                 <TextInput
@@ -816,7 +840,7 @@ export default function ChatScreen() {
             </View>
           </View>
         </KeyboardAvoidingView>
-      </View>
+      </LinearGradient>
     </SafeAreaView>
   );
 }

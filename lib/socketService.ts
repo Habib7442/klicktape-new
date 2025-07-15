@@ -223,7 +223,7 @@ class SocketService {
     });
 
     if (this.socket && this.isConnected) {
-      console.log('📤 Sending message via Socket.IO:', message.id);
+      console.log('� Sending message via Socket.IO:', message.id);
       console.log('📤 Message content:', message.content);
       this.socket.emit('send_message', message);
     } else {
