@@ -185,10 +185,10 @@ const Posts = () => {
       // Optimistically update UI
       dispatch(toggleLike(postId));
 
-      // Make the API call to update the database
-      const { error } = await supabase.rpc("toggle_like", {
-        post_id: postId,
-        user_id: user.id,
+      // Make the API call to update the database using the correct function name
+      const { error } = await supabase.rpc("lightning_toggle_like_v3", {
+        post_id_param: postId,
+        user_id_param: user.id,
       });
 
       if (error) {
@@ -234,10 +234,10 @@ const Posts = () => {
       // Optimistically update UI
       dispatch(toggleBookmark(postId));
 
-      // Make the API call to update the database
-      const { error } = await supabase.rpc("toggle_bookmark", {
-        post_id: postId,
-        user_id: user.id,
+      // Make the API call to update the database using the correct function name
+      const { error } = await supabase.rpc("lightning_toggle_bookmark_v3", {
+        post_id_param: postId,
+        user_id_param: user.id,
       });
 
       if (error) {

@@ -198,9 +198,9 @@ const PostDetailScreen = () => {
       // Dispatch Redux action first for immediate UI update
       dispatch(toggleLike(post.id));
 
-      const { error } = await supabase!.rpc("toggle_like", {
-        post_id: post.id,
-        user_id: userId,
+      const { error } = await supabase!.rpc("lightning_toggle_like_v3", {
+        post_id_param: post.id,
+        user_id_param: userId,
       });
 
       if (error) throw error;
