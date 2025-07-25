@@ -15,14 +15,13 @@ const PostsCommentScreen = () => {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <CommentsModal
-        entityType="post"
-        entityId={postId}
-        onClose={() => router.push("/(root)/(tabs)/home")}
-        entityOwnerUsername={postOwnerUsername as string}
-      />
-    </View>
+    <CommentsModal
+      entityType="post"
+      entityId={postId}
+      onClose={() => router.push("/(root)/(tabs)/home")}
+      entityOwnerUsername={postOwnerUsername as string}
+      visible={true}
+    />
   );
 };
 

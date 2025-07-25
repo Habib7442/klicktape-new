@@ -177,6 +177,12 @@ const StoryViewer = ({ stories, onClose, currentIndex }: StoryViewerProps) => {
         <Text style={styles.username}>
           {currentStory?.user.username || "Unknown"}
         </Text>
+        {/* Story count indicator */}
+        {stories.length > 1 && (
+          <Text style={styles.storyCount}>
+            {currentStoryIndex + 1}/{stories.length}
+          </Text>
+        )}
         <View style={{ flex: 1 }} />
         <TouchableOpacity style={styles.closeButton} onPress={onClose}>
           <AntDesign name="close" size={24} color="white" />
@@ -256,7 +262,7 @@ const styles = StyleSheet.create({
   image: {
     width: width,
     height: height,
-    resizeMode: "contain",
+    resizeMode: "contain", // Show full image without cropping
     backgroundColor: "black",
   },
   userInfoContainer: {
@@ -281,6 +287,16 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 16,
     fontWeight: "bold",
+  },
+  storyCount: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "500",
+    marginLeft: 8,
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
   },
   closeButton: {
     padding: 8,

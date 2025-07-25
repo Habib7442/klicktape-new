@@ -32,6 +32,11 @@ import { notificationsAPI } from "@/lib/notificationsApi";
 import * as Haptics from 'expo-haptics';
 import ThemedGradient from "@/components/ThemedGradient";
 import { useTheme } from "@/src/context/ThemeContext";
+import GenreSelector, { Genre, GENRES } from "@/components/GenreSelector";
+import HashtagInput from "@/components/HashtagInput";
+import UserTagging, { TaggedUser } from "@/components/UserTagging";
+import { generateCaptionFromImage, generateHashtagsFromText, improveCaptionWithAI } from "@/lib/geminiService";
+import * as FileSystem from 'expo-file-system';
 
 const TAB_BAR_HEIGHT = 90;
 const TAB_BAR_MARGIN = 24;
@@ -46,7 +51,10 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
   const [media, setMedia] = useState<Array<{ uri: string; type: 'image' }>>([]);
   const [caption, setCaption] = useState("");
   const [location, setLocation] = useState<string | null>(null);
-  const [taggedUsers, setTaggedUsers] = useState<Array<{ id: string; username: string }>>([]);
+  const [taggedUsers, setTaggedUsers] = useState<TaggedUser[]>([]);
+  const [collaborators, setCollaborators] = useState<TaggedUser[]>([]);
+  const [selectedGenre, setSelectedGenre] = useState<Genre | null>(null);
+  const [hashtags, setHashtags] = useState<string[]>([]);
 
   // UI state
   const [loading, setLoading] = useState(false);
@@ -61,6 +69,15 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
+  const [showGenreSelector, setShowGenreSelector] = useState(false);
+  const [selectedFilter, setSelectedFilter] = useState<any>(null);
+  const [filteredPreviews, setFilteredPreviews] = useState<Record<string, string>>({});
+  const [loadingPreviews, setLoadingPreviews] = useState(false);
+  const [originalImageUris, setOriginalImageUris] = useState<Record<number, string>>({});
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [selectedTone, setSelectedTone] = useState<'casual' | 'professional' | 'funny' | 'inspirational' | 'trendy'>('casual');
+  const [showToneSelector, setShowToneSelector] = useState(false);
+
   const scaleValue = new Animated.Value(1);
 
   const filters = [
@@ -71,6 +88,79 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
     { name: "Valencia", filter: { brightness: 1.08, contrast: 0.98, saturation: 1.1 } },
     { name: "Sepia", filter: { sepia: 1 } },
     { name: "Negative", filter: { contrast: -1, brightness: -1 } },
+  ];
+
+  const imageFilters = [
+    {
+      name: 'Original',
+      icon: 'image',
+      transform: [],
+    },
+    {
+      name: 'Square',
+      icon: 'square',
+      transform: 'square', // Special handling for square crop
+    },
+    {
+      name: 'Rotate',
+      icon: 'rotate-cw',
+      transform: [
+        {
+          rotate: 90,
+        },
+      ],
+    },
+    {
+      name: 'Flip H',
+      icon: 'move-horizontal',
+      transform: [
+        {
+          flip: ImageManipulator.FlipType.Horizontal,
+        },
+      ],
+    },
+    {
+      name: 'Flip V',
+      icon: 'move-vertical',
+      transform: [
+        {
+          flip: ImageManipulator.FlipType.Vertical,
+        },
+      ],
+    },
+    {
+      name: 'Small',
+      icon: 'minimize-2',
+      transform: [
+        {
+          resize: {
+            width: 400,
+          },
+        },
+      ],
+    },
+    {
+      name: 'Medium',
+      icon: 'circle',
+      transform: [
+        {
+          resize: {
+            width: 800,
+          },
+        },
+      ],
+    },
+    {
+      name: 'Large',
+      icon: 'maximize-2',
+      transform: [
+        {
+          resize: {
+            width: 1200,
+          },
+        },
+      ],
+    },
   ];
 
   useEffect(() => {
@@ -113,6 +203,14 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
     };
     fetchUser();
   }, []);
+
+  useEffect(() => {
+    if (media.length > 0 && media[activeMediaIndex]) {
+      // Reset to Original filter when changing images
+      setSelectedFilter(imageFilters.find(f => f.name === 'Original') || imageFilters[0]);
+      generateFilterPreviews(media[activeMediaIndex].uri);
+    }
+  }, [media, activeMediaIndex]);
 
   const compressImage = async (uri: string) => {
     try {
@@ -197,15 +295,20 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
         // Process and compress images with progress updates
         const totalImages = result.assets.length;
         const processedMedia = [];
+        const newOriginalUris: Record<number, string> = {};
 
         for (let i = 0; i < result.assets.length; i++) {
           const asset = result.assets[i];
           setUploadProgress((i / totalImages) * 100);
           const compressed = await compressImage(asset.uri);
+          const newIndex = media.length + i;
           processedMedia.push({ uri: compressed.uri, type: 'image' as const });
+          // Store original URI for each image
+          newOriginalUris[newIndex] = compressed.uri;
         }
 
         setMedia((prev) => [...prev, ...processedMedia]);
+        setOriginalImageUris(prev => ({ ...prev, ...newOriginalUris }));
         setStep("edit");
 
         // Success feedback
@@ -323,6 +426,24 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
       return;
     }
 
+    // Validate genre is selected (MANDATORY)
+    if (!selectedGenre) {
+      Alert.alert(
+        "Genre Required",
+        "Please select a genre for your post. This helps other users discover your content.",
+        [
+          {
+            text: "Select Genre",
+            onPress: () => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setShowGenreSelector(true);
+            }
+          }
+        ]
+      );
+      return;
+    }
+
     // Confirm post creation
     if (caption.trim() === "") {
       Alert.alert(
@@ -346,7 +467,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
     } else {
       createPost();
     }
-  }, [userId, media, caption, taggedUsers, location]);
+  }, [userId, media, caption, taggedUsers, location, selectedGenre]);
 
   // Separate function to handle the actual post creation
   const createPost = async () => {
@@ -372,8 +493,17 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
         }
       }, 300);
 
-      // Create the post
-      const postData = await postsAPI.createPost(imageFiles, caption, userId, location);
+      // Create the post (userId is guaranteed to be non-null due to validation above)
+      const postData = await postsAPI.createPost(
+        imageFiles,
+        caption,
+        userId!,
+        location,
+        selectedGenre?.name || null,
+        hashtags,
+        taggedUsers.map(u => u.id),
+        collaborators.map(u => u.id)
+      );
 
       // Send notifications to tagged users
       if (taggedUsers.length > 0) {
@@ -383,7 +513,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
               await notificationsAPI.createNotification(
                 user.id,
                 "mention",
-                userId,
+                userId!,
                 postData.id
               );
             } catch (error) {
@@ -403,6 +533,9 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
       setActiveMediaIndex(0);
       setLocation(null);
       setTaggedUsers([]);
+      setCollaborators([]);
+      setSelectedGenre(null);
+      setHashtags([]);
       setStep("select");
 
       // Success feedback
@@ -453,6 +586,285 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
     setShowEmojiPicker(false);
   };
 
+  // Helper function to convert image URI to base64
+  const convertImageToBase64 = async (imageUri: string): Promise<string> => {
+    try {
+      const base64 = await FileSystem.readAsStringAsync(imageUri, {
+        encoding: 'base64'
+      });
+      return base64;
+    } catch (error) {
+      throw new Error('Failed to convert image to base64');
+    }
+  };
+
+  // AI Caption Generation from Image
+  const handleAIGeneration = async () => {
+    if (!media.length) {
+      Alert.alert('No Image', 'Please select an image first');
+      return;
+    }
+
+    try {
+      setIsGeneratingAI(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      // Convert image to base64
+      const base64Image = await convertImageToBase64(media[activeMediaIndex].uri);
+
+      // Create tone-aware prompt
+      const tonePrompt = caption.trim()
+        ? `Generate a ${selectedTone} caption based on this image. Current context: "${caption.trim()}"`
+        : `Generate a ${selectedTone} caption for this image`;
+
+      const result = await generateCaptionFromImage(
+        base64Image,
+        'image/jpeg',
+        tonePrompt
+      );
+
+      // If we have an existing caption, improve it with the selected tone
+      let finalCaption = result.caption;
+      if (caption.trim()) {
+        try {
+          finalCaption = await improveCaptionWithAI(result.caption, selectedTone);
+        } catch (error) {
+          // If improvement fails, use the original generated caption
+          console.warn('Caption improvement failed, using original:', error);
+        }
+      }
+
+      // Update caption
+      setCaption(finalCaption);
+
+      // Add new hashtags, avoiding duplicates
+      const newHashtags = [...new Set([...hashtags, ...result.hashtags])];
+      setHashtags(newHashtags.slice(0, 30)); // Limit to 30 total
+
+      // Set genre if not already selected and AI suggested one
+      if (result.genre && !selectedGenre) {
+        const genreMatch = GENRES.find(g =>
+          g.name.toLowerCase() === result.genre?.toLowerCase()
+        );
+        if (genreMatch) setSelectedGenre(genreMatch);
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Success! 🎉', `AI ${selectedTone} caption and hashtags generated!`);
+    } catch (error: any) {
+      console.error('AI Generation Error:', error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('AI Generation Failed', error.message || 'Please try again.');
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
+
+  // AI Hashtag Generation - Independent from Caption
+  const handleHashtagGeneration = async () => {
+    if (!media.length) {
+      Alert.alert('No Image', 'Please select an image first');
+      return;
+    }
+
+    try {
+      setIsGeneratingAI(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      let result;
+
+      if (caption.trim()) {
+        // Generate hashtags from caption text
+        result = await generateHashtagsFromText(
+          caption,
+          selectedGenre?.name,
+          15
+        );
+      } else {
+        // Generate hashtags from image using vision AI
+        const base64Image = await convertImageToBase64(media[activeMediaIndex].uri);
+        const visionResult = await generateCaptionFromImage(
+          base64Image,
+          'image/jpeg',
+          'Analyze this image and generate relevant hashtags only. Focus on the content, mood, and visual elements.'
+        );
+
+        // Use the hashtags from vision result
+        result = {
+          hashtags: visionResult.hashtags,
+          trending: visionResult.hashtags.slice(0, 5),
+          relevant: visionResult.hashtags.slice(5)
+        };
+      }
+
+      // Merge with existing hashtags, avoiding duplicates
+      const newHashtags = [...new Set([...hashtags, ...result.hashtags])];
+      setHashtags(newHashtags.slice(0, 30)); // Limit to 30 total
+
+      const source = caption.trim() ? 'caption' : 'image';
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Success! 🎉', `Generated ${result.hashtags.length} new hashtags from ${source}!`);
+    } catch (error: any) {
+      console.error('Hashtag Generation Error:', error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Hashtag Generation Failed', error.message || 'Please try again.');
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
+
+  // AI Caption Improvement
+  const handleCaptionImprovement = async () => {
+    if (!caption.trim()) {
+      Alert.alert('No Caption', 'Please write a caption first');
+      return;
+    }
+
+    try {
+      setIsGeneratingAI(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      const improved = await improveCaptionWithAI(caption, selectedTone);
+      setCaption(improved);
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Success! ✨', `Caption improved with ${selectedTone} tone!`);
+    } catch (error: any) {
+      console.error('Caption Improvement Error:', error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Caption Improvement Failed', error.message || 'Please try again.');
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
+
+  const generateFilterPreviews = async (imageUri: string) => {
+    setLoadingPreviews(true);
+    const previews: Record<string, string> = {};
+
+    try {
+      for (const filter of imageFilters) {
+        if (filter.name === 'Original') {
+          previews[filter.name] = imageUri;
+        } else {
+          try {
+            let actions = [];
+
+            // Handle special cases
+            if (filter.transform === 'square') {
+              // For square crop, first resize to a square preview
+              actions = [
+                { resize: { width: 80, height: 80 } },
+              ];
+            } else if (Array.isArray(filter.transform)) {
+              // For regular transformations, resize first then apply transform
+              actions = [
+                { resize: { width: 80, height: 80 } },
+                ...filter.transform,
+              ];
+            }
+
+            const result = await ImageManipulator.manipulateAsync(
+              imageUri,
+              actions,
+              {
+                compress: 0.7,
+                format: ImageManipulator.SaveFormat.JPEG,
+              }
+            );
+            previews[filter.name] = result.uri;
+          } catch (filterError) {
+            console.warn(`Error applying filter ${filter.name}:`, filterError);
+            // Fallback to original for failed filters
+            previews[filter.name] = imageUri;
+          }
+        }
+      }
+      setFilteredPreviews(previews);
+    } catch (error) {
+      console.error('Error generating filter previews:', error);
+    } finally {
+      setLoadingPreviews(false);
+    }
+  };
+
+  const getImageDimensions = async (uri: string): Promise<{ width: number; height: number }> => {
+    return new Promise((resolve, reject) => {
+      Image.getSize(
+        uri,
+        (width, height) => resolve({ width, height }),
+        (error) => reject(error)
+      );
+    });
+  };
+
+  const applyInlineFilter = async (filter: any) => {
+    if (!media[activeMediaIndex]) return;
+
+    try {
+      if (filter.name === 'Original') {
+        // Reset to original image
+        const originalUri = originalImageUris[activeMediaIndex];
+        if (originalUri) {
+          setMedia(prev => prev.map((item, index) =>
+            index === activeMediaIndex
+              ? { ...item, uri: originalUri }
+              : item
+          ));
+        }
+        setSelectedFilter(filter);
+        return;
+      }
+
+      // Get the original image URI to apply filter to
+      const sourceUri = originalImageUris[activeMediaIndex] || media[activeMediaIndex].uri;
+
+      let actions = [];
+
+      // Handle special cases
+      if (filter.transform === 'square') {
+        // Get image dimensions for proper square crop
+        const { width, height } = await getImageDimensions(sourceUri);
+        const size = Math.min(width, height);
+        const originX = (width - size) / 2;
+        const originY = (height - size) / 2;
+
+        actions = [
+          {
+            crop: {
+              originX,
+              originY,
+              width: size,
+              height: size,
+            },
+          },
+        ];
+      } else if (Array.isArray(filter.transform)) {
+        actions = filter.transform;
+      }
+
+      const result = await ImageManipulator.manipulateAsync(
+        sourceUri,
+        actions,
+        {
+          compress: 0.8,
+          format: ImageManipulator.SaveFormat.JPEG,
+        }
+      );
+
+      setMedia(prev => prev.map((item, index) =>
+        index === activeMediaIndex
+          ? { ...item, uri: result.uri }
+          : item
+      ));
+      setSelectedFilter(filter);
+    } catch (error) {
+      console.error('Error applying filter:', error);
+      // Show user-friendly error message
+      Alert.alert('Filter Error', 'Failed to apply filter. Please try again.');
+    }
+  };
+
   const renderCarouselItem = ({
     item,
     index,
@@ -466,7 +878,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
         style={styles.removeImageButton}
         onPress={() => removeMedia(index)}
       >
-        <Feather name="x-circle" size={24} color="#FFD700" />
+        <Feather name="x-circle" size={24} color={isDarkMode ? '#808080' : '#606060'} />
       </TouchableOpacity>
     </View>
   );
@@ -501,27 +913,75 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
             </View>
           )}
           <TouchableOpacity style={styles.addMoreButton} onPress={pickMedia}>
-            <Feather name="plus-circle" size={24} color="#FFD700" />
+            <Feather name="plus-circle" size={24} color={isDarkMode ? '#808080' : '#606060'} />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.filterSection}>
-          <Text style={styles.filterSectionTitle}>Apply Filters</Text>
-          <ScrollView horizontal style={styles.filterContainer} showsHorizontalScrollIndicator={false}>
-            {filters.map((filter, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.filterOption}
-                onPress={() => applyFilter(filter.filter)}
-              >
-                <Image
-                  source={{ uri: media[activeMediaIndex]?.uri || '' }}
-                  style={styles.filterThumbnail}
-                />
-                <Text style={styles.filterName}>{filter.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+        {/* Inline Filter Selection */}
+        <View style={styles.inlineFiltersContainer}>
+          <Text style={[styles.filtersTitle, { color: colors.text }]}>
+            Filters ({imageFilters.length} available)
+          </Text>
+          {loadingPreviews ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+                Generating previews...
+              </Text>
+            </View>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filtersScrollContainer}
+            >
+              {imageFilters.map((filter, index) => {
+                const isSelected = selectedFilter?.name === filter.name;
+                const previewUri = filteredPreviews[filter.name] || (media[activeMediaIndex]?.uri);
+
+                return (
+                  <TouchableOpacity
+                    key={`${filter.name}-${index}`}
+                    style={[
+                      styles.filterItem,
+                      {
+                        borderColor: isSelected ? colors.primary : 'rgba(128, 128, 128, 0.3)',
+                        backgroundColor: isSelected
+                          ? `${colors.primary}20`
+                          : 'rgba(128, 128, 128, 0.1)',
+                      },
+                    ]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      applyInlineFilter(filter);
+                    }}
+                  >
+                    <View style={styles.filterPreviewContainer}>
+                      {previewUri ? (
+                        <Image
+                          source={{ uri: previewUri }}
+                          style={styles.filterPreview}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={[styles.filterPreview, { backgroundColor: colors.backgroundTertiary, justifyContent: 'center', alignItems: 'center' }]}>
+                          <Feather name={filter.icon as any} size={20} color={colors.textSecondary} />
+                        </View>
+                      )}
+                      {isSelected && (
+                        <View style={[styles.selectedOverlay, { backgroundColor: `${colors.primary}40` }]}>
+                          <Feather name="check" size={12} color={colors.primary} />
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.filterName, { color: colors.text }]} numberOfLines={1}>
+                      {filter.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
         </View>
 
         {/* Add padding at the bottom to ensure content isn't hidden behind the next button */}
@@ -596,12 +1056,16 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
 
       {/* Caption Section */}
       <View style={styles.captionSection}>
-        <Text style={styles.sectionTitle}>Caption</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Caption</Text>
         <View style={styles.captionContainer}>
           <TextInput
-            style={styles.captionInput}
+            style={[styles.captionInput, {
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)',
+              color: colors.text
+            }]}
             placeholder="Write a caption..."
-            placeholderTextColor="rgba(255, 215, 0, 0.5)"
+            placeholderTextColor={colors.textTertiary}
             multiline
             value={caption}
             onChangeText={setCaption}
@@ -613,50 +1077,219 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
               setShowEmojiPicker(!showEmojiPicker);
             }}
           >
-            <Feather name="smile" size={24} color="#FFD700" />
+            <Feather name="smile" size={24} color={isDarkMode ? '#808080' : '#606060'} />
           </TouchableOpacity>
         </View>
+
+        {/* AI Caption Generation Buttons */}
+        <View style={styles.aiSection}>
+          {/* Tone Selector */}
+          <TouchableOpacity
+            style={[styles.toneSelector, {
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
+            }]}
+            onPress={() => setShowToneSelector(!showToneSelector)}
+          >
+            <Feather name="sliders" size={14} color={isDarkMode ? '#808080' : '#606060'} />
+            <Text style={[styles.toneSelectorText, { color: colors.text }]}>
+              {selectedTone.charAt(0).toUpperCase() + selectedTone.slice(1)}
+            </Text>
+            <Feather name="chevron-down" size={14} color={colors.textSecondary} />
+          </TouchableOpacity>
+
+          {/* AI Caption Button */}
+          <TouchableOpacity
+            style={[styles.aiButton, {
+              backgroundColor: isDarkMode ? '#808080' : '#606060',
+              opacity: isGeneratingAI || !media.length ? 0.5 : 1
+            }]}
+            onPress={handleAIGeneration}
+            disabled={isGeneratingAI || !media.length}
+          >
+            <Feather name="zap" size={16} color="#FFFFFF" />
+            <Text style={[styles.aiButtonText, { color: '#FFFFFF' }]}>
+              {isGeneratingAI ? 'Generating...' : 'AI Caption'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Improve Caption Button */}
+          <TouchableOpacity
+            style={[styles.aiButton, {
+              backgroundColor: isDarkMode ? '#808080' : '#606060',
+              opacity: isGeneratingAI || !caption.trim() ? 0.5 : 1
+            }]}
+            onPress={handleCaptionImprovement}
+            disabled={isGeneratingAI || !caption.trim()}
+          >
+            <Feather name="edit-3" size={16} color="#FFFFFF" />
+            <Text style={[styles.aiButtonText, { color: '#FFFFFF' }]}>
+              {isGeneratingAI ? 'Improving...' : 'Improve'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Tone Selector Dropdown */}
+        {showToneSelector && (
+          <View style={[styles.toneDropdown, {
+            backgroundColor: colors.backgroundSecondary,
+            borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
+          }]}>
+            {(['casual', 'professional', 'funny', 'inspirational', 'trendy'] as const).map((tone) => (
+              <TouchableOpacity
+                key={tone}
+                style={[styles.toneOption, {
+                  backgroundColor: selectedTone === tone ? `${isDarkMode ? '#808080' : '#606060'}20` : 'transparent'
+                }]}
+                onPress={() => {
+                  setSelectedTone(tone);
+                  setShowToneSelector(false);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+              >
+                <Text style={[styles.toneOptionText, {
+                  color: selectedTone === tone ? colors.text : colors.textSecondary,
+                  fontWeight: selectedTone === tone ? '600' : '400'
+                }]}>
+                  {tone.charAt(0).toUpperCase() + tone.slice(1)}
+                </Text>
+                {selectedTone === tone && (
+                  <Feather name="check" size={16} color={colors.text} />
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+
+      {/* Genre Selection */}
+      <View style={styles.captionSection}>
+        <View style={styles.sectionTitleContainer}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Genre</Text>
+          <Text style={[styles.requiredIndicator, { color: colors.error }]}>*</Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.genreButton, {
+            backgroundColor: selectedGenre
+              ? (isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)')
+              : (isDarkMode ? 'rgba(255, 100, 100, 0.1)' : 'rgba(255, 100, 100, 0.1)'),
+            borderColor: selectedGenre
+              ? (isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)')
+              : (isDarkMode ? 'rgba(255, 100, 100, 0.5)' : 'rgba(255, 100, 100, 0.5)'),
+            borderWidth: selectedGenre ? 1 : 2
+          }]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setShowGenreSelector(true);
+          }}
+        >
+          {selectedGenre ? (
+            <>
+              <View style={[styles.genreIconContainer, { backgroundColor: `${selectedGenre.color}20` }]}>
+                <Feather name={selectedGenre.icon as any} size={20} color={selectedGenre.color} />
+              </View>
+              <Text style={[styles.genreButtonText, { color: colors.text }]}>{selectedGenre.name}</Text>
+            </>
+          ) : (
+            <>
+              <Feather name="tag" size={20} color={isDarkMode ? '#808080' : '#606060'} />
+              <Text style={[styles.genreButtonText, { color: colors.textSecondary }]}>Select Genre</Text>
+            </>
+          )}
+          <Feather name="chevron-right" size={20} color={colors.textSecondary} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Hashtags Section */}
+      <View style={styles.captionSection}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Hashtags</Text>
+        <HashtagInput
+          hashtags={hashtags}
+          onHashtagsChange={setHashtags}
+          placeholder="Add hashtags to reach more people..."
+          maxHashtags={30}
+        />
+
+        {/* AI Hashtag Generation Button */}
+        <TouchableOpacity
+          style={[styles.aiHashtagButton, {
+            backgroundColor: isDarkMode ? '#808080' : '#606060',
+            opacity: isGeneratingAI || !media.length ? 0.5 : 1
+          }]}
+          onPress={handleHashtagGeneration}
+          disabled={isGeneratingAI || !media.length}
+        >
+          <Feather name="hash" size={16} color="#FFFFFF" />
+          <Text style={[styles.aiButtonText, { color: '#FFFFFF' }]}>
+            {isGeneratingAI ? 'Generating...' : 'Generate AI Hashtags'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* User Tagging Section */}
+      <View style={styles.captionSection}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Tag People & Collaborators</Text>
+        <UserTagging
+          taggedUsers={taggedUsers}
+          collaborators={collaborators}
+          onTaggedUsersChange={setTaggedUsers}
+          onCollaboratorsChange={setCollaborators}
+          maxTags={20}
+          maxCollaborators={5}
+        />
       </View>
 
       {/* Options Section */}
       <View style={styles.optionsSection}>
-        <Text style={styles.sectionTitle}>Options</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Options</Text>
         <View style={styles.optionsContainer}>
           <TouchableOpacity
-            style={styles.optionButton}
+            style={[styles.optionButton, {
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
+            }]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setIsTagging(!isTagging);
             }}
           >
-            <Feather name="user-plus" size={20} color="#FFD700" />
-            <Text style={styles.optionText}>Tag People</Text>
+            <Feather name="user-plus" size={20} color={isDarkMode ? '#808080' : '#606060'} />
+            <Text style={[styles.optionText, { color: colors.text }]}>Tag People</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.optionButton}
+            style={[styles.optionButton, {
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
+            }]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               getLocation();
             }}
           >
-            <Feather name="map-pin" size={20} color="#FFD700" />
-            <Text style={styles.optionText}>Add Location</Text>
+            <Feather name="map-pin" size={20} color={isDarkMode ? '#808080' : '#606060'} />
+            <Text style={[styles.optionText, { color: colors.text }]}>Add Location</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Tagging Section */}
       {isTagging && (
-        <View style={styles.taggingSection}>
-          <Text style={styles.sectionTitle}>Tag People</Text>
+        <View style={[styles.taggingSection, {
+          backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.05)' : 'rgba(128, 128, 128, 0.05)',
+          borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
+        }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Tag People</Text>
           <View style={styles.taggingContainer}>
-            <View style={styles.searchInputContainer}>
-              <Feather name="search" size={16} color="#FFD700" style={styles.searchIcon} />
+            <View style={[styles.searchInputContainer, {
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
+            }]}>
+              <Feather name="search" size={16} color={isDarkMode ? '#808080' : '#606060'} style={styles.searchIcon} />
               <TextInput
-                style={styles.searchInput}
+                style={[styles.searchInput, { color: colors.text }]}
                 placeholder="Search users..."
-                placeholderTextColor="rgba(255, 215, 0, 0.5)"
+                placeholderTextColor={colors.textTertiary}
                 value={searchQuery}
                 onChangeText={(text) => {
                   setSearchQuery(text);
@@ -684,10 +1317,13 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
       {/* Location Tag */}
       {location && (
         <View style={styles.locationSection}>
-          <Text style={styles.sectionTitle}>Location</Text>
-          <View style={styles.locationTag}>
-            <Feather name="map-pin" size={16} color="#FFD700" />
-            <Text style={styles.locationText}>{location}</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Location</Text>
+          <View style={[styles.locationTag, {
+            backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+            borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
+          }]}>
+            <Feather name="map-pin" size={16} color={isDarkMode ? '#808080' : '#606060'} />
+            <Text style={[styles.locationText, { color: colors.text }]}>{location}</Text>
             <TouchableOpacity
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -695,7 +1331,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
               }}
               style={styles.removeLocationButton}
             >
-              <Feather name="x" size={16} color="#FFD700" />
+              <Feather name="x" size={16} color={isDarkMode ? '#808080' : '#606060'} />
             </TouchableOpacity>
           </View>
         </View>
@@ -720,7 +1356,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
                   }}
                   style={styles.removeTagButton}
                 >
-                  <Feather name="x" size={14} color="#FFD700" />
+                  <Feather name="x" size={14} color={isDarkMode ? '#808080' : '#606060'} />
                 </TouchableOpacity>
               </View>
             ))}
@@ -802,17 +1438,28 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
             }]}>
               <TouchableOpacity
                 style={[styles.shareButton, {
-                  backgroundColor: isDarkMode ? '#808080' : '#606060',
+                  backgroundColor: (!selectedGenre || loading)
+                    ? (isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)')
+                    : (isDarkMode ? '#808080' : '#606060'),
                   shadowOpacity: 0
                 }]}
                 onPress={handlePost}
-                disabled={loading}
+                disabled={loading || !selectedGenre}
                 onPressIn={handlePressIn}
                 onPressOut={handlePressOut}
               >
                 <Animated.View style={{ transform: [{ scale: scaleValue }], flexDirection: 'row', alignItems: 'center' }}>
-                  <Feather name="upload" size={20} color="#FFFFFF" style={styles.shareButtonIcon} />
-                  <Text style={[styles.shareButtonText, { color: "#FFFFFF" }]}>Share Post</Text>
+                  <Feather
+                    name={!selectedGenre ? "tag" : "upload"}
+                    size={20}
+                    color={(!selectedGenre || loading) ? "#999999" : "#FFFFFF"}
+                    style={styles.shareButtonIcon}
+                  />
+                  <Text style={[styles.shareButtonText, {
+                    color: (!selectedGenre || loading) ? "#999999" : "#FFFFFF"
+                  }]}>
+                    {!selectedGenre ? "Select Genre First" : "Share Post"}
+                  </Text>
                 </Animated.View>
               </TouchableOpacity>
             </View>
@@ -868,6 +1515,14 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
           <Text style={[styles.loadingText, { color: colors.primary }]}>Creating your post...</Text>
         </View>
       )}
+
+      {/* Genre Selector Modal */}
+      <GenreSelector
+        selectedGenre={selectedGenre}
+        onGenreSelect={setSelectedGenre}
+        visible={showGenreSelector}
+        onClose={() => setShowGenreSelector(false)}
+      />
     </ThemedGradient>
   );
 };
@@ -893,7 +1548,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: "#1a1a1a",
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.2)",
+    borderColor: "rgba(128, 128, 128, 0.2)",
   },
   imagePreviewContainer: {
     position: "relative",
@@ -916,18 +1571,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
+    borderColor: "rgba(128, 128, 128, 0.3)",
   },
   mediaCountText: {
-    color: "#FFD700",
     fontSize: 12,
     fontWeight: "bold",
+    fontFamily: "Rubik-Bold",
   },
   thumbnailsContainer: {
     padding: 10,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
     borderTopWidth: 1,
-    borderTopColor: "rgba(255, 215, 0, 0.2)",
+    borderTopColor: "rgba(128, 128, 128, 0.2)",
   },
   thumbnailsScroll: {
     paddingVertical: 5,
@@ -942,7 +1597,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   activeThumbnail: {
-    borderColor: "#FFD700",
+    borderColor: "#808080",
   },
   thumbnailImage: {
     width: "100%",
@@ -950,10 +1605,20 @@ const styles = StyleSheet.create({
   },
   // Section Styles
   sectionTitle: {
-    color: "#FFD700",
     fontSize: 16,
     fontFamily: "Rubik-Medium",
     marginBottom: 10,
+    fontWeight: "bold",
+  },
+  sectionTitleContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  requiredIndicator: {
+    fontSize: 18,
+    fontFamily: "Rubik-Bold",
+    marginLeft: 4,
     fontWeight: "bold",
   },
   // Caption Section
@@ -965,17 +1630,14 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   captionInput: {
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
     borderRadius: 12,
     padding: 15,
     paddingRight: 50,
-    color: "white",
     minHeight: 120,
     textAlignVertical: "top",
     fontSize: 16,
     fontFamily: "Rubik-Regular",
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   emojiButton: {
     position: "absolute",
@@ -997,15 +1659,12 @@ const styles = StyleSheet.create({
   optionButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
     paddingHorizontal: 15,
     paddingVertical: 10,
     borderRadius: 25,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   optionText: {
-    color: "#FFD700",
     marginLeft: 8,
     fontFamily: "Rubik-Regular",
     fontSize: 14,
@@ -1014,11 +1673,9 @@ const styles = StyleSheet.create({
   // Tagging Section
   taggingSection: {
     marginBottom: 20,
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
     borderRadius: 12,
     padding: 15,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.2)",
   },
   taggingContainer: {
     position: "relative",
@@ -1026,11 +1683,9 @@ const styles = StyleSheet.create({
   searchInputContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 25,
     paddingHorizontal: 15,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   searchIcon: {
     marginRight: 10,
@@ -1038,7 +1693,6 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     height: 40,
-    color: "white",
     fontFamily: "Rubik-Regular",
   },
   searchResults: {
@@ -1047,12 +1701,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#1a1a1a",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.2)",
+    borderColor: "rgba(128, 128, 128, 0.2)",
   },
   userResult: {
     padding: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 215, 0, 0.1)",
+    borderBottomColor: "rgba(128, 128, 128, 0.1)",
   },
   username: {
     color: "white",
@@ -1067,15 +1721,12 @@ const styles = StyleSheet.create({
   locationTag: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
     paddingHorizontal: 15,
     paddingVertical: 10,
     borderRadius: 25,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
   },
   locationText: {
-    color: "#FFD700",
     marginLeft: 10,
     flex: 1,
     fontFamily: "Rubik-Regular",
@@ -1094,16 +1745,15 @@ const styles = StyleSheet.create({
   taggedUser: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
+    backgroundColor: "rgba(128, 128, 128, 0.1)",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
     marginRight: 10,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
+    borderColor: "rgba(128, 128, 128, 0.3)",
   },
   taggedUsername: {
-    color: "#FFD700",
     marginRight: 8,
     fontFamily: "Rubik-Regular",
   },
@@ -1122,7 +1772,7 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     backgroundColor: "#1a1a1a",
     borderTopWidth: 1,
-    borderTopColor: "rgba(255, 215, 0, 0.2)",
+    borderTopColor: "rgba(128, 128, 128, 0.2)",
     width: '100%',
     position: 'absolute',
     bottom: 0,
@@ -1158,7 +1808,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 215, 0, 0.2)",
+    borderBottomColor: "rgba(128, 128, 128, 0.2)",
     backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   headerText: {
@@ -1220,12 +1870,10 @@ const styles = StyleSheet.create({
   },
   mediaPicker: {
     height: 300,
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
     borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
     borderStyle: "dashed",
   },
   carouselContainer: {
@@ -1240,7 +1888,7 @@ const styles = StyleSheet.create({
     elevation: 3,
     position: "relative",
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.2)",
+    borderColor: "rgba(128, 128, 128, 0.2)",
     marginBottom: 15,
     marginHorizontal: 10,
     marginTop: 10,
@@ -1264,8 +1912,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 8,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
+    borderColor: "rgba(128, 128, 128, 0.3)",
   },
+
   pagination: {
     flexDirection: "row",
     justifyContent: "center",
@@ -1279,11 +1928,11 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "rgba(255, 215, 0, 0.5)",
+    backgroundColor: "rgba(128, 128, 128, 0.5)",
     marginHorizontal: 4,
   },
   paginationDotActive: {
-    backgroundColor: "#FFD700",
+    backgroundColor: "#808080",
   },
   addMoreButton: {
     position: "absolute",
@@ -1293,7 +1942,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 8,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
+    borderColor: "rgba(128, 128, 128, 0.3)",
   },
   filterContainer: {
     flexGrow: 0,
@@ -1311,7 +1960,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 8,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.2)",
+    borderColor: "rgba(128, 128, 128, 0.2)",
   },
   filterThumbnail: {
     width: 65,
@@ -1320,31 +1969,35 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     resizeMode: "cover",
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
+    borderColor: "rgba(128, 128, 128, 0.3)",
   },
   filterName: {
-    color: "#FFD700",
     fontFamily: "Rubik-Regular",
     fontSize: 12,
     textAlign: "center",
     fontWeight: "500",
   },
-  filterSection: {
-    marginTop: 10,
-    marginBottom: 20, // Increased bottom margin
-    paddingHorizontal: 15,
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
-    borderRadius: 12,
-    marginHorizontal: 10,
-    paddingVertical: 10,
+
+  genreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.2)",
   },
-  filterSectionTitle: {
-    color: "#FFD700",
-    fontSize: 14,
-    fontFamily: "Rubik-Medium",
-    marginBottom: 5,
+  genreIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  genreButtonText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '500',
   },
   nextButtonContainer: {
     paddingHorizontal: 15,
@@ -1352,7 +2005,7 @@ const styles = StyleSheet.create({
     paddingBottom: 15,
     alignItems: "center",
     borderTopWidth: 1,
-    borderTopColor: "rgba(255, 215, 0, 0.2)",
+    borderTopColor: "rgba(128, 128, 128, 0.2)",
     backgroundColor: "#1a1a1a",
     width: '100%',
     position: 'absolute',
@@ -1393,7 +2046,6 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 16,
-    color: '#FFD700',
     fontFamily: 'Rubik-Medium',
   },
   emojiPickerContainer: {
@@ -1405,7 +2057,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a1a',
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: 'rgba(255, 215, 0, 0.3)',
+    borderColor: 'rgba(128, 128, 128, 0.3)',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
@@ -1441,7 +2093,130 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     padding: 5,
     borderWidth: 1,
-    borderColor: 'rgba(255, 215, 0, 0.3)',
+    borderColor: 'rgba(128, 128, 128, 0.3)',
+  },
+  inlineFiltersContainer: {
+    marginTop: 15,
+    marginBottom: 20,
+    paddingHorizontal: 15,
+    backgroundColor: 'rgba(128, 128, 128, 0.05)',
+    borderRadius: 12,
+    marginHorizontal: 10,
+    paddingVertical: 15,
+    borderWidth: 1,
+    borderColor: 'rgba(128, 128, 128, 0.2)',
+  },
+  filtersTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+    fontFamily: 'Rubik-Medium',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  filtersScrollContainer: {
+    paddingVertical: 8,
+  },
+  filterItem: {
+    alignItems: 'center',
+    marginRight: 12,
+    borderWidth: 2,
+    borderRadius: 12,
+    padding: 8,
+    minWidth: 70,
+  },
+  filterPreviewContainer: {
+    position: 'relative',
+    marginBottom: 8,
+  },
+  filterPreview: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+  },
+  selectedOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // AI Generation Styles
+  aiSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    gap: 6,
+  },
+  aiButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    gap: 4,
+    minHeight: 36,
+  },
+  aiButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+    fontFamily: 'Rubik-Medium',
+  },
+  // Tone Selector Styles
+  toneSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 4,
+    flex: 1,
+    minHeight: 36,
+  },
+  toneSelectorText: {
+    fontSize: 12,
+    fontWeight: '500',
+    fontFamily: 'Rubik-Medium',
+    flex: 1,
+  },
+  toneDropdown: {
+    marginTop: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingVertical: 4,
+  },
+  toneOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  toneOptionText: {
+    fontSize: 14,
+    fontFamily: 'Rubik-Regular',
+  },
+  // AI Hashtag Button
+  aiHashtagButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginTop: 12,
+    gap: 6,
+    minHeight: 36,
   },
 });
 

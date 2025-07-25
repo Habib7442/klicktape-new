@@ -3,14 +3,14 @@ import React, { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { AntDesign } from '@expo/vector-icons';
 import CreatePost from '@/components/CreatePost';
-import CreateReel from '@/components/CreateReel';
+import CreateTape from '@/components/CreateReel';
 import ThemedGradient from '@/components/ThemedGradient';
 import { useTheme } from '@/src/context/ThemeContext';
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const Create = () => {
   const router = useRouter();
-  const [mode, setMode] = useState<'post' | 'reel'>('post');
+  const [mode, setMode] = useState<'post' | 'tape'>('post');
   const { colors, isDarkMode } = useTheme();
 
   return (
@@ -45,21 +45,21 @@ const Create = () => {
         <TouchableOpacity
           style={[
             styles.tab,
-            mode === 'reel' && [styles.activeTab, { borderBottomColor: colors.primary }]
+            mode === 'tape' && [styles.activeTab, { borderBottomColor: colors.primary }]
           ]}
-          onPress={() => setMode('reel')}
+          onPress={() => setMode('tape')}
         >
           <AntDesign
             name="videocamera"
             size={24}
-            color={mode === 'reel' ? colors.text : colors.textTertiary}
+            color={mode === 'tape' ? colors.text : colors.textTertiary}
           />
           <Text style={[
             styles.tabText,
             { color: colors.textTertiary },
-            mode === 'reel' && [styles.activeTabText, { color: colors.text }]
+            mode === 'tape' && [styles.activeTabText, { color: colors.text }]
           ]}>
-            Reel
+            Tape
           </Text>
         </TouchableOpacity>
       </View>
@@ -71,7 +71,7 @@ const Create = () => {
           }}
         />
       ) : (
-        <CreateReel />
+        <CreateTape />
       )}
       </ThemedGradient>
     </SafeAreaView>

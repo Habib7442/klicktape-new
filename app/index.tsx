@@ -2,18 +2,17 @@ import React, { useState, useEffect } from "react";
 import { View, ActivityIndicator } from "react-native";
 import { Redirect } from "expo-router";
 import { supabase } from "@/lib/supabase";
-import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
 import { useDispatch } from "react-redux";
 import { setUser } from "@/src/store/slices/authSlice";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import SplashScreen from "@/components/SplashScreen";
+import { checkProfileCompletion, getUserProfileData, getAuthRedirectPath } from "@/lib/profileUtils";
 
 const Page = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSignedIn, setIsSignedIn] = useState(false);
-  const [hasProfile, setHasProfile] = useState(false);
+  const [redirectPath, setRedirectPath] = useState<string | null>(null);
   const [showSplash, setShowSplash] = useState(false);
-  const { checkProfile } = useSupabaseFetch();
   const dispatch = useDispatch();
 
   // Function to initialize authentication
@@ -43,7 +42,6 @@ const Page = () => {
     setIsSignedIn(signedIn);
 
     if (signedIn && session?.user?.email) {
-      // Get user profile data and store in Redux and AsyncStorage
       try {
         if (!supabase) {
           console.error("Supabase client is not initialized");
@@ -51,37 +49,32 @@ const Page = () => {
           return;
         }
 
-        const { data: userProfile, error } = await supabase
-          .from("profiles")
-          .select("id, username, avatar_url")
-          .eq("id", session.user.id)
-          .single();
+        console.log("🔐 Verifying auth state for user:", session.user.id);
 
-        console.log("User profile check:", {
-          hasProfile: !!userProfile,
-          username: userProfile?.username,
-          id: session.user.id,
-          email: session.user.email
-        });
+        // Get user profile data for Redux store
+        const profileData = await getUserProfileData(session.user.id);
 
-        if (!error && userProfile) {
-          const userData = {
-            id: userProfile.id,
-            username: userProfile.username,
-            avatar: userProfile.avatar_url,
-          };
-          await AsyncStorage.setItem("user", JSON.stringify(userData));
-          dispatch(setUser(userData));
+        if (profileData) {
+          await AsyncStorage.setItem("user", JSON.stringify(profileData));
+          dispatch(setUser({
+            id: profileData.id,
+            username: profileData.username || '',
+          }));
+          console.log("✅ User data stored in Redux and AsyncStorage");
         }
 
-        const profileExists = await checkProfile(session.user.email, session.user.id);
-        console.log("Profile exists check:", profileExists);
-        setHasProfile(profileExists);
+        // Determine where to redirect the user
+        const redirectPath = await getAuthRedirectPath(session.user.id, session.user.email);
+        setRedirectPath(redirectPath);
+
+        console.log("🧭 Redirect path determined:", redirectPath);
       } catch (error) {
-        console.error("Error fetching user profile:", error);
+        console.error("❌ Error in auth state verification:", error);
+        // Default to create-profile for safety
+        setRedirectPath('/(root)/create-profile');
       }
     } else {
-      setHasProfile(false);
+      setRedirectPath(null);
     }
     setIsLoading(false);
   };
@@ -118,11 +111,14 @@ const Page = () => {
     return <Redirect href="/(auth)/welcome" />;
   }
 
-  return hasProfile ? (
-    <Redirect href="/(root)/(tabs)/home" />
-  ) : (
-    <Redirect href="/(root)/create-profile" />
-  );
+  // Redirect based on profile completion status
+  if (redirectPath) {
+    console.log("🚀 Redirecting to:", redirectPath);
+    return <Redirect href={redirectPath as any} />;
+  }
+
+  // Fallback to create-profile if no redirect path determined
+  return <Redirect href="/(root)/create-profile" />;
 };
 
 export default Page;

@@ -28,7 +28,7 @@ export const storiesAPI = {
       console.log("Authenticated user:", user.id);
 
       const fileExt = file.name.split(".").pop()?.toLowerCase() || "jpg";
-      const filePath = `stories/${Date.now()}.${fileExt}`;
+      const filePath = `${user.id}/${Date.now()}.${fileExt}`;
 
       console.log("Uploading file from URI:", file.uri);
 
@@ -252,9 +252,22 @@ export const storiesAPI = {
 
       // Delete the associated image file if it exists
       if (story.image_url) {
-        const filePath = story.image_url.split("/").slice(-2).join("/");
+        // Extract the file path from the URL (should be in format: user_id/filename.ext)
+        const urlParts = story.image_url.split("/");
+        const filePath = urlParts.slice(-2).join("/"); // Get last two parts: user_id/filename.ext
+
+        console.log(`🗑️ Attempting to delete storage file: ${filePath}`);
+
         try {
-          await supabase.storage.from("stories").remove([filePath]);
+          const { error: storageError } = await supabase.storage
+            .from("stories")
+            .remove([filePath]);
+
+          if (storageError) {
+            console.warn("Storage deletion warning:", storageError.message);
+          } else {
+            console.log("✅ Storage file deleted successfully");
+          }
         } catch (fileError) {
           console.warn("File already deleted or not found:", fileError);
         }

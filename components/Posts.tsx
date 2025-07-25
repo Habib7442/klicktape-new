@@ -8,10 +8,11 @@ import {
   ActivityIndicator,
   StyleSheet,
   Dimensions,
-  TextInput,
   Share,
 } from "react-native";
 import Carousel from "react-native-reanimated-carousel";
+import CommentsModal from "./Comments";
+
 import { AntDesign, FontAwesome, Feather, Ionicons } from "@expo/vector-icons";
 import { useDispatch, useSelector } from "react-redux";
 import { router } from "expo-router";
@@ -36,6 +37,23 @@ const Posts = () => {
     [key: string]: number;
   }>({});
 
+  // State for image dimensions to maintain aspect ratio
+  const [imageDimensions, setImageDimensions] = useState<{
+    [key: string]: { width: number; height: number };
+  }>({});
+
+  // State for expanded captions
+  const [expandedCaptions, setExpandedCaptions] = useState<{
+    [key: string]: boolean;
+  }>({});
+
+  // State for comments modal
+  const [commentsModalVisible, setCommentsModalVisible] = useState(false);
+  const [selectedPostForComments, setSelectedPostForComments] = useState<{
+    id: string;
+    ownerUsername: string;
+  } | null>(null);
+
   const dispatch = useDispatch();
   const posts = useSelector((state: RootState) => state.posts.posts);
   const [page, setPage] = useState(1);
@@ -45,6 +63,67 @@ const Posts = () => {
   useEffect(() => {
     fetchPosts();
   }, []);
+
+  // Helper function to check if caption should be truncated
+  const shouldTruncateCaption = (caption: string) => {
+    return caption && caption.length > 100; // Truncate if more than 100 characters
+  };
+
+  // Helper function to toggle caption expansion
+  const toggleCaptionExpansion = (postId: string) => {
+    setExpandedCaptions(prev => ({
+      ...prev,
+      [postId]: !prev[postId]
+    }));
+  };
+
+  // Helper functions for comments modal
+  const openCommentsModal = (postId: string, ownerUsername: string) => {
+    console.log('Opening comments modal for post:', postId);
+    setSelectedPostForComments({ id: postId, ownerUsername });
+    setCommentsModalVisible(true);
+  };
+
+  const closeCommentsModal = () => {
+    console.log('Closing comments modal');
+    setCommentsModalVisible(false);
+    setSelectedPostForComments(null);
+  };
+
+  // Function to get image dimensions and maintain aspect ratio
+  const getImageDimensions = (imageUrl: string, postId: string, imageIndex: number) => {
+    const key = `${postId}_${imageIndex}`;
+    if (imageDimensions[key]) {
+      return imageDimensions[key];
+    }
+
+    Image.getSize(
+      imageUrl,
+      (width, height) => {
+        const screenWidth = Dimensions.get("window").width;
+        const aspectRatio = width / height;
+        const imageHeight = screenWidth / aspectRatio;
+
+        setImageDimensions(prev => ({
+          ...prev,
+          [key]: { width: screenWidth, height: imageHeight }
+        }));
+      },
+      (error) => {
+        console.log("Error getting image size:", error);
+        // Fallback to square aspect ratio
+        const screenWidth = Dimensions.get("window").width;
+        setImageDimensions(prev => ({
+          ...prev,
+          [key]: { width: screenWidth, height: screenWidth }
+        }));
+      }
+    );
+
+    // Return default dimensions while loading
+    const screenWidth = Dimensions.get("window").width;
+    return { width: screenWidth, height: screenWidth };
+  };
 
   const fetchPosts = async (pageNumber = 1, isLoadMore = false) => {
     try {
@@ -185,8 +264,9 @@ const Posts = () => {
       // Optimistically update UI
       dispatch(toggleLike(postId));
 
-      // Make the API call to update the database using the correct function name
-      const { error } = await supabase.rpc("lightning_toggle_like_v3", {
+      // Make the API call to update the database using the new RPC function
+      // The RPC function handles like records, triggers handle count updates
+      const { data: isLiked, error } = await supabase.rpc("lightning_toggle_like_v4", {
         post_id_param: postId,
         user_id_param: user.id,
       });
@@ -198,10 +278,8 @@ const Posts = () => {
         return;
       }
 
-      // Force a refresh of the posts to ensure like status is correct
-      setTimeout(() => {
-        fetchPosts(1, false);
-      }, 500);
+      // No need for forced refresh - the RPC function handles everything atomically
+      console.log(`✅ Like toggled successfully: ${isLiked ? 'liked' : 'unliked'}`);
     } catch (error) {
       // Revert the optimistic update if there's an exception
       dispatch(toggleLike(postId));
@@ -277,24 +355,28 @@ const Posts = () => {
   };
 
   const renderPost = ({ item: post }: { item: Post }) => {
-    const renderCarouselItem = ({ item: imageUrl }: { item: string }) => (
-      // <TouchableOpacity
-      //   onPress={() =>
-      //     router.push({
-      //       pathname: "/post/[id]",
-      //       params: { id: post.id },
-      //     })
-      //   }
-      // >
-      <View style={styles.carouselItem}>
-        <Image
-          source={{ uri: imageUrl }}
-          style={styles.postImage}
-          resizeMode="cover"
-        />
-      </View>
-      // </TouchableOpacity>
-    );
+    const renderCarouselItem = ({ item: imageUrl, index }: { item: string; index: number }) => {
+      const dimensions = getImageDimensions(imageUrl, post.id, index);
+
+      return (
+        <TouchableOpacity
+          onPress={() =>
+            router.push({
+              pathname: "/post/[id]",
+              params: { id: post.id },
+            })
+          }
+        >
+          <View style={[styles.carouselItem, { height: dimensions.height }]}>
+            <Image
+              source={{ uri: imageUrl }}
+              style={[styles.postImage, { width: dimensions.width, height: dimensions.height }]}
+              resizeMode="contain"
+            />
+          </View>
+        </TouchableOpacity>
+      );
+    };
 
     return (
       <View style={styles.postContainer}>
@@ -320,23 +402,94 @@ const Posts = () => {
           </View>
         </View>
 
-        <Text style={[styles.postText, { color: colors.text }]}>{post.caption}</Text>
+        {/* Caption with expand/collapse functionality */}
+        {post.caption && (
+          <View style={styles.captionContainer}>
+            <Text style={[styles.postText, { color: colors.text }]}>
+              {shouldTruncateCaption(post.caption) && !expandedCaptions[post.id]
+                ? `${post.caption.substring(0, 100)}...`
+                : post.caption}
+            </Text>
+            {shouldTruncateCaption(post.caption) && (
+              <TouchableOpacity
+                onPress={() => toggleCaptionExpansion(post.id)}
+                style={styles.seeMoreButton}
+              >
+                <Text style={[styles.seeMoreText, { color: colors.text + '80' }]}>
+                  {expandedCaptions[post.id] ? 'See less' : 'See more'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {/* Hashtags Display */}
+        {post.hashtags && post.hashtags.length > 0 && (
+          <View style={styles.hashtagsContainer}>
+            <FlatList
+              data={post.hashtags}
+              renderItem={({ item: hashtag, index }) => (
+                <TouchableOpacity
+                  key={index}
+                  style={[styles.hashtagButton, { backgroundColor: `${colors.primary}15` }]}
+                  onPress={() => {
+                    // Navigate to hashtag search or handle hashtag tap
+                    console.log("Hashtag tapped:", hashtag);
+                  }}
+                >
+                  <Text style={[styles.hashtagText, { color: colors.primary }]}>
+                    #{hashtag}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              keyExtractor={(item, index) => `${item}-${index}`}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.hashtagsList}
+            />
+          </View>
+        )}
 
         <View style={styles.imageContainer}>
           <Carousel
             loop={false}
             width={Dimensions.get("window").width}
-            height={Dimensions.get("window").width}
+            height={(() => {
+              // Calculate height based on first image dimensions for consistency
+              const firstImageDimensions = getImageDimensions(post.image_urls[0], post.id, 0);
+              return firstImageDimensions.height;
+            })()}
             data={post.image_urls}
             defaultIndex={activeImageIndexes[post.id] || 0}
             onSnapToItem={(index) =>
               setActiveImageIndexes((prev) => ({ ...prev, [post.id]: index }))
             }
-            renderItem={renderCarouselItem}
+            renderItem={({ item: imageUrl, index }) => {
+              const dimensions = getImageDimensions(imageUrl, post.id, index);
+              return (
+                <View style={[styles.carouselItem, { height: dimensions.height }]}>
+                  <Image
+                    source={{ uri: imageUrl }}
+                    style={[styles.postImage, { width: dimensions.width, height: dimensions.height }]}
+                    resizeMode="contain"
+                  />
+                </View>
+              );
+            }}
             onConfigurePanGesture={(gestureChain) =>
               gestureChain.activeOffsetX([-10, 10])
             }
+            enabled={post.image_urls.length > 1}
+            scrollAnimationDuration={300}
+            withAnimation={{
+              type: "spring",
+              config: {
+                damping: 15,
+                stiffness: 100,
+              },
+            }}
           />
+
           {post.image_urls.length > 1 && (
             <View style={styles.pagination}>
               {post.image_urls.map((_, index) => (
@@ -361,15 +514,7 @@ const Posts = () => {
             {post.likes_count} {post.likes_count === 1 ? "like" : "likes"}
           </Text>
           <TouchableOpacity
-            onPress={() => {
-              router.push({
-                pathname: "/(root)/posts-comments-screen",
-                params: {
-                  postId: post.id,
-                  postOwnerUsername: post.user.username,
-                }
-              });
-            }}
+            onPress={() => openCommentsModal(post.id, post.user.username)}
           >
             {post.comments_count > 0 ? (
               <Text style={[styles.statText, { color: colors.text }]}>
@@ -397,15 +542,7 @@ const Posts = () => {
               />
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() =>
-                router.replace({
-                  pathname: "/(root)/posts-comments-screen",
-                  params: {
-                    postId: post.id,
-                    postOwnerUsername: post.user.username,
-                  },
-                })
-              }
+              onPress={() => openCommentsModal(post.id, post.user.username)}
               style={styles.actionButton}
             >
               <Ionicons name="chatbubble-outline" size={24} color={colors.text} />
@@ -465,6 +602,17 @@ const Posts = () => {
         }
         contentContainerStyle={[styles.listContainer, { paddingBottom: 120 }]}
       />
+
+      {/* Comments Modal */}
+      {selectedPostForComments && (
+        <CommentsModal
+          entityType="post"
+          entityId={selectedPostForComments.id}
+          onClose={closeCommentsModal}
+          entityOwnerUsername={selectedPostForComments.ownerUsername}
+          visible={commentsModalVisible}
+        />
+      )}
     </>
   );
 };
@@ -512,11 +660,39 @@ const styles = StyleSheet.create({
   moreButton: {
     padding: 8,
   },
+  captionContainer: {
+    marginBottom: 12,
+  },
   postText: {
     fontSize: 14,
     fontFamily: "Rubik-Regular",
-    marginBottom: 12,
     lineHeight: 20,
+    marginBottom: 4,
+  },
+  seeMoreButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: 2,
+  },
+  seeMoreText: {
+    fontSize: 14,
+    fontFamily: "Rubik-Medium",
+    fontWeight: '500',
+  },
+  hashtagsContainer: {
+    marginBottom: 12,
+  },
+  hashtagsList: {
+    paddingHorizontal: 4,
+  },
+  hashtagButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  hashtagText: {
+    fontSize: 13,
+    fontFamily: "Rubik-Medium",
   },
   imageContainer: {
     overflow: "hidden",
@@ -524,13 +700,16 @@ const styles = StyleSheet.create({
     position: "relative",
     marginHorizontal: -16,
   },
+  imageWrapper: {
+    width: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
   postImage: {
     width: "100%",
-    height: "100%",
   },
   carouselItem: {
     width: "100%",
-    height: "100%",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -611,6 +790,7 @@ const styles = StyleSheet.create({
     padding: 16,
     alignItems: "center",
   },
+
 });
 
 export default Posts;

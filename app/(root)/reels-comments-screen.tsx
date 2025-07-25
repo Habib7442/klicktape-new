@@ -15,14 +15,13 @@ const ReelsCommentScreen = () => {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <CommentsModal
-        entityType="reel"
-        entityId={reelId}
-        onClose={() => router.push("/(root)/(tabs)/reels")}
-        entityOwnerUsername={reelOwnerUsername as string}
-      />
-    </View>
+    <CommentsModal
+      entityType="reel"
+      entityId={reelId}
+      onClose={() => router.push("/(root)/(tabs)/reels")}
+      entityOwnerUsername={reelOwnerUsername as string}
+      visible={true}
+    />
   );
 };
 

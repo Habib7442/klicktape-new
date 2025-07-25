@@ -366,9 +366,17 @@ export const reelsAPI = {
         type: file.type,
       } as any);
 
+      // Get current user ID for folder structure
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error("User not authenticated");
+      }
+
+      const filePath = `${user.id}/${file.name}`;
+
       const { data, error } = await supabase.storage
-        .from('media')
-        .upload(`reels/${file.name}`, formData, {
+        .from('reels')
+        .upload(filePath, formData, {
           contentType: file.type,
           upsert: true,
         });
@@ -379,8 +387,8 @@ export const reelsAPI = {
       }
 
       const { data: { publicUrl } } = supabase.storage
-        .from('media')
-        .getPublicUrl(`reels/${file.name}`);
+        .from('reels')
+        .getPublicUrl(filePath);
 
       return publicUrl;
     } catch (error: any) {

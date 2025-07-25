@@ -166,31 +166,11 @@ const SignUp = () => {
       }
 
       if (data.user) {
-        // Create a profile record with the user's name
-        try {
-          // Sanitize inputs before storing in database
-          const sanitizedName = name.trim().replace(/[<>]/g, ''); // Basic XSS prevention
-          const sanitizedEmail = email.trim().toLowerCase();
-          const sanitizedUsername = email.split("@")[0]
-            .replace(/[^a-zA-Z0-9_]/g, '_') // Replace non-alphanumeric chars with underscore
-            .substring(0, 30); // Limit username length
+        console.log("✅ User created successfully:", data.user.id);
 
-          await supabase.from("profiles").insert({
-            id: data.user.id,
-            username: sanitizedUsername,
-            full_name: sanitizedName,
-            email: sanitizedEmail,
-            avatar_url: null,
-            is_active: false,
-            created_at: new Date().toISOString(),
-          });
-
-          // Note: We'll initialize encryption later when the user is fully authenticated
-          // This will happen in the create-profile.tsx file or when the user first logs in
-        } catch (profileError) {
-          console.error("Error creating profile:", profileError);
-          // Continue even if profile creation fails
-        }
+        // Note: Profile creation is now handled by database trigger
+        // The user will be redirected to create-profile to complete their profile
+        // after email verification and sign-in
 
         Alert.alert(
           "Success",

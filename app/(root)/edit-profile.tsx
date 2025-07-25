@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -22,6 +23,7 @@ import { useTheme } from "@/src/context/ThemeContext";
 
 const EditProfile = () => {
   const { colors, isDarkMode } = useTheme();
+  const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [avatar, setAvatar] = useState("");
@@ -38,6 +40,8 @@ const EditProfile = () => {
   useEffect(() => {
     const getUser = async () => {
       try {
+        if (!supabase) throw new Error("Database connection not available");
+
         const { data: { user }, error } = await supabase.auth.getUser();
         if (error || !user) {
           throw new Error("User not authenticated");
@@ -54,15 +58,17 @@ const EditProfile = () => {
 
   const getUserProfile = async (userId: string) => {
     try {
+      if (!supabase) throw new Error("Database connection not available");
+
       const { data: user, error } = await supabase
         .from("profiles")
-        .select("username, avatar_url, account_type, gender, bio")
+        .select("name, username, avatar_url, account_type, gender, bio")
         .eq("id", userId)
         .single();
 
       if (error || !user) throw new Error("User not found");
       return user;
-    } catch (error) {
+    } catch (error: any) {
       throw new Error(`Failed to fetch user profile: ${error.message}`);
     }
   };
@@ -77,6 +83,7 @@ const EditProfile = () => {
     try {
       if (!userId) throw new Error("User ID not available");
       const profile = await getUserProfile(userId);
+      setFullName(profile.name || "");
       setUsername(profile.username || "");
       setBio(profile.bio || "");
       setAvatar(profile.avatar_url || "");
@@ -100,7 +107,7 @@ const EditProfile = () => {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -158,8 +165,10 @@ const EditProfile = () => {
         uint8Array[i] = byteString.charCodeAt(i);
       }
 
-      // Create a file name with folder path
-      const fileName = `updated_avatars/avatar_${userId}_${Date.now()}.jpg`;
+      if (!supabase) throw new Error("Database connection not available");
+
+      // Create a file name with user ID folder path (required for RLS policy)
+      const fileName = `${userId}/avatar_${Date.now()}.jpg`;
 
       // Upload the ArrayBuffer to Supabase Storage
       const { error: uploadError } = await supabase.storage
@@ -195,6 +204,8 @@ const EditProfile = () => {
   const handleSave = async () => {
     try {
       if (!userId) throw new Error("User ID not available");
+      if (!supabase) throw new Error("Database connection not available");
+
       setUpdating(true);
 
       let avatarUrl = avatar;
@@ -207,6 +218,7 @@ const EditProfile = () => {
       const { error } = await supabase
         .from("profiles")
         .update({
+          name: fullName.trim(),
           username,
           bio,
           avatar_url: avatarUrl,
@@ -254,38 +266,58 @@ const EditProfile = () => {
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
-        <View style={[styles.card, {
-          backgroundColor: `${colors.backgroundSecondary}90`,
-          borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
-        }]}>
-          <TouchableOpacity
-            style={styles.avatarContainer}
-            onPress={pickImage}
-            disabled={uploadingImage}
-          >
-            <Image
-              source={{ uri: newAvatar || avatar || "https://via.placeholder.com/150" }}
-              style={[styles.avatar, { borderColor: isDarkMode ? '#808080' : '#606060' }]}
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.card, {
+            backgroundColor: `${colors.backgroundSecondary}90`,
+            borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
+          }]}>
+            <TouchableOpacity
+              style={styles.avatarContainer}
+              onPress={pickImage}
+              disabled={uploadingImage}
+            >
+              <Image
+                source={{ uri: newAvatar || avatar || "https://via.placeholder.com/150" }}
+                style={[styles.avatar, { borderColor: isDarkMode ? '#808080' : '#606060' }]}
+              />
+              <View style={[styles.avatarOverlay, {
+                backgroundColor: `${colors.backgroundTertiary}E6`,
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
+              }]}>
+                {uploadingImage ? (
+                  <ActivityIndicator size="small" color={isDarkMode ? '#808080' : '#606060'} />
+                ) : (
+                  <Feather name="camera" size={24} color={isDarkMode ? '#808080' : '#606060'} />
+                )}
+              </View>
+            </TouchableOpacity>
+
+            {newAvatar && (
+              <Text style={[styles.previewText, { color: colors.primary }]}>
+                New profile picture selected (click Save Changes to update)
+              </Text>
+            )}
+
+            <Text style={[styles.label, { color: "#FFFFFF" }]}>Full Name</Text>
+            <TextInput
+              style={[styles.input, {
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)',
+                color: isDarkMode ? '#808080' : '#606060'
+              }]}
+              value={fullName}
+              onChangeText={setFullName}
+              placeholder="Enter your full name"
+              placeholderTextColor={isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(96, 96, 96, 0.5)'}
+              autoCapitalize="words"
+              maxLength={50}
             />
-            <View style={[styles.avatarOverlay, {
-              backgroundColor: `${colors.backgroundTertiary}E6`,
-              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
-            }]}>
-              {uploadingImage ? (
-                <ActivityIndicator size="small" color={isDarkMode ? '#808080' : '#606060'} />
-              ) : (
-                <Feather name="camera" size={24} color={isDarkMode ? '#808080' : '#606060'} />
-              )}
-            </View>
-          </TouchableOpacity>
 
-          {newAvatar && (
-            <Text style={[styles.previewText, { color: colors.primary }]}>
-              New profile picture selected (click Save Changes to update)
-            </Text>
-          )}
-
-          <Text style={[styles.label, { color: "#FFFFFF" }]}>Username</Text>
+            <Text style={[styles.label, { color: "#FFFFFF" }]}>Username</Text>
           <TextInput
             style={[styles.input, {
               backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
@@ -373,6 +405,7 @@ const EditProfile = () => {
             )}
           </TouchableOpacity>
         </View>
+        </ScrollView>
       )}
     </ThemedGradient>
     </SafeAreaView>
@@ -383,6 +416,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 20,
   },
   loadingContainer: {
     flex: 1,

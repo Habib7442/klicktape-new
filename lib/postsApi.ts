@@ -9,6 +9,7 @@ export const postsAPI = {
     size: number;
   }) => {
     try {
+      if(!supabase) throw new Error("Supabase client not initialized");
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -21,7 +22,13 @@ export const postsAPI = {
       const fileName =
         file.name ||
         `post_${Date.now()}_${Math.floor(Math.random() * 1000000)}.${fileExt}`;
-      const filePath = `posts/${fileName}`;
+
+      // Get current user ID for folder structure
+      if (!user) {
+        throw new Error("User not authenticated");
+      }
+
+      const filePath = `${user.id}/${fileName}`;
 
       console.log("Uploading file from URI:", file.uri);
 
@@ -38,7 +45,7 @@ export const postsAPI = {
       } as any);
 
       const { error } = await supabase.storage
-        .from("media")
+        .from("posts")
         .upload(filePath, formData, {
           contentType: `image/${fileExt === "jpg" ? "jpeg" : fileExt}`,
           upsert: false,
@@ -49,7 +56,7 @@ export const postsAPI = {
         throw new Error(`Failed to upload image: ${error.message}`);
       }
 
-      const { data } = supabase.storage.from("media").getPublicUrl(filePath);
+      const { data } = supabase.storage.from("posts").getPublicUrl(filePath);
 
       if (!data?.publicUrl) {
         throw new Error("Failed to get public URL for uploaded image");
@@ -65,7 +72,12 @@ export const postsAPI = {
   createPost: async (
     imageFiles: { uri: string; name?: string; type: string; size: number }[],
     caption: string,
-    userId: string
+    userId: string,
+    location?: string | null,
+    genre?: string | null,
+    hashtags?: string[],
+    taggedUsers?: string[],
+    collaborators?: string[]
   ) => {
     try {
       // Check if user has a profile
@@ -107,6 +119,10 @@ export const postsAPI = {
           user_id: profile.id, // profiles.id (same as auth.users.id)
           image_urls: imageUrls,
           caption,
+          genre: genre || null,
+          hashtags: hashtags || [],
+          tagged_users: taggedUsers || [],
+          collaborators: collaborators || [],
           created_at: new Date().toISOString(),
           likes_count: 0,
           comments_count: 0,
@@ -572,39 +588,105 @@ export const postsAPI = {
 
   deletePost: async (postId: string) => {
     try {
+      if(!supabase) throw new Error("Supabase client not initialized");
+
+      console.log(`🗑️ Starting deletion process for post: ${postId}`);
+
+      // First, get the post data including image URLs
       const { data: post, error: postError } = await supabase
         .from("posts")
-        .select("image_urls")
+        .select("image_urls, user_id")
         .eq("id", postId)
         .single();
 
-      if (postError || !post) throw new Error("Post not found");
-
-      if (post.image_urls && Array.isArray(post.image_urls)) {
-        await Promise.all(
-          post.image_urls.map(async (imageUrl) => {
-            try {
-              const filePath = imageUrl.split("/").slice(-2).join("/");
-              await supabase.storage.from("media").remove([filePath]);
-            } catch (error) {
-              console.error(`Failed to delete image ${imageUrl}:`, error);
-            }
-          })
-        );
+      if (postError || !post) {
+        console.error("Post not found:", postError);
+        throw new Error("Post not found");
       }
 
-      await Promise.all([
+      console.log(`📸 Found post with ${post.image_urls?.length || 0} images`);
+
+      // Step 1: Delete associated images from storage
+      const storageDeleteResults = [];
+      if (post.image_urls && Array.isArray(post.image_urls) && post.image_urls.length > 0) {
+        console.log("🗂️ Deleting images from storage...");
+
+        for (const imageUrl of post.image_urls) {
+          try {
+            // Extract file path from URL using the same method as stories
+            // URL format: https://[project].supabase.co/storage/v1/object/public/posts/user_id/filename.jpg
+            const urlParts = imageUrl.split("/");
+            const filePath = urlParts.slice(-2).join("/"); // Get last two parts: user_id/filename.ext
+
+            console.log(`🗑️ Attempting to delete storage file: ${filePath}`);
+
+            const { error: storageError } = await supabase.storage
+              .from("posts")
+              .remove([filePath]);
+
+            if (storageError) {
+              console.warn(`⚠️ Storage deletion warning for ${filePath}:`, storageError.message);
+              storageDeleteResults.push({ filePath, success: false, error: storageError.message });
+            } else {
+              console.log(`✅ Successfully deleted storage file: ${filePath}`);
+              storageDeleteResults.push({ filePath, success: true });
+            }
+          } catch (fileError: any) {
+            console.warn(`⚠️ Error deleting file ${imageUrl}:`, fileError);
+            storageDeleteResults.push({ filePath: imageUrl, success: false, error: fileError?.message || "Unknown error" });
+          }
+        }
+      }
+
+      // Step 2: Delete related database records (using CASCADE DELETE for efficiency)
+      console.log("🗄️ Deleting related database records...");
+
+      const deleteOperations = [
+        // Delete likes (will cascade to related records)
         supabase.from("likes").delete().eq("post_id", postId),
+        // Delete comments (will cascade to comment likes and replies)
         supabase.from("comments").delete().eq("post_id", postId),
+        // Delete bookmarks
         supabase.from("bookmarks").delete().eq("post_id", postId),
-      ]);
+      ];
 
-      await supabase.from("posts").delete().eq("id", postId);
+      const deleteResults = await Promise.allSettled(deleteOperations);
 
-      return true;
-    } catch (error) {
-      console.error("Error in deletePost:", error);
-      throw new Error(`Failed to delete post: ${error.message}`);
+      // Log results of related record deletions
+      const operationNames = ["likes", "comments", "bookmarks"];
+      deleteResults.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          console.log(`✅ Successfully deleted ${operationNames[index]} for post ${postId}`);
+        } else {
+          console.warn(`⚠️ Failed to delete ${operationNames[index]} for post ${postId}:`, result.reason);
+        }
+      });
+
+      // Step 3: Finally, delete the post record itself
+      console.log("📝 Deleting post record...");
+      const { error: postDeleteError } = await supabase
+        .from("posts")
+        .delete()
+        .eq("id", postId);
+
+      if (postDeleteError) {
+        console.error("❌ Failed to delete post record:", postDeleteError);
+        throw new Error(`Failed to delete post record: ${postDeleteError.message}`);
+      }
+
+      console.log("✅ Post deletion completed successfully");
+
+      // Return detailed results
+      return {
+        success: true,
+        postId,
+        storageResults: storageDeleteResults,
+        message: "Post and associated data deleted successfully"
+      };
+
+    } catch (error: any) {
+      console.error("💥 Error in deletePost:", error);
+      throw new Error(`Failed to delete post: ${error.message || "Unknown error"}`);
     }
   },
 

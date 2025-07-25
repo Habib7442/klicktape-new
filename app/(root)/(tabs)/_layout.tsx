@@ -19,18 +19,18 @@ const TabIcon = ({
     <View style={styles.tabIconContainer}>
       <View style={[
         styles.iconWrapper,
-        focused && { backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)' }
+        focused && { backgroundColor: 'rgba(255, 255, 255, 0.1)' } // White highlight for focused state on black background
       ]}>
         <Feather
           name={iconName}
           size={24}
-          color={colors.text}
+          color="#FFFFFF" // Always white icons for black background
         />
       </View>
       <Text
         style={[
           styles.title,
-          { color: colors.text },
+          { color: "#FFFFFF" }, // Always white text for black background
         ]}
       >
         {title}
@@ -50,8 +50,8 @@ export default function Layout() {
         tabBarStyle: [
           styles.tabBar,
           {
-            backgroundColor: colors.backgroundSecondary,
-            borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
+            backgroundColor: '#000000', // Solid black background as per reference design
+            borderColor: 'rgba(128, 128, 128, 0.2)'
           }
         ],
       }}
@@ -136,9 +136,9 @@ export default function Layout() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    borderRadius: 30,
-    marginHorizontal: 12,
-    marginBottom: 14,
+    borderRadius: 0, // Remove rounded corners for solid design
+    marginHorizontal: 0, // Remove horizontal margin for full width
+    marginBottom: 0, // Remove bottom margin for proper positioning
     height: 90,
     flexDirection: "row",
     justifyContent: "space-around",
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 8,
-    borderWidth: 1,
+    borderWidth: 0, // Remove border for clean solid look
     zIndex: 0,
   },
   tabIconContainer: {

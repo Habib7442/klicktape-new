@@ -16,6 +16,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
 import ThemedGradient from "@/components/ThemedGradient";
 import { useTheme } from "@/src/context/ThemeContext";
+import { getAuthRedirectPath, getUserProfileData } from "@/lib/profileUtils";
 
 const SignIn = () => {
   const [email, setEmail] = useState("");
@@ -93,32 +94,25 @@ const SignIn = () => {
       });
       if (error) throw error;
       if (data.user && data.session) {
-        const { data: userProfile, error: profileError } = await supabase
-          .from("profiles")
-          .select("id, username, avatar_url")
-          .eq("id", data.user.id)
-          .single();
+        console.log("🔐 Sign-in successful for user:", data.user.id);
 
-        if (profileError && profileError.code !== "PGRST116") {
-          // Error other than "no rows found"
-          throw new Error("Failed to fetch user profile");
+        // Get user profile data for Redux store
+        const profileData = await getUserProfileData(data.user.id);
+
+        if (profileData) {
+          await AsyncStorage.setItem("user", JSON.stringify(profileData));
+          dispatch(setUser({
+            id: profileData.id,
+            username: profileData.username || '',
+          }));
+          console.log("✅ User data stored in Redux and AsyncStorage");
         }
 
-        if (!userProfile || !userProfile.username) {
-          // No profile or empty username - redirect to create profile
-          router.replace("/(root)/create-profile");
-          return;
-        }
+        // Determine where to redirect the user based on profile completion
+        const redirectPath = await getAuthRedirectPath(data.user.id, data.user.email);
 
-        // User has a profile - proceed normally
-        const userData = {
-          id: userProfile.id,
-          username: userProfile.username,
-          avatar: userProfile.avatar_url,
-        };
-        await AsyncStorage.setItem("user", JSON.stringify(userData));
-        dispatch(setUser(userData));
-        router.replace("/(root)/(tabs)/home");
+        console.log("🧭 Redirecting to:", redirectPath);
+        router.replace(redirectPath as any);
       } else {
         Alert.alert("Error", "Failed to sign in. Please try again.");
       }

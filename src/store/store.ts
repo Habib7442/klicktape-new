@@ -9,6 +9,7 @@ import userStatusReducer from "./slices/userStatusSlice";
 import authReducer from "./slices/authSlice";
 import sidebarReducer from "./slices/sidebarSlice";
 import commentsReducer from "./slices/commentsSlice";
+import storiesReducer from "./slices/storiesSlice";
 
 const postsPersistConfig = {
   key: "posts",
@@ -35,6 +36,7 @@ export const store = configureStore({
     auth: authReducer,
     sidebar: sidebarReducer,
     comments: commentsReducer,
+    stories: storiesReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

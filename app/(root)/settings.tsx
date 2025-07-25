@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import DeleteModal from "@/components/DeleteModal";
+import CacheDebugger from "@/components/CacheDebugger";
 import { useTheme } from "@/src/context/ThemeContext";
 import useThemedStyles from "@/hooks/useThemedStyles";
 import ThemedGradient from "@/components/ThemedGradient";
@@ -21,6 +22,7 @@ import ThemedGradient from "@/components/ThemedGradient";
 export default function SettingsScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+  const [cacheDebuggerVisible, setCacheDebuggerVisible] = useState(false);
   const { colors, isDarkMode } = useTheme();
 
   // Create theme-aware styles
@@ -451,6 +453,32 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* Developer Tools Section (Development Only) */}
+          {__DEV__ && (
+            <View style={styles.section}>
+              <Text className="font-rubik-bold" style={[styles.sectionTitle, { color: colors.text }]}>
+                Developer Tools
+              </Text>
+              <TouchableOpacity
+                style={[styles.settingItem, {
+                  backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                  borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
+                }]}
+                onPress={() => setCacheDebuggerVisible(true)}
+              >
+                <Feather name="database" size={22} color={colors.text} />
+                <Text className="font-rubik-regular" style={[styles.settingText, { color: colors.text }]}>
+                  Cache Management
+                </Text>
+                <Feather
+                  name="chevron-right"
+                  size={22}
+                  color={colors.text}
+                />
+              </TouchableOpacity>
+            </View>
+          )}
+
           <View style={styles.section}>
             <Text className="font-rubik-bold" style={[styles.sectionTitle, { color: colors.text }]}>
               Account Actions
@@ -505,6 +533,12 @@ export default function SettingsScreen() {
         desc="account"
         cancel={handleCancelDelete}
         confirm={handleConfirmDelete}
+      />
+
+      {/* Cache Debugger Modal */}
+      <CacheDebugger
+        isVisible={cacheDebuggerVisible}
+        onClose={() => setCacheDebuggerVisible(false)}
       />
     </ThemedGradient>
   );

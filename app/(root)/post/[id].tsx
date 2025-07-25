@@ -122,7 +122,7 @@ const PostDetailScreen = () => {
           id,
           content,
           created_at,
-          user:profiles!fk_comments_user (
+          user:profiles!comments_user_id_fkey (
             username,
             avatar_url
           )
@@ -259,7 +259,7 @@ const PostDetailScreen = () => {
           id,
           content,
           created_at,
-          user:profiles!fk_comments_user (
+          user:profiles!comments_user_id_fkey (
             username,
             avatar_url
           )

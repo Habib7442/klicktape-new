@@ -26,11 +26,11 @@ import {
   resetUnreadCount,
   setUnreadCount,
 } from "@/src/store/slices/notificationSlice";
-import Stories from "@/components/Stories";
 import Posts from "@/components/Posts";
 import { openSidebar } from "@/src/store/slices/sidebarSlice";
 import ThemedGradient from "@/components/ThemedGradient";
 import { useTheme } from "@/src/context/ThemeContext";
+import Stories from "@/components/Stories";
 
 const Home = () => {
   const dispatch = useDispatch();

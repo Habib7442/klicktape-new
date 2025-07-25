@@ -16,6 +16,8 @@ export interface Post {
   is_liked?: boolean;
   is_bookmarked?: boolean;
   user: User;
+  hashtags?: string[];
+  genre?: string;
   // Add any other properties that might be needed
   likes?: Array<{ user_id: string }>;
   bookmarks?: Array<{ user_id: string }>;

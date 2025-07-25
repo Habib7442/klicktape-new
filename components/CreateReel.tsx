@@ -428,7 +428,7 @@ const CreateReel = () => {
         "Error",
         error instanceof Error
           ? error.message
-          : "Failed to create reel. Please try again."
+          : "Failed to create tape. Please try again."
       );
     } finally {
       setLoading(false);
@@ -445,7 +445,7 @@ const CreateReel = () => {
         }]}>
           <Text style={[styles.permissionTitle, { color: colors.primary }]}>Permissions Required</Text>
           <Text style={[styles.permissionText, { color: colors.text }]}>
-            To create reels, we need access to:
+            To create tapes, we need access to:
           </Text>
           <View style={[styles.permissionList, {
             backgroundColor: `${colors.primary}10`,
@@ -513,7 +513,7 @@ const CreateReel = () => {
           backgroundColor: colors.backgroundSecondary,
           borderColor: `${colors.primary}30`
         }]}>
-          <Text style={[styles.tipsTitle, { color: colors.primary }]}>Tips for Great Reels</Text>
+          <Text style={[styles.tipsTitle, { color: colors.primary }]}>Tips for Great Tapes</Text>
 
           <View style={[styles.tipItem, {
             backgroundColor: `${colors.primary}10`,
@@ -574,9 +574,9 @@ const CreateReel = () => {
           backgroundColor: colors.backgroundSecondary,
           borderColor: `${colors.primary}30`
         }]}>
-          <Text style={[styles.confirmationTitle, { color: colors.primary }]}>Share Reel?</Text>
+          <Text style={[styles.confirmationTitle, { color: colors.primary }]}>Share Tape?</Text>
           <Text style={[styles.confirmationText, { color: colors.text }]}>
-            Your reel will be visible to all users. Continue?
+            Your tape will be visible to all users. Continue?
           </Text>
 
           <View style={styles.confirmationButtons}>
@@ -630,7 +630,7 @@ const CreateReel = () => {
             <AntDesign name="close" size={24} color="#FFFFFF" />
           </TouchableOpacity>
 
-          <Text style={[styles.headerTitle, { color: '#FFFFFF' }]}>New Reel</Text>
+          <Text style={[styles.headerTitle, { color: '#FFFFFF' }]}>New Tape</Text>
 
           <TouchableOpacity
             onPress={() => {
@@ -879,7 +879,7 @@ const CreateReel = () => {
                 }}
               >
                 <Feather name="info" size={16} color={colors.primary} />
-                <Text style={[styles.tipsButtonText, { color: colors.primary }]}>Tips for great reels</Text>
+                <Text style={[styles.tipsButtonText, { color: colors.primary }]}>Tips for great tapes</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -890,7 +890,7 @@ const CreateReel = () => {
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={[styles.loadingText, { color: colors.primary }]}>
               {uploadProgress > 0
-                ? "Creating your reel..."
+                ? "Creating your tape..."
                 : cameraMode
                   ? "Processing video..."
                   : "Loading..."}

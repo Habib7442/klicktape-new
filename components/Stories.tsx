@@ -1,3 +1,9 @@
+/**
+ * Enhanced Stories Component with UI Fixes and Direct Supabase Integration
+ * Fixes all identified issues: avatar display, sizing, + icon, layout, and data fetching
+ * Uses direct Supabase calls with Redis caching for optimal performance
+ */
+
 import React, { useEffect, useState, useRef } from "react";
 import {
   View,
@@ -9,18 +15,39 @@ import {
   ActivityIndicator,
   Platform,
   Animated,
+  Alert,
+  Dimensions,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system";
 import Modal from "react-native-modal";
 import StoryViewer from "./StoryViewer";
 import AntDesign from "@expo/vector-icons/AntDesign";
-import { generateUsername, supabase } from "../lib/supabase";
-import { cacheManager } from "../lib/utils/cacheManager";
+import { Ionicons } from "@expo/vector-icons";
+import { supabase } from "../lib/supabase";
 import { storiesAPI } from "@/lib/storiesApi";
-import { LinearGradient } from "expo-linear-gradient";
+import { cacheManager } from "../lib/utils/cacheManager";
 import DeleteModal from "./DeleteModal";
+import StorySelectionModal from "./StorySelectionModal";
 import { useTheme } from "@/src/context/ThemeContext";
+import { useDispatch, useSelector } from 'react-redux';
+import { RootState } from '@/src/store/store';
+import {
+  setStories,
+  setLoading,
+  setError,
+  showStorySelectionModal,
+  hideStorySelectionModal,
+  showDeleteModal,
+  hideDeleteModal,
+  showStoryViewer,
+  hideStoryViewer,
+  showPreviewModal,
+  hidePreviewModal,
+  showLoadingModal,
+  hideLoadingModal,
+  clearCroppedImage,
+  removeStory,
+} from '@/src/store/slices/storiesSlice';
 import ThemedGradient from "@/components/ThemedGradient";
 
 interface Story {
@@ -37,15 +64,24 @@ interface Story {
   };
 }
 
+interface GroupedStory {
+  user_id: string;
+  user: {
+    username: string;
+    avatar: string;
+  };
+  stories: Story[];
+  hasUnviewed: boolean;
+  latestStory: Story;
+}
+
 interface StoryProps {
-  image: string;
-  username: string;
+  groupedStory: GroupedStory;
   isYourStory?: boolean;
 }
 
 const StoryItem = ({
-  image,
-  username,
+  groupedStory,
   isYourStory,
   onPress,
   onDelete,
@@ -54,14 +90,35 @@ const StoryItem = ({
   onDelete?: () => void;
 }) => {
   const { colors } = useTheme();
+  const { latestStory, hasUnviewed, stories } = groupedStory;
 
   return (
     <TouchableOpacity style={styles.storyContainer} onPress={onPress}>
       <View style={[
         styles.storyImageContainer,
-        { borderColor: 'rgba(128, 128, 128, 0.7)' }
+        {
+          borderColor: hasUnviewed ? colors.primary : 'rgba(128, 128, 128, 0.7)',
+          borderWidth: hasUnviewed ? 3 : 2,
+        }
       ]}>
-        <Image source={{ uri: image }} style={styles.storyImage} />
+        <Image
+          source={{ uri: latestStory.image_url }}
+          style={styles.storyImage}
+          resizeMode="cover"
+        />
+
+        {/* Story count indicator for multiple stories */}
+        {stories.length > 1 && (
+          <View style={[
+            styles.storyCountIndicator,
+            { backgroundColor: `${colors.backgroundSecondary}E0` }
+          ]}>
+            <Text style={[styles.storyCountText, { color: colors.text }]}>
+              {stories.length}
+            </Text>
+          </View>
+        )}
+
         {isYourStory && (
           <TouchableOpacity
             style={[
@@ -73,348 +130,350 @@ const StoryItem = ({
             ]}
             onPress={onDelete}
           >
-            <AntDesign name="delete" size={14} color={colors.error} />
+            <AntDesign name="delete" size={16} color={colors.error} />
           </TouchableOpacity>
         )}
       </View>
       <Text
         className="font-rubik-medium"
         style={[styles.usernameText, { color: colors.text }]}
+        numberOfLines={1}
       >
-        {isYourStory ? "Your Story" : username}
+        {isYourStory ? "Your Story" : groupedStory.user.username}
       </Text>
     </TouchableOpacity>
   );
 };
 
-const Stories = () => {
-  const { colors } = useTheme();
-  const [stories, setStories] = useState<Story[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedStoryIndex, setSelectedStoryIndex] = useState<number>(-1);
-  const [isViewerVisible, setIsViewerVisible] = useState(false);
-  const [isLoadingModalVisible, setIsLoadingModalVisible] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState("");
-  const [isWarningModalVisible, setIsWarningModalVisible] = useState(false);
-  const [storyToDelete, setStoryToDelete] = useState<string | null>(null);
-  const [lastFetchTime, setLastFetchTime] = useState(0);
-  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
-  const [userId, setUserId] = useState<string | null>(null);
-  const [deleteProgress] = useState(new Animated.Value(0));
-  const [croppedImage, setCroppedImage] = useState<string | null>(null);
-  const [isPreviewModalVisible, setIsPreviewModalVisible] = useState(false);
-  const [viewerStories, setViewerStories] = useState<Story[]>([]);
-  const [viewerStartIndex, setViewerStartIndex] = useState(0);
-  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+const CreateStoryItem = ({
+  userAvatar,
+  onPress
+}: {
+  userAvatar?: string;
+  onPress: () => void;
+}) => {
+  const { colors, isDarkMode } = useTheme();
 
-  // Initialize user session
-  useEffect(() => {
-    const initializeUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        setUserId(user.id);
-        await syncUserWithSupabase(user.id);
-      }
-    };
-    initializeUser();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if (event === "SIGNED_IN" && session?.user) {
-          setUserId(session.user.id);
-          syncUserWithSupabase(session.user.id);
-        } else if (event === "SIGNED_OUT") {
-          setUserId(null);
+  return (
+    <TouchableOpacity style={styles.storyContainer} onPress={onPress}>
+      <View style={[
+        styles.createStoryImageContainer,
+        {
+          borderColor: 'rgba(128, 128, 128, 0.7)',
+          backgroundColor: 'rgba(128, 128, 128, 0.1)'
         }
-      }
+      ]}>
+        {userAvatar ? (
+          <>
+            <Image
+              source={{ uri: userAvatar }}
+              style={styles.createStoryImage}
+              resizeMode="cover"
+            />
+            <View style={[
+              styles.addStoryIcon,
+              {
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.8)' : 'rgba(128, 128, 128, 0.9)',
+                borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.8)' : 'rgba(255, 255, 255, 1)'
+              }
+            ]}>
+              <Ionicons name="add" size={18} color={colors.text} />
+            </View>
+          </>
+        ) : (
+          <View style={[
+            styles.createStoryButton,
+            { backgroundColor: 'rgba(128, 128, 128, 0.2)' }
+          ]}>
+            <Ionicons name="add" size={28} color={colors.text} />
+          </View>
+        )}
+      </View>
+      <Text
+        className="font-rubik-medium"
+        style={[styles.usernameText, { color: colors.text }]}
+        numberOfLines={1}
+      >
+        Create Story
+      </Text>
+    </TouchableOpacity>
+  );
+};
+
+// Helper function to group stories by user
+const groupStoriesByUser = (stories: Story[], currentUserId: string | null): { userGroupedStories: GroupedStory[], otherGroupedStories: GroupedStory[] } => {
+  const grouped = stories.reduce((acc, story) => {
+    const userId = story.user_id;
+    if (!acc[userId]) {
+      acc[userId] = [];
+    }
+    acc[userId].push(story);
+    return acc;
+  }, {} as Record<string, Story[]>);
+
+  const userGroupedStories: GroupedStory[] = [];
+  const otherGroupedStories: GroupedStory[] = [];
+
+  Object.entries(grouped).forEach(([userId, userStories]) => {
+    // Sort stories by creation date (newest first)
+    const sortedStories = userStories.sort((a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
 
-    return () => {
-      authListener.subscription.unsubscribe();
+    const groupedStory: GroupedStory = {
+      user_id: userId,
+      user: sortedStories[0].user,
+      stories: sortedStories,
+      latestStory: sortedStories[0],
+      hasUnviewed: sortedStories.some(story =>
+        currentUserId ? !story.viewed_by.includes(currentUserId) : true
+      ),
     };
-  }, []);
 
-  // Sync user with Supabase users table
-  const syncUserWithSupabase = async (userId: string) => {
-    try {
-      const { data: existingUser } = await supabase
-        .from("profiles")
-        .select("id, avatar_url")
-        .eq("id", userId)
-        .single();
+    if (userId === currentUserId) {
+      userGroupedStories.push(groupedStory);
+    } else {
+      otherGroupedStories.push(groupedStory);
+    }
+  });
 
-      if (!existingUser) {
-        const username = generateUsername();
-        const { error } = await supabase.from("profiles").insert({  // Changed from 'users' to 'profiles'
-          id: userId,
-          username,
-          avatar_url: "", // Changed from 'avatar' to 'avatar_url' to match your schema
-        });
-        if (error) {
-          throw new Error(`Failed to sync user: ${error.message}`);
-        }
-      } else {
-        // Update avatar if it exists in profiles but not in users
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("avatar_url")
-          .eq("id", userId)
-          .single();
-        if (profile?.avatar_url && !existingUser.avatar_url) {
-          const { error } = await supabase
+  return { userGroupedStories, otherGroupedStories };
+};
+
+const Stories = () => {
+  const { isDarkMode } = useTheme();
+  // Get screen dimensions for responsive design
+  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+  const isSmallDevice = screenHeight < 700; // Detect small devices
+
+  // Redux state
+  const dispatch = useDispatch();
+  const {
+    stories,
+    loading,
+    storySelectionModalVisible,
+    groupedStoryToDelete,
+    isDeleteModalVisible,
+    storyToDelete,
+    isViewerVisible,
+    viewerStories,
+    viewerStartIndex,
+    isPreviewModalVisible,
+    isLoadingModalVisible,
+    croppedImage,
+  } = useSelector((state: RootState) => state.stories);
+
+  // Local state for user data
+  const [userId, setUserId] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<any>(null);
+
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const { colors } = useTheme();
+
+
+
+  // Get current user and profile
+  useEffect(() => {
+    const initializeUser = async () => {
+      if(!supabase) return;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setUserId(user.id);
+          
+          // Get user profile for avatar
+          const { data: profile } = await supabase
             .from("profiles")
-            .update({ avatar: profile.avatar_url })
-            .eq("id", userId);
-          if (error) {
-            console.error("Error updating avatar in users:", error);
+            .select("avatar_url, username")
+            .eq("id", user.id)
+            .single();
+          
+          if (profile) {
+            setUserProfile(profile);
           }
         }
-      }
-    } catch (error) {
-      console.error("Error syncing user with Supabase:", error);
-    }
-  };
-
-  // Fetch stories with cache
-  useEffect(() => {
-    const loadStoriesWithCache = async () => {
-      const now = Date.now();
-      if (now - lastFetchTime > CACHE_DURATION) {
-        await fetchStories();
-        setLastFetchTime(now);
+      } catch (error) {
+        console.error("Error getting user:", error);
       }
     };
 
-    loadStoriesWithCache();
+    initializeUser();
+  }, []);
 
-    const interval = setInterval(() => {
-      loadStoriesWithCache();
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [lastFetchTime]);
-
-  const handleCreateStory = async () => {
+  // Fetch stories with enhanced caching
+  const fetchStories = async () => {
     try {
-      if (!userId) {
-        alert("Please sign in to create a story");
+      dispatch(setLoading(true));
+
+      // Check cache first
+      const cachedStories = cacheManager.get("stories");
+      if (cachedStories) {
+        console.log("📦 Loading stories from cache");
+        console.log("Cache status:", cacheManager.getStatus("stories"));
+        dispatch(setStories(cachedStories));
+        dispatch(setLoading(false));
         return;
       }
 
-      const permissionResult =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permissionResult.granted) {
-        alert("Permission to access camera roll is required!");
+      console.log("🌐 Fetching stories from API");
+      const fetchedStories = await storiesAPI.getActiveStories();
+      console.log("✅ Fetched stories from API:", fetchedStories?.length || 0, "stories");
+
+      if (fetchedStories && fetchedStories.length > 0) {
+        dispatch(setStories(fetchedStories));
+        cacheManager.set("stories", fetchedStories);
+        console.log("💾 Stories cached successfully");
+        console.log("Cache status after set:", cacheManager.getStatus("stories"));
+      } else {
+        dispatch(setStories([]));
+      }
+    } catch (error) {
+      console.error("❌ Error fetching stories:", error);
+      dispatch(setError(error instanceof Error ? error.message : 'Failed to fetch stories'));
+
+      // Try to load from cache as fallback
+      const cachedStories = cacheManager.get("stories");
+      if (cachedStories) {
+        console.log("🔄 Loading stories from cache as fallback");
+        dispatch(setStories(cachedStories));
+      } else {
+        console.log("📭 No cached stories available");
+        dispatch(setStories([]));
+      }
+    } finally {
+      dispatch(setLoading(false));
+    }
+  };
+
+  useEffect(() => {
+    fetchStories();
+  }, []);
+
+  // Group stories by user
+  const { userGroupedStories, otherGroupedStories } = groupStoriesByUser(stories, userId);
+
+  const handleCreateStory = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permissionResult.granted === false) {
+        Alert.alert("Permission Required", "Please allow access to your photo library to create a story.");
         return;
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
-        quality: 0.8,
-        // Removed the aspect ratio constraint to allow free-form cropping
+        // Remove fixed aspect ratio to allow free cropping
+        quality: 1.0, // Maximum quality to prevent blur
+        allowsMultipleSelection: false,
+        exif: false, // Reduce file size without affecting visual quality
+        base64: false, // Don't include base64 to save memory
       });
 
-      if (!result.canceled && result.assets[0].uri) {
-        const resolveUri = async (uri: string) => {
-          const newUri = `${FileSystem.cacheDirectory}${Date.now()}.jpg`;
-          await FileSystem.copyAsync({ from: uri, to: newUri });
-          return newUri;
-        };
-
-        let normalizedUri = result.assets[0].uri;
-        if (Platform.OS === "android" && !normalizedUri.startsWith("file://")) {
-          normalizedUri = `file://${normalizedUri}`;
-        }
-
-        const croppedUri = await resolveUri(normalizedUri);
-        setCroppedImage(croppedUri);
-        setIsPreviewModalVisible(true);
+      if (!result.canceled && result.assets[0]) {
+        const imageUri = result.assets[0].uri;
+        dispatch(showPreviewModal(imageUri));
       }
-    } catch (error: any) {
-      console.error("Error selecting image:", error);
-      setLoadingMessage(
-        error.message.includes("No content provided")
-          ? "Error: Failed to select image. Try a different image."
-          : "Error: " + (error.message || "Failed to select image")
-      );
-      setTimeout(() => {
-        setIsLoadingModalVisible(false);
-      }, 2000);
+    } catch (error) {
+      console.error("Error picking image:", error);
+      Alert.alert("Error", "Failed to pick image. Please try again.");
     }
   };
 
   const handlePostStory = async () => {
     if (!croppedImage || !userId) return;
 
+    dispatch(showLoadingModal());
+    dispatch(hidePreviewModal());
+
     try {
-      // Check if user exists in profiles
-      const { data: userProfile, error: profileError } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("id", userId)
-        .single();
-
-      if (profileError || !userProfile) {
-        throw new Error("User profile not found. Please complete your profile first.");
-      }
-
-      setIsPreviewModalVisible(false);
-      setLoadingMessage("Creating your story...");
-      setIsLoadingModalVisible(true);
-      setLoading(true);
-
-      const file = {
+      // First upload the image
+      const fileName = `story_${Date.now()}.jpg`;
+      const uploadResult = await storiesAPI.uploadImage({
         uri: croppedImage,
-        type: "image/jpeg",
-        name: `story_${Date.now()}.jpg`,
-      };
+        name: fileName,
+        type: 'image/jpeg',
+      });
 
-      setLoadingMessage("Uploading image...");
-      const { publicUrl } = await storiesAPI.uploadImage(file);
-
-      setLoadingMessage("Processing...");
-      const userStories = await storiesAPI.getUserStories(userId);
-      if (userStories && userStories.length > 0) {
-        for (const story of userStories) {
-          await storiesAPI.deleteStory(story.id);
-        }
-      }
-
-      setLoadingMessage("Finalizing your story...");
-      await storiesAPI.createStory(publicUrl, userId);
+      // Then create the story with the uploaded image URL
+      await storiesAPI.createStory(uploadResult.publicUrl, userId);
+      
+      console.log('✅ Story created successfully');
+      dispatch(hideLoadingModal());
+      dispatch(clearCroppedImage());
+      
+      // Refresh stories to show the new story
       await fetchStories();
-
-      setLoadingMessage("Story created successfully!");
-      setTimeout(() => {
-        setIsLoadingModalVisible(false);
-      }, 1000);
-    } catch (error: any) {
-      console.error("Error creating story:", error);
-      setLoadingMessage(
-        error.message.includes("No content provided")
-          ? "Error: Failed to upload image. Try a different image or check your network."
-          : error.message.includes("Network request failed")
-          ? "Error: Network issue. Check your connection and try again."
-          : error.message.includes("not authenticated")
-          ? "Error: Please sign in to upload a story."
-          : "Error: " + (error.message || "Failed to create story")
-      );
-      setTimeout(() => {
-        setIsLoadingModalVisible(false);
-      }, 2000);
-    } finally {
-      setLoading(false);
-      setCroppedImage(null);
-    }
-  };
-
-  const fetchStories = async () => {
-    try {
-      setLoading(true);
-      const fetchedStories = await storiesAPI.getActiveStories();
-      console.log("Fetched stories:", fetchedStories);
-      if (fetchedStories && fetchedStories.length > 0) {
-        setStories(fetchedStories);
-        await cacheManager.set("stories", {
-          data: fetchedStories,
-          timestamp: Date.now(),
-        });
-      } else {
-        setStories([]);
-      }
     } catch (error) {
-      console.error("Error fetching stories:", error);
-      const cachedStories = await cacheManager.get("stories");
-      if (cachedStories) {
-        setStories(cachedStories.data);
-      } else {
-        setStories([]);
-      }
-    } finally {
-      setLoading(false);
+      console.error("Error posting story:", error);
+      dispatch(hideLoadingModal());
+      Alert.alert("Error", "Failed to create story. Please try again.");
     }
   };
 
-  const startDeleteProgress = () => {
-    deleteProgress.setValue(0);
-    Animated.timing(deleteProgress, {
-      toValue: 1,
-      duration: 2000,
-      useNativeDriver: false,
-    }).start();
+  const handleGroupedStoryPress = (groupedStory: GroupedStory) => {
+    // Set the stories for the viewer to only include this user's stories
+    dispatch(showStoryViewer({ stories: groupedStory.stories, startIndex: 0 }));
   };
 
-  const handleDeleteStory = (storyId: string) => {
-    setStoryToDelete(storyId);
-    setIsWarningModalVisible(true);  // Only show modal when delete is clicked
+  const handleDeleteGroupedStory = (groupedStory: GroupedStory) => {
+    // If user has multiple stories, show selection modal
+    if (groupedStory.stories.length > 1) {
+      dispatch(showStorySelectionModal(groupedStory));
+    } else {
+      // If only one story, delete directly
+      dispatch(showDeleteModal(groupedStory.latestStory.id));
+    }
   };
 
   const confirmDeleteStory = async () => {
     if (!storyToDelete) return;
 
     try {
-      setIsWarningModalVisible(false);
-      setLoadingMessage("Deleting your story...");
-      setIsLoadingModalVisible(true);
-      setLoading(true);
-      startDeleteProgress();
-
       await storiesAPI.deleteStory(storyToDelete);
-      setStories((prev) => prev.filter((story) => story.id !== storyToDelete));
-      await fetchStories();
+      console.log('✅ Story deleted successfully');
+      dispatch(hideDeleteModal());
 
-      setLoadingMessage("Story deleted successfully!");
-    } catch (error: any) {
-      console.error("Error deleting story:", error);
-      setLoadingMessage(
-        error.message.includes("don't have permission")
-          ? "Error: You can only delete your own stories"
-          : error.message.includes("not authenticated")
-          ? "Error: Please sign in to delete stories"
-          : "Error: " + (error.message || "Failed to delete story")
-      );
+      // Clear cache to ensure fresh data
+      cacheManager.remove("stories");
+
+      // Refresh stories to update the list
       await fetchStories();
-    } finally {
-      setTimeout(() => {
-        setIsLoadingModalVisible(false);
-        setLoading(false);
-        setStoryToDelete(null);
-      }, 2000);
+    } catch (error) {
+      console.error("Error deleting story:", error);
+      Alert.alert("Error", "Failed to delete story. Please try again.");
     }
   };
 
-  const cancelDeleteStory = () => {
-    setIsWarningModalVisible(false);
-    setStoryToDelete(null);
+  const handleDeleteIndividualStory = async (storyId: string) => {
+    try {
+      await storiesAPI.deleteStory(storyId);
+      console.log('✅ Individual story deleted successfully');
+
+      // Remove story from Redux state immediately
+      dispatch(removeStory(storyId));
+
+      // Clear cache to ensure fresh data
+      cacheManager.remove("stories");
+      console.log('🗑️ Cache cleared after story deletion');
+
+      // Refresh stories to update the list
+      await fetchStories();
+    } catch (error) {
+      console.error("Error deleting individual story:", error);
+      Alert.alert("Error", "Failed to delete story. Please try again.");
+    }
   };
 
-  const handleStoryPress = (index: number) => {
-    const clickedStory = stories[index];
 
-    // Filter stories to show only the clicked user's stories
-    const userStories = stories.filter(
-      (story) => story.user_id === clickedStory.user_id
+
+  if (loading && stories.length === 0) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="small" color={colors.primary} />
+      </View>
     );
-
-    // Find the index of the clicked story within the user's stories
-    const userStoryIndex = userStories.findIndex(
-      (story) => story.id === clickedStory.id
-    );
-
-    setViewerStories(userStories);
-    setViewerStartIndex(userStoryIndex);
-
-    // Start animation
-    scaleAnim.setValue(0.8);
-    setIsViewerVisible(true);
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      useNativeDriver: true,
-      bounciness: 10,
-    }).start();
-  };
+  }
 
   return (
     <View style={styles.container}>
@@ -423,47 +482,30 @@ const Stories = () => {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollViewContent}
       >
-        <TouchableOpacity
-          style={styles.storyContainer}
+        {/* Create Story Button */}
+        <CreateStoryItem 
+          userAvatar={userProfile?.avatar_url}
           onPress={handleCreateStory}
-        >
-          <View
-            style={[
-              styles.storyImageContainer,
-              {
-                borderColor: 'rgba(128, 128, 128, 0.7)',
-                backgroundColor: 'rgba(128, 128, 128, 0.1)'
-              }
-            ]}
-          >
-            <View style={[
-              styles.createStoryButton,
-              { backgroundColor: 'rgba(128, 128, 128, 0.2)' }
-            ]}>
-              <Text
-                className="font-rubik-medium"
-                style={[styles.createStoryText, { color: colors.text }]}
-              >
-                +
-              </Text>
-            </View>
-          </View>
-          <Text
-            className="font-rubik-medium"
-            style={[styles.usernameText, { color: colors.text }]}
-          >
-            Create Story
-          </Text>
-        </TouchableOpacity>
+        />
 
-        {stories.map((story, index) => (
+        {/* User's Own Stories (if any) */}
+        {userGroupedStories.map((groupedStory) => (
           <StoryItem
-            key={story.id}
-            image={story.image_url}
-            username={story.user.username}
-            isYourStory={story.user_id === userId}
-            onPress={() => handleStoryPress(index)}
-            onDelete={() => handleDeleteStory(story.id)}
+            key={groupedStory.user_id}
+            groupedStory={groupedStory}
+            isYourStory={true}
+            onPress={() => handleGroupedStoryPress(groupedStory)}
+            onDelete={() => handleDeleteGroupedStory(groupedStory)}
+          />
+        ))}
+
+        {/* Other Users' Stories */}
+        {otherGroupedStories.map((groupedStory) => (
+          <StoryItem
+            key={groupedStory.user_id}
+            groupedStory={groupedStory}
+            isYourStory={false}
+            onPress={() => handleGroupedStoryPress(groupedStory)}
           />
         ))}
       </ScrollView>
@@ -478,42 +520,65 @@ const Stories = () => {
       >
         <ThemedGradient style={styles.previewContainer}>
           <View style={[styles.previewHeader, { borderBottomColor: `${colors.primary}20` }]}>
-            <TouchableOpacity onPress={() => setIsPreviewModalVisible(false)}>
-              <AntDesign name="close" size={24} color={colors.primary} />
+            <TouchableOpacity
+              onPress={() => dispatch(hidePreviewModal())}
+              style={[styles.headerIconButton, {
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)'
+              }]}
+            >
+              <AntDesign name="close" size={20} color={colors.text} />
             </TouchableOpacity>
             <Text
               className="font-rubik-bold"
-              style={[styles.previewTitle, { color: colors.primary }]}
+              style={[styles.previewTitle, { color: colors.text }]}
             >
               Preview Story
             </Text>
-            <View style={{ width: 24 }} />
+            <View style={{ width: 44 }} />
           </View>
 
-          <View style={styles.imagePreviewContainer}>
-            {croppedImage && (
+          <View style={[
+            styles.imagePreviewContainer,
+            { minHeight: isSmallDevice ? 300 : 400 }
+          ]}>
+            {croppedImage ? (
               <Image
-                source={{ uri: croppedImage }}
-                style={[styles.imagePreview, { borderColor: 'rgba(128, 128, 128, 0.3)' }]}
-                resizeMode="contain"
-              />
+                  source={{
+                    uri: croppedImage,
+                    cache: 'force-cache' // Ensure high quality caching
+                  }}
+                  style={[
+                    styles.imagePreview,
+                    {
+                      borderColor: colors.primary + '30',
+                      width: screenWidth - 64, // Responsive width
+                    }
+                  ]}
+                  resizeMode="cover"
+                  fadeDuration={0}
+                  onError={(error) => {
+                    console.error('Image loading error:', error);
+                  }}
+                />
+            ) : (
+              <Text style={{ color: 'white' }}>No image selected</Text>
             )}
           </View>
 
           <TouchableOpacity
-            style={[styles.postButton, { backgroundColor: 'rgba(128, 128, 128, 0.1)' }]}
+            style={[styles.postButton, {
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
+            }]}
             onPress={handlePostStory}
           >
-            <View
-              style={[styles.postButtonGradient, { backgroundColor: 'rgba(128, 128, 128, 0.8)' }]}
+            <Text
+              className="font-rubik-bold"
+              style={[styles.postButtonText, { color: colors.text }]}
             >
-              <Text
-                className="font-rubik-bold"
-                style={[styles.postButtonText, { color: colors.text }]}
-              >
-                Post Story
-              </Text>
-            </View>
+              Post Story
+            </Text>
           </TouchableOpacity>
         </ThemedGradient>
       </Modal>
@@ -525,23 +590,14 @@ const Stories = () => {
         animationIn="fadeIn"
         animationOut="fadeOut"
         backdropOpacity={1}
-        onBackButtonPress={() => {
-          setIsViewerVisible(false);
-          fetchStories();
-        }}
-        onBackdropPress={() => {
-          setIsViewerVisible(false);
-          fetchStories();
-        }}
+        onBackButtonPress={() => dispatch(hideStoryViewer())}
+        onBackdropPress={() => dispatch(hideStoryViewer())}
       >
         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
           <StoryViewer
             stories={viewerStories}
             currentIndex={viewerStartIndex}
-            onClose={() => {
-              setIsViewerVisible(false);
-              fetchStories();
-            }}
+            onClose={() => dispatch(hideStoryViewer())}
           />
         </Animated.View>
       </Modal>
@@ -562,44 +618,33 @@ const Stories = () => {
           }
         ]}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Animated.View
-            style={[
-              styles.progressBar,
-              {
-                backgroundColor: `${colors.primary}30`,
-                width: deleteProgress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ["0%", "100%"],
-                }),
-              },
-            ]}
-          />
           <Text
             className="font-rubik-medium"
             style={[styles.loadingText, { color: colors.text }]}
           >
-            {loadingMessage}
+            Creating your story...
           </Text>
         </View>
       </Modal>
 
-      {/* Delete Warning Modal */}
-
+      {/* Delete Confirmation Modal */}
       <DeleteModal
-        isVisible={isWarningModalVisible}
+        isVisible={isDeleteModalVisible}
+        cancel={() => dispatch(hideDeleteModal())}
+        confirm={confirmDeleteStory}
         title="Delete Story"
-        desc="story"
-        cancel={() => {
-          setIsWarningModalVisible(false);
-          setStoryToDelete(null);
-        }}
-        confirm={async () => {
-          if (storyToDelete) {
-            await confirmDeleteStory();
-            setIsWarningModalVisible(false);
-          }
-        }}
+        desc="Are you sure you want to delete this story? This action cannot be undone."
       />
+
+      {/* Story Selection Modal for Multiple Stories */}
+      <StorySelectionModal
+        isVisible={storySelectionModalVisible}
+        groupedStory={groupedStoryToDelete}
+        onClose={() => dispatch(hideStorySelectionModal())}
+        onDeleteStory={handleDeleteIndividualStory}
+      />
+
+
     </View>
   );
 };
@@ -607,6 +652,11 @@ const Stories = () => {
 const styles = StyleSheet.create({
   container: {
     marginVertical: 10,
+  },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: 120,
   },
   scrollViewContent: {
     paddingHorizontal: 16,
@@ -616,33 +666,73 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   storyImageContainer: {
-    width: 90,
-    height: 90,
-    borderRadius: 12,
+    width: 90, // Fixed size for consistency
+    height: 90, // Fixed size for consistency
+    borderRadius: 14, // Consistent border radius
     borderWidth: 2,
     justifyContent: "center",
     alignItems: "center",
-    padding: 2,
+    padding: 3,
+  },
+  createStoryImageContainer: {
+    width: 90, // Same size as story items
+    height: 90, // Same size as story items
+    borderRadius: 14, // Same border radius
+    borderWidth: 2,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 3,
   },
   storyImage: {
     width: "100%",
     height: "100%",
+    borderRadius: 11, // Consistent with container size
+  },
+  createStoryImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 11, // Same as story image
+  },
+  storyCountIndicator: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    minWidth: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storyCountText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  addStoryIcon: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    width: 24, // Slightly smaller
+    height: 24, // Slightly smaller
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
   },
   usernameText: {
     fontSize: 14,
-    marginTop: 5,
+    marginTop: 8,
+    textAlign: 'center',
+    maxWidth: 90, // Match consistent container width
   },
   createStoryButton: {
     width: "100%",
     height: "100%",
     justifyContent: "center",
     alignItems: "center",
-    borderRadius: 10,
-  },
-  createStoryText: {
-    fontSize: 24,
-    fontWeight: "bold",
+    borderRadius: 11, // Adjusted for smaller container
   },
   modal: {
     margin: 0,
@@ -656,38 +746,58 @@ const styles = StyleSheet.create({
   previewContainer: {
     flex: 1,
     paddingTop: Platform.OS === "ios" ? 50 : 20,
+    maxHeight: '100%', // Ensure it doesn't exceed screen height
   },
   previewHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === "ios" ? 10 : 20,
+    paddingBottom: 12,
     borderBottomWidth: 1,
+  },
+  headerIconButton: {
+    padding: 12,
+    borderRadius: 50,
+    borderWidth: 1.5,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   previewTitle: {
     fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   imagePreviewContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+    minHeight: 400, // Ensure minimum height for small devices
   },
   imagePreview: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 10,
+    width: '100%',
+    height: 400,
+    borderRadius: 12,
     borderWidth: 1,
+    backgroundColor: 'transparent',
+    overflow: 'hidden',
   },
   postButton: {
-    margin: 20,
-    borderRadius: 25,
-    overflow: "hidden",
-  },
-  postButtonGradient: {
-    paddingVertical: 15,
+    marginHorizontal: 20,
+    marginVertical: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+    maxWidth: 300, // Limit width for better appearance on larger screens
+    alignSelf: 'center',
   },
   postButtonText: {
     fontSize: 16,
@@ -696,9 +806,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: -5,
     right: -5,
-    width: 24,
-    height: 24,
-    borderRadius: 6,
+    width: 28, // Increased size
+    height: 28, // Increased size
+    borderRadius: 8,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 2,
@@ -720,65 +830,12 @@ const styles = StyleSheet.create({
     elevation: 5,
     borderWidth: 1,
   },
-  progressBar: {
-    height: 4,
-    borderRadius: 2,
-    width: "100%",
-    marginVertical: 10,
-    overflow: "hidden",
-  },
   loadingText: {
     marginTop: 10,
     fontSize: 16,
     textAlign: "center",
   },
-  warningModal: {
-    margin: 0,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  warningModalContent: {
-    padding: 20,
-    borderRadius: 16,
-    alignItems: "center",
-    minWidth: 300,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-    borderWidth: 1,
-  },
-  warningTitle: {
-    fontSize: 20,
-    marginBottom: 10,
-  },
-  warningText: {
-    fontSize: 16,
-    textAlign: "center",
-    marginBottom: 20,
-  },
-  warningButtonContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    width: "100%",
-  },
-  warningButton: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    marginHorizontal: 5,
-  },
-  cancelButton: {
-    borderWidth: 1,
-  },
-  deleteButtonModal: {
-    borderWidth: 1,
-  },
-  warningButtonText: {
-    fontSize: 16,
-  },
+
 });
 
 export default Stories;

@@ -136,7 +136,7 @@ const Reels = () => {
       <ThemedGradient style={styles.container}>
         <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
         <SafeAreaView style={styles.emptyContainer}>
-          <Text style={[styles.emptyText, { color: colors.text }]}>No reels available</Text>
+          <Text style={[styles.emptyText, { color: colors.text }]}>No tapes available</Text>
           <TouchableOpacity
             style={[styles.retryButton, { backgroundColor: colors.primary }]}
             onPress={() =>
@@ -498,7 +498,7 @@ const ReelItem: React.FC<{
           >
             <Feather name="arrow-left" size={24} color="#FFFFFF" />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: "#FFFFFF" }]}>Reels</Text>
+          <Text style={[styles.headerTitle, { color: "#FFFFFF" }]}>Tapes</Text>
           <View style={styles.headerRightPlaceholder} />
         </SafeAreaView>
       </LinearGradient>
