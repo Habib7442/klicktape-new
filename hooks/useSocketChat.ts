@@ -9,6 +9,22 @@ interface Message {
   created_at: string;
   is_read: boolean;
   status: 'sent' | 'delivered' | 'read';
+  message_type?: 'text' | 'shared_post' | 'shared_reel';
+  reply_to_message_id?: string;
+  reply_to_message?: {
+    id: string;
+    content: string;
+    sender_id: string;
+    message_type?: string;
+  };
+}
+
+interface Reaction {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
 }
 
 interface UseSocketChatProps {
@@ -17,6 +33,8 @@ interface UseSocketChatProps {
   onNewMessage?: (message: Message) => void;
   onMessageStatusUpdate?: (data: { messageId: string; status: string; isRead: boolean }) => void;
   onTypingUpdate?: (data: { userId: string; isTyping: boolean }) => void;
+  onNewReaction?: (data: { messageId: string; reaction: Reaction }) => void;
+  onReactionRemoved?: (data: { messageId: string; reactionId: string; userId: string }) => void;
 }
 
 export const useSocketChat = ({
@@ -25,6 +43,8 @@ export const useSocketChat = ({
   onNewMessage,
   onMessageStatusUpdate,
   onTypingUpdate,
+  onNewReaction,
+  onReactionRemoved,
 }: UseSocketChatProps) => {
   const [isConnected, setIsConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
@@ -92,6 +112,29 @@ export const useSocketChat = ({
 
     return unsubscribe;
   }, [chatId, userId, onTypingUpdate]);
+
+  // Set up reaction listeners
+  useEffect(() => {
+    if (!onNewReaction) return;
+
+    const unsubscribe = socketService.onReaction((data) => {
+      console.log('😀 Reaction received:', data);
+      onNewReaction(data);
+    });
+
+    return unsubscribe;
+  }, [onNewReaction]);
+
+  useEffect(() => {
+    if (!onReactionRemoved) return;
+
+    const unsubscribe = socketService.onReactionRemoved((data) => {
+      console.log('😐 Reaction removed:', data);
+      onReactionRemoved(data);
+    });
+
+    return unsubscribe;
+  }, [onReactionRemoved]);
 
   // Set up connection status listener
   useEffect(() => {

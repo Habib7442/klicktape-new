@@ -14,6 +14,7 @@ import {
   Share,
   BackHandler,
   StatusBar,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useDispatch, useSelector } from "react-redux";
@@ -42,6 +43,8 @@ import { router } from "expo-router";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "@/src/context/ThemeContext";
 import ThemedGradient from "@/components/ThemedGradient";
+import ShareToChatModal from "@/components/ShareToChatModal";
+import InstagramStyleShareModal from "@/components/InstagramStyleShareModal";
 
 const { width, height } = Dimensions.get("window");
 const REELS_PER_PAGE = 5;
@@ -210,6 +213,8 @@ const ReelItem: React.FC<{
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [showFullCaption, setShowFullCaption] = useState(false);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [instagramShareModalVisible, setInstagramShareModalVisible] = useState(false);
   const playerRef = useRef<any>(null);
   const isMounted = useRef(true);
 
@@ -359,12 +364,17 @@ const ReelItem: React.FC<{
   const handleShare = async () => {
     if (!isMounted.current) return;
 
+    scaleValues.share.value = withSpring(1.2, {}, () => {
+      scaleValues.share.value = withSpring(1);
+    });
+
+    setInstagramShareModalVisible(true);
+  };
+
+  const handleExternalShare = async () => {
     try {
       await Share.share({
         message: `Check out this reel: ${reel.caption}\n${reel.video_url}`,
-      });
-      scaleValues.share.value = withSpring(1.2, {}, () => {
-        scaleValues.share.value = withSpring(1);
       });
     } catch (error) {
       console.error("Error sharing reel:", error);
@@ -586,18 +596,18 @@ const ReelItem: React.FC<{
               <Text style={[styles.actionCount, { color: "white" }]}>{reel.comments_count}</Text>
             </View>
 
-            <Animated.View style={[
-              styles.actionButton,
-              {
-                backgroundColor: `${colors.primary}05`,
-                borderColor: `${colors.primary}20`
-              },
-              animatedStyles.share
-            ]}>
-              <TouchableOpacity onPress={handleShare}>
-                <Feather name="share" size={28} color="white" />
-              </TouchableOpacity>
-            </Animated.View>
+            <TouchableOpacity onPress={handleShare}>
+              <Animated.View style={[
+                styles.actionButton,
+                {
+                  backgroundColor: `${colors.primary}05`,
+                  borderColor: `${colors.primary}20`
+                },
+                animatedStyles.share
+              ]}>
+                <Feather name="send" size={28} color="white" />
+              </Animated.View>
+            </TouchableOpacity>
 
             <Animated.View style={[
               styles.actionButton,
@@ -637,6 +647,42 @@ const ReelItem: React.FC<{
           </View>
         </View>
       </LinearGradient>
+
+      {/* Share to Chat Modal */}
+      <ShareToChatModal
+        isVisible={shareModalVisible}
+        onClose={() => setShareModalVisible(false)}
+        reel={{
+          id: reel.id,
+          caption: reel.caption,
+          video_url: reel.video_url,
+          thumbnail_url: reel.thumbnail_url,
+          user: {
+            username: reel.user.username,
+          },
+        }}
+        onShareSuccess={() => {
+          setShareModalVisible(false);
+        }}
+      />
+
+      {/* Instagram-style Share Modal */}
+      <InstagramStyleShareModal
+        isVisible={instagramShareModalVisible}
+        onClose={() => setInstagramShareModalVisible(false)}
+        reel={{
+          id: reel.id,
+          caption: reel.caption,
+          video_url: reel.video_url,
+          thumbnail_url: reel.thumbnail_url,
+          user: {
+            username: reel.user.username,
+          },
+        }}
+        onShareSuccess={() => {
+          setInstagramShareModalVisible(false);
+        }}
+      />
     </View>
   );
 };

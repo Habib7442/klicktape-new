@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useMemo, memo } from "react";
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import { supabase } from "@/lib/supabase";
 import { notificationsAPI } from "@/lib/notificationsApi";
 import { useTheme } from "@/src/context/ThemeContext";
 import ThemedGradient from "@/components/ThemedGradient";
+import { animationPerformanceUtils } from "@/lib/utils/animationPerformance";
 
 interface Notification {
   id: string;
@@ -33,6 +34,68 @@ interface Notification {
   is_read: boolean;
 }
 
+// Memoized notification item component for better performance
+const NotificationItem = memo(({ notification, colors, isDarkMode, onPress, onDelete }: {
+  notification: Notification;
+  colors: any;
+  isDarkMode: boolean;
+  onPress: (notification: Notification) => void;
+  onDelete: (id: string) => void;
+}) => {
+  const timeAgo = moment(notification.created_at).fromNow();
+
+  return (
+    <TouchableOpacity
+      style={[
+        styles.notificationItem,
+        {
+          borderBottomColor: colors.cardBorder,
+          backgroundColor: colors.card
+        },
+        !notification.is_read && {
+          backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.05)'
+        },
+      ]}
+      onPress={() => onPress(notification)}
+      activeOpacity={0.7}
+    >
+      <Image
+        source={{ uri: notification.sender.avatar_url }}
+        style={[styles.avatar, { borderColor: colors.cardBorder }]}
+        {...animationPerformanceUtils.getOptimizedImageProps()}
+      />
+      <View style={styles.notificationContent}>
+        <Text className="font-rubik-bold" style={[styles.username, { color: colors.text }]}>
+          {notification.sender.username}
+        </Text>
+        <Text className="font-rubik-medium" style={[styles.notificationText, { color: colors.textSecondary }]}>
+          {notification.type === "like" && "liked your post"}
+          {notification.type === "comment" && "commented on your post"}
+          {notification.type === "follow" && "started following you"}
+          {notification.type === "mention" && "mentioned you in a post"}
+        </Text>
+        <Text className="font-rubik-medium" style={[styles.timeAgo, { color: colors.textTertiary }]}>
+          {timeAgo}
+        </Text>
+      </View>
+      <TouchableOpacity
+        style={styles.deleteButton}
+        onPress={(e) => {
+          e.stopPropagation();
+          onDelete(notification.id);
+        }}
+      >
+        <Ionicons name="trash-outline" size={20} color={colors.error} />
+      </TouchableOpacity>
+      {!notification.is_read && (
+        <View style={styles.unreadDot}>
+          <Ionicons name="ellipse" size={10} color={isDarkMode ? '#808080' : '#606060'} />
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+});
+
 export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +103,8 @@ export default function NotificationsScreen() {
   const [userId, setUserId] = useState<string | null>(null);
   const router = useRouter();
   const { colors, isDarkMode } = useTheme();
+
+
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -51,6 +116,8 @@ export default function NotificationsScreen() {
 
     fetchUser();
   }, []);
+
+
 
   const fetchNotifications = async () => {
     if (!userId) return;
@@ -161,62 +228,26 @@ export default function NotificationsScreen() {
     }
   };
 
-  const renderNotification = ({
+  // Optimized render function using memoized component
+  const renderNotification = useCallback(({
     item: notification,
   }: {
     item: Notification;
-  }) => {
-    const timeAgo = moment(notification.created_at).fromNow();
+  }) => (
+    <NotificationItem
+      notification={notification}
+      colors={colors}
+      isDarkMode={isDarkMode}
+      onPress={handleNotificationPress}
+      onDelete={handleDelete}
+    />
+  ), [colors, isDarkMode, handleNotificationPress, handleDelete]);
 
-    return (
-      <TouchableOpacity
-        style={[
-          styles.notificationItem,
-          {
-            borderBottomColor: colors.cardBorder,
-            backgroundColor: colors.card
-          },
-          !notification.is_read && {
-            backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.05)'
-          },
-        ]}
-        onPress={() => handleNotificationPress(notification)}
-      >
-        <Image
-          source={{ uri: notification.sender.avatar_url }}
-          style={[styles.avatar, { borderColor: colors.cardBorder }]}
-        />
-        <View style={styles.notificationContent}>
-          <Text className="font-rubik-bold" style={[styles.username, { color: colors.text }]}>
-            {notification.sender.username}
-          </Text>
-          <Text className="font-rubik-medium" style={[styles.notificationText, { color: colors.textSecondary }]}>
-            {notification.type === "like" && "liked your post"}
-            {notification.type === "comment" && "commented on your post"}
-            {notification.type === "follow" && "started following you"}
-            {notification.type === "mention" && "mentioned you in a post"}
-          </Text>
-          <Text className="font-rubik-medium" style={[styles.timeAgo, { color: colors.textTertiary }]}>
-            {timeAgo}
-          </Text>
-        </View>
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={(e) => {
-            e.stopPropagation();
-            handleDelete(notification.id);
-          }}
-        >
-          <Ionicons name="trash-outline" size={20} color={colors.error} />
-        </TouchableOpacity>
-        {!notification.is_read && (
-          <View style={styles.unreadDot}>
-            <Ionicons name="ellipse" size={10} color={isDarkMode ? '#808080' : '#606060'} />
-          </View>
-        )}
-      </TouchableOpacity>
-    );
-  };
+  // Memoize FlatList props for better performance
+  const flatListProps = useMemo(() => ({
+    ...animationPerformanceUtils.getOptimizedFlatListProps(70),
+    extraData: `${isDarkMode}-${notifications.length}`,
+  }), [isDarkMode, notifications.length]);
 
   if (loading) {
     return (
@@ -270,6 +301,8 @@ export default function NotificationsScreen() {
             </Text>
           </View>
         }
+        // Performance optimizations using memoized props
+        {...flatListProps}
       />
       </ThemedGradient>
     </SafeAreaView>

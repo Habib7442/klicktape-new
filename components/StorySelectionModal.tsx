@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -53,6 +53,18 @@ const StorySelectionModal: React.FC<StorySelectionModalProps> = ({
 }) => {
   const { colors, isDarkMode } = useTheme();
   const [selectedStories, setSelectedStories] = useState<Set<string>>(new Set());
+
+  // Reset selections when modal opens
+  useEffect(() => {
+    if (isVisible) {
+      setSelectedStories(new Set());
+      console.log('📱 StorySelectionModal opened with:', {
+        isVisible,
+        storiesCount: groupedStory?.stories?.length || 0,
+        username: groupedStory?.user?.username || 'Unknown'
+      });
+    }
+  }, [isVisible, groupedStory]);
 
 
 
@@ -155,20 +167,38 @@ const StorySelectionModal: React.FC<StorySelectionModalProps> = ({
           </Text>
         </View>
 
+        {/* Instructions */}
+        <View style={styles.instructionsContainer}>
+          <Text
+            className="font-rubik-regular"
+            style={[styles.instructionsText, { color: colors.textSecondary }]}
+          >
+            Tap on individual stories to select them for deletion
+          </Text>
+          <Text
+            className="font-rubik-regular"
+            style={[styles.instructionsSubText, { color: colors.textSecondary }]}
+          >
+            💡 Tip: Long press the delete button to access this selection mode
+          </Text>
+        </View>
+
         {/* Stories List */}
         <ScrollView style={styles.storiesList} showsVerticalScrollIndicator={false}>
-          {groupedStory.stories.map((story) => (
+          {groupedStory.stories && groupedStory.stories.length > 0 ? (
+            groupedStory.stories.map((story) => (
             <TouchableOpacity
               key={story.id}
               style={[
                 styles.storyItem,
                 {
                   backgroundColor: selectedStories.has(story.id)
-                    ? `${colors.primary}20`
+                    ? `${colors.primary}15`
                     : `${colors.backgroundSecondary}40`,
                   borderColor: selectedStories.has(story.id)
                     ? colors.primary
-                    : 'transparent',
+                    : `${colors.textSecondary}30`,
+                  borderWidth: selectedStories.has(story.id) ? 3 : 1,
                 },
               ]}
               onPress={() => handleStoryToggle(story.id)}
@@ -191,13 +221,33 @@ const StorySelectionModal: React.FC<StorySelectionModalProps> = ({
                   </Text>
                 )}
               </View>
-              <View style={styles.checkbox}>
+              <View style={[
+                styles.checkbox,
+                {
+                  borderColor: selectedStories.has(story.id)
+                    ? colors.primary
+                    : colors.textSecondary,
+                  backgroundColor: selectedStories.has(story.id)
+                    ? colors.primary
+                    : 'transparent',
+                }
+              ]}>
                 {selectedStories.has(story.id) && (
-                  <AntDesign name="check" size={16} color={colors.primary} />
+                  <AntDesign name="check" size={16} color="white" />
                 )}
               </View>
             </TouchableOpacity>
-          ))}
+            ))
+          ) : (
+            <View style={styles.emptyState}>
+              <Text
+                className="font-rubik-regular"
+                style={[styles.emptyStateText, { color: colors.textSecondary }]}
+              >
+                No stories available for selection
+              </Text>
+            </View>
+          )}
         </ScrollView>
 
         {/* Action Buttons */}
@@ -242,7 +292,7 @@ const StorySelectionModal: React.FC<StorySelectionModalProps> = ({
               className="font-rubik-bold"
               style={styles.deleteButtonText}
             >
-              Delete ({selectedStories.size})
+              {selectedStories.size > 0 ? `Delete (${selectedStories.size})` : 'Select Stories'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -257,7 +307,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   container: {
-    maxHeight: '80%',
+    height: '80%',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingBottom: 20,
@@ -297,9 +347,36 @@ const styles = StyleSheet.create({
   storyCount: {
     fontSize: 14,
   },
+  instructionsContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+  },
+  instructionsText: {
+    fontSize: 13,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginBottom: 4,
+  },
+  instructionsSubText: {
+    fontSize: 11,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    opacity: 0.8,
+  },
   storiesList: {
     flex: 1,
     paddingHorizontal: 20,
+    minHeight: 200,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    textAlign: 'center',
   },
   storyItem: {
     flexDirection: 'row',
@@ -307,7 +384,6 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 12,
     marginBottom: 8,
-    borderWidth: 2,
   },
   storyImage: {
     width: 60,
@@ -330,7 +406,6 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#ccc',
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -31,15 +31,30 @@ export const queryKeys = {
     bookmarks: (userId: string) => [...queryKeys.posts.all, 'bookmarks', userId] as const,
   },
 
-  // Reels/Tapes queries
+  // Reels/Tapes queries - aligned with Redis cache keys
   reels: {
     all: ['reels'] as const,
-    lists: () => [...queryKeys.reels.all, 'list'] as const,
+    lists: () => [...queryKeys.reels.all, 'lists'] as const,
     list: (filters: Record<string, any>) => [...queryKeys.reels.lists(), { filters }] as const,
-    details: () => [...queryKeys.reels.all, 'detail'] as const,
+    feeds: () => [...queryKeys.reels.all, 'feeds'] as const,
+    feed: (page: number = 1, limit: number = 10) => [...queryKeys.reels.feeds(), { page, limit }] as const,
+    details: () => [...queryKeys.reels.all, 'details'] as const,
     detail: (id: string) => [...queryKeys.reels.details(), id] as const,
-    user: (userId: string) => [...queryKeys.reels.all, 'user', userId] as const,
+    users: () => [...queryKeys.reels.all, 'users'] as const,
+    user: (userId: string) => [...queryKeys.reels.users(), userId] as const,
+    userReels: (userId: string, page?: number, limit?: number) => [...queryKeys.reels.user(userId), 'reels', { page, limit }] as const,
     explore: () => [...queryKeys.reels.all, 'explore'] as const,
+    trending: (limit?: number) => [...queryKeys.reels.explore(), 'trending', { limit }] as const,
+    analytics: () => [...queryKeys.reels.all, 'analytics'] as const,
+    reelAnalytics: (reelId: string) => [...queryKeys.reels.analytics(), reelId] as const,
+    likes: () => [...queryKeys.reels.all, 'likes'] as const,
+    reelLikes: (reelId: string) => [...queryKeys.reels.likes(), reelId] as const,
+    bookmarks: () => [...queryKeys.reels.all, 'bookmarks'] as const,
+    reelBookmarks: (reelId: string) => [...queryKeys.reels.bookmarks(), reelId] as const,
+    views: () => [...queryKeys.reels.all, 'views'] as const,
+    reelViews: (reelId: string) => [...queryKeys.reels.views(), reelId] as const,
+    interactions: () => [...queryKeys.reels.all, 'interactions'] as const,
+    reelInteractions: (reelId: string) => [...queryKeys.reels.interactions(), reelId] as const,
   },
 
   // User/Profile queries
@@ -72,8 +87,10 @@ export const queryKeys = {
   // Messages/Chat queries
   messages: {
     all: ['messages'] as const,
-    conversations: (userId: string) => [...queryKeys.messages.all, 'conversations', userId] as const,
-    conversation: (conversationId: string) => [...queryKeys.messages.all, 'conversation', conversationId] as const,
+    conversations: () => [...queryKeys.messages.all, 'conversations'] as const,
+    conversation: (userId: string) => [...queryKeys.messages.all, 'conversation', userId] as const,
+    messages: (userId: string) => [...queryKeys.messages.all, 'messages', userId] as const,
+    userProfile: (userId: string) => [...queryKeys.messages.all, 'userProfile', userId] as const,
     unread: (userId: string) => [...queryKeys.messages.all, 'unread', userId] as const,
   },
 
@@ -119,6 +136,18 @@ export const createCacheTags = {
     detail: (postId: string) => `posts:detail:${postId}`,
     explore: () => 'posts:explore',
   },
+  reels: {
+    feed: (page?: number, limit?: number) => page && limit ? `reels:feed:${page}:${limit}` : 'reels:feed',
+    user: (userId: string) => `reels:user:${userId}`,
+    detail: (reelId: string) => `reels:detail:${reelId}`,
+    trending: (limit?: number) => limit ? `reels:trending:${limit}` : 'reels:trending',
+    explore: (category?: string) => category ? `reels:explore:${category}` : 'reels:explore',
+    analytics: (reelId: string) => `reels:analytics:${reelId}`,
+    likes: (reelId: string) => `reels:likes:${reelId}`,
+    bookmarks: (reelId: string) => `reels:bookmarks:${reelId}`,
+    views: (reelId: string) => `reels:views:${reelId}`,
+    interactions: (reelId: string) => `reels:interactions:${reelId}`,
+  },
   users: {
     profile: (userId: string) => `users:profile:${userId}`,
     current: () => 'users:current',
@@ -132,6 +161,16 @@ export const redisCacheKeyMapping = {
   'stories:views:': queryKeys.stories.views(),
   'stories:analytics:': queryKeys.stories.analytics(),
   'stories:active': queryKeys.stories.active(),
+  'reels:feed': queryKeys.reels.feeds(),
+  'reels:user:': queryKeys.reels.users(),
+  'reels:detail:': queryKeys.reels.details(),
+  'reels:trending': queryKeys.reels.explore(),
+  'reels:explore': queryKeys.reels.explore(),
+  'reels:analytics:': queryKeys.reels.analytics(),
+  'reels:likes:': queryKeys.reels.likes(),
+  'reels:bookmarks:': queryKeys.reels.bookmarks(),
+  'reels:views:': queryKeys.reels.views(),
+  'reels:interactions:': queryKeys.reels.interactions(),
 } as const;
 
 // Helper to convert Redis cache key to TanStack Query key
@@ -159,7 +198,59 @@ export const redisKeyToQueryKey = (redisKey: string): readonly unknown[] => {
   if (redisKey === 'stories:active') {
     return queryKeys.stories.active();
   }
-  
+
+  // Reels mappings
+  if (redisKey.startsWith('reels:feed:')) {
+    const parts = redisKey.split(':');
+    const page = parseInt(parts[2]) || 1;
+    const limit = parseInt(parts[3]) || 10;
+    return queryKeys.reels.feed(page, limit);
+  }
+
+  if (redisKey.startsWith('reels:user:')) {
+    const userId = redisKey.split(':')[2];
+    return queryKeys.reels.userReels(userId);
+  }
+
+  if (redisKey.startsWith('reels:detail:')) {
+    const reelId = redisKey.split(':')[2];
+    return queryKeys.reels.detail(reelId);
+  }
+
+  if (redisKey.startsWith('reels:trending:')) {
+    const limit = parseInt(redisKey.split(':')[2]) || 20;
+    return queryKeys.reels.trending(limit);
+  }
+
+  if (redisKey.startsWith('reels:explore:')) {
+    return queryKeys.reels.explore();
+  }
+
+  if (redisKey.startsWith('reels:analytics:')) {
+    const reelId = redisKey.split(':')[2];
+    return queryKeys.reels.reelAnalytics(reelId);
+  }
+
+  if (redisKey.startsWith('reels:likes:')) {
+    const reelId = redisKey.split(':')[2];
+    return queryKeys.reels.reelLikes(reelId);
+  }
+
+  if (redisKey.startsWith('reels:bookmarks:')) {
+    const reelId = redisKey.split(':')[2];
+    return queryKeys.reels.reelBookmarks(reelId);
+  }
+
+  if (redisKey.startsWith('reels:views:')) {
+    const reelId = redisKey.split(':')[2];
+    return queryKeys.reels.reelViews(reelId);
+  }
+
+  if (redisKey.startsWith('reels:interactions:')) {
+    const reelId = redisKey.split(':')[2];
+    return queryKeys.reels.reelInteractions(reelId);
+  }
+
   // Default fallback
   return [redisKey];
 };
@@ -190,7 +281,51 @@ export const queryKeyToRedisKey = (queryKey: readonly unknown[]): string => {
       return 'stories:active';
     }
   }
-  
+
+  if (domain === 'reels') {
+    if (rest[0] === 'feeds' && rest[1] && typeof rest[1] === 'object') {
+      const { page, limit } = rest[1] as { page: number; limit: number };
+      return `reels:feed:${page}:${limit}`;
+    }
+
+    if (rest[0] === 'users' && rest[1] && rest[2] === 'reels') {
+      return `reels:user:${rest[1]}`;
+    }
+
+    if (rest[0] === 'details' && rest[1]) {
+      return `reels:detail:${rest[1]}`;
+    }
+
+    if (rest[0] === 'explore' && rest[1] === 'trending') {
+      const limit = rest[2] && typeof rest[2] === 'object' ? (rest[2] as { limit: number }).limit : 20;
+      return `reels:trending:${limit}`;
+    }
+
+    if (rest[0] === 'explore') {
+      return 'reels:explore';
+    }
+
+    if (rest[0] === 'analytics' && rest[1]) {
+      return `reels:analytics:${rest[1]}`;
+    }
+
+    if (rest[0] === 'likes' && rest[1]) {
+      return `reels:likes:${rest[1]}`;
+    }
+
+    if (rest[0] === 'bookmarks' && rest[1]) {
+      return `reels:bookmarks:${rest[1]}`;
+    }
+
+    if (rest[0] === 'views' && rest[1]) {
+      return `reels:views:${rest[1]}`;
+    }
+
+    if (rest[0] === 'interactions' && rest[1]) {
+      return `reels:interactions:${rest[1]}`;
+    }
+  }
+
   // Default fallback - create a key from the query key structure
   return queryKey.join(':').replace(/[^a-zA-Z0-9:_-]/g, '_');
 };

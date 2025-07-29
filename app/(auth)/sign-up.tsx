@@ -13,7 +13,7 @@ import { supabase } from "@/lib/supabase";
 import { Feather } from "@expo/vector-icons";
 import ThemedGradient from "@/components/ThemedGradient";
 import { useTheme } from "@/src/context/ThemeContext";
-import { e2eEncryption } from "@/lib/e2eEncryption";
+
 
 const SignUp = () => {
   const [email, setEmail] = useState("");

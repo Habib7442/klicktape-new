@@ -6,11 +6,12 @@ import {
   Platform,
   StatusBar,
 } from "react-native";
+import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from "react-native-safe-area-context";
 import React, { useEffect, useState } from "react";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
-import { router, useFocusEffect } from "expo-router";
+import { useFocusEffect, Link } from "expo-router";
 import { useDispatch, useSelector } from "react-redux";
 import {
   resetUnreadMessageCount,
@@ -31,11 +32,18 @@ import { openSidebar } from "@/src/store/slices/sidebarSlice";
 import ThemedGradient from "@/components/ThemedGradient";
 import { useTheme } from "@/src/context/ThemeContext";
 import Stories from "@/components/Stories";
+import { useOptimizedDataFetching } from "@/lib/hooks/useOptimizedDataFetching";
+import { authManager } from "@/lib/authManager";
 
 const Home = () => {
   const dispatch = useDispatch();
   const [lastFetchTime, setLastFetchTime] = useState(0);
   const [userId, setUserId] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<{
+    username: string;
+    name: string;
+    avatar_url: string;
+  } | null>(null);
 
   const unreadCount = useSelector(
     (state: RootState) => state.notifications.unreadCount
@@ -47,62 +55,92 @@ const Home = () => {
   useEffect(() => {
     const getUser = async () => {
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
+        // Use cached auth manager directly
+        const user = await authManager.getCurrentUser();
+
         if (user) {
           setUserId(user.id);
-          console.log("Authenticated user ID:", user.id);
+          console.log("✅ Authenticated user ID (cached):", user.id);
         } else {
-          console.warn("No authenticated user found");
+          console.warn("⚠️ No authenticated user found in cache");
+          // Fallback to direct Supabase call
+          const { data: { user: supabaseUser } } = await supabase.auth.getUser();
+          if (supabaseUser) {
+            setUserId(supabaseUser.id);
+            console.log("✅ Authenticated user ID (fallback):", supabaseUser.id);
+          }
         }
       } catch (error) {
-        console.error("Error getting user from Supabase:", error);
+        console.error("❌ Error getting user from auth manager:", error);
+        // Final fallback to direct Supabase call
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            setUserId(user.id);
+            console.log("✅ Authenticated user ID (final fallback):", user.id);
+          } else {
+            console.warn("⚠️ No authenticated user found (final fallback)");
+          }
+        } catch (fallbackError) {
+          console.error("❌ Final fallback auth error:", fallbackError);
+        }
       }
     };
 
     getUser();
   }, []);
 
-  // Memoize the fetchInitialData function to avoid recreation on each render
-  const fetchInitialData = React.useCallback(async () => {
-    if (!userId || !supabase) {
-      console.log("Cannot fetch initial data: userId or supabase is null");
-      return;
-    }
+  // Use optimized data fetching hook
+  const {
+    data: homeData,
+    loading: dataLoading,
+    refresh: refreshData,
+    isCacheValid,
+  } = useOptimizedDataFetching({
+    enableRealtime: true,
+    fetchInterval: 30000, // 30 seconds
+    cacheTime: 5 * 60 * 1000, // 5 minutes
+  });
 
-    const now = Date.now();
-    if (now - lastFetchTime < 30000) {
-      console.log("Skipping fetch, last fetch was less than 30 seconds ago");
-      return;
-    }
-
-    console.log("Fetching initial data for user:", userId);
-
+  // Fetch user profile data
+  const fetchUserProfile = async (userId: string) => {
     try {
-      const [notifications, unreadMessages] = await Promise.all([
-        notificationsAPI.getNotifications(userId),
-        messagesAPI.getUnreadMessagesCount(userId),
-      ]);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('username, name, avatar_url')
+        .eq('id', userId)
+        .single();
 
-      console.log("Fetched notifications:", notifications.length);
-      console.log("Unread messages count:", unreadMessages);
+      if (error) {
+        console.error('Error fetching user profile:', error);
+        return;
+      }
 
-      const unread = notifications.filter((n) => !n.is_read).length;
-      console.log("Unread notifications count:", unread);
-
-      dispatch(setUnreadCount(unread));
-      dispatch(setUnreadMessageCount(unreadMessages));
-      setLastFetchTime(Date.now());
+      if (data) {
+        setUserProfile(data);
+      }
     } catch (error) {
-      console.error("Error fetching initial data:", error);
+      console.error('Error fetching user profile:', error);
     }
-  }, [userId, supabase, lastFetchTime, dispatch]);
+  };
+
+  // Update Redux state when data changes
+  useEffect(() => {
+    if (homeData.userId) {
+      setUserId(homeData.userId);
+      dispatch(setUnreadCount(homeData.unreadNotifications));
+      dispatch(setUnreadMessageCount(homeData.unreadMessages));
+
+      // Fetch user profile when userId is available
+      fetchUserProfile(homeData.userId);
+    }
+  }, [homeData, dispatch]);
 
   useEffect(() => {
     if (!userId || !supabase) return;
 
-    fetchInitialData();
+    // Data is now handled by useOptimizedDataFetching hook
+    // fetchInitialData(); // Removed - handled by hook
 
     // Create a notification channel with detailed logging
     const notificationsSubscription = supabase
@@ -180,7 +218,7 @@ const Home = () => {
 
     // Set up periodic refresh
     const interval = setInterval(() => {
-      fetchInitialData();
+      refreshData();
     }, 300000);
 
     // Cleanup function
@@ -227,11 +265,11 @@ const Home = () => {
   // Update notification count when screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
-      if (userId && supabase) {
+      if (userId && supabase && !isCacheValid) {
         console.log("Screen focused, refreshing notification data");
-        fetchInitialData();
+        refreshData();
       }
-    }, [userId, supabase, fetchInitialData])
+    }, [userId, supabase, isCacheValid, refreshData])
   );
 
   const { colors, isDarkMode } = useTheme();
@@ -263,48 +301,58 @@ const Home = () => {
             </View>
 
             <View style={styles.rightSection}>
-              <TouchableOpacity
+              <Link
+                href="/chat"
                 onPress={() => {
-                  router.push("/chat");
+                  // Add haptic feedback for better UX
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   dispatch(resetUnreadMessageCount());
                 }}
                 style={[styles.iconButton, {
                   backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
                   borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
                 }]}
+                asChild
               >
-                <Ionicons name="chatbubble-outline" size={20} color={colors.text} />
-                {unreadMessageCount > 0 && (
-                  <View style={[styles.badge, { backgroundColor: isDarkMode ? '#808080' : '#606060' }]}>
-                    <Text style={[styles.badgeText, { color: '#FFFFFF' }]}>
-                      {unreadMessageCount > 99 ? "99+" : unreadMessageCount}
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity
+                <TouchableOpacity>
+                  <Ionicons name="chatbubble-outline" size={20} color={colors.text} />
+                  {unreadMessageCount > 0 && (
+                    <View style={[styles.badge, { backgroundColor: isDarkMode ? '#808080' : '#606060' }]}>
+                      <Text style={[styles.badgeText, { color: '#FFFFFF' }]}>
+                        {unreadMessageCount > 99 ? "99+" : unreadMessageCount}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </Link>
+              <Link
+                href="/notifications"
                 onPress={() => {
-                  router.push("/notifications");
+                  // Add haptic feedback for better UX
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   dispatch(resetUnreadCount());
                 }}
                 style={[styles.iconButton, {
                   backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
                   borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
                 }]}
+                asChild
               >
-                <Ionicons
-                  name="notifications-outline"
-                  size={20}
-                  color={colors.text}
-                />
-                {unreadCount > 0 && (
-                  <View style={[styles.badge, { backgroundColor: isDarkMode ? '#808080' : '#606060' }]}>
-                    <Text style={[styles.badgeText, { color: '#FFFFFF' }]}>
-                      {unreadCount > 99 ? "99+" : unreadCount}
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
+                <TouchableOpacity>
+                  <Ionicons
+                    name="notifications-outline"
+                    size={20}
+                    color={colors.text}
+                  />
+                  {unreadCount > 0 && (
+                    <View style={[styles.badge, { backgroundColor: isDarkMode ? '#808080' : '#606060' }]}>
+                      <Text style={[styles.badgeText, { color: '#FFFFFF' }]}>
+                        {unreadCount > 99 ? "99+" : unreadCount}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </Link>
             </View>
           </View>
 

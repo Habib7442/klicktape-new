@@ -3,25 +3,47 @@ import "react-native-url-polyfill/auto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
 import { Database } from '@/types/supabase';
+import { getSupabaseConfig, validatePublicConfig, logConfigStatus } from '@/lib/config/environment';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
+// Validate configuration and get secure config
+const validation = validatePublicConfig();
+if (!validation.isValid) {
+  throw new Error(`Missing required Supabase environment variables: ${validation.missing.join(', ')}`);
 }
 
-export const supabase =
-  Platform.OS === "web" && typeof window === "undefined"
-    ? null
-    : createClient<Database>(supabaseUrl, supabaseAnonKey, {
-        auth: {
-          storage: AsyncStorage,
-          autoRefreshToken: true,
-          persistSession: true,
-          detectSessionInUrl: false,
-        },
-      });
+const { url: supabaseUrl, anonKey: supabaseAnonKey } = getSupabaseConfig();
+
+// Log configuration status in development
+logConfigStatus();
+
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    storage: AsyncStorage,
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+    // Set longer session timeout
+    sessionRefreshMargin: 60, // 1 minute before expiry
+  },
+  // Optimize database connection
+  db: {
+    schema: 'public',
+  },
+  // Add connection pooling for better performance
+  global: {
+    headers: {
+      'x-client-info': 'klicktape-mobile',
+    },
+  },
+});
+
+// Helper function to ensure supabase client is available
+export const getSupabaseClient = () => {
+  if (!supabase) {
+    throw new Error('Supabase client is not initialized');
+  }
+  return supabase;
+};
 
 // Generate random username
 export const generateUsername = () => {
@@ -383,9 +405,14 @@ export const generateAnonymousRoomName = () => {
 // `SIGNED_OUT` event if the user's session is terminated. This should
 // only be registered once.
 AppState.addEventListener("change", (state) => {
-  if (state === "active") {
-    supabase.auth.startAutoRefresh();
-  } else {
-    supabase.auth.stopAutoRefresh();
+  try {
+    const client = getSupabaseClient();
+    if (state === "active") {
+      client.auth.startAutoRefresh();
+    } else {
+      client.auth.stopAutoRefresh();
+    }
+  } catch (error) {
+    console.warn('Supabase client not available for auth refresh:', error);
   }
 });

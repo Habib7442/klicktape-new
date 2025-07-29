@@ -17,7 +17,7 @@ import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { supabase, generateAnonymousRoomName } from "@/lib/supabase";
 import { router } from "expo-router";
-import { e2eEncryption } from "@/lib/e2eEncryption";
+
 import { useTheme } from "@/src/context/ThemeContext";
 import ThemedGradient from "@/components/ThemedGradient";
 
@@ -266,9 +266,6 @@ const CreateProfile = () => {
       // Generate an anonymous room name
       const anonymousRoomName = generateAnonymousRoomName();
 
-      // Generate encryption keys
-      const { publicKey } = await e2eEncryption.generateKeyPair();
-
       const { error } = await supabase.from("profiles").upsert(
         {
           id: user.id,
@@ -279,7 +276,6 @@ const CreateProfile = () => {
           avatar_url: avatarUrl,
           account_type: accountType,
           anonymous_room_name: anonymousRoomName,
-          public_key: publicKey,
           is_active: true, // Mark profile as complete
           updated_at: new Date().toISOString(),
         },

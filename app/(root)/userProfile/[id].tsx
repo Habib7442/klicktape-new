@@ -14,12 +14,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
+
 import { Video } from "expo-av";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
+import CachedImage from "@/components/CachedImage";
 import { useTheme } from "@/src/context/ThemeContext";
+import { authManager } from "@/lib/authManager";
 
 interface ProfileParams extends Record<string, string | string[]> {
   id: string;
@@ -40,29 +42,23 @@ const UserProfile = () => {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const { isDarkMode, colors } = useTheme();
 
-  // Define gradient colors based on theme
-  const gradientColors = isDarkMode
-    ? ["#000000", "#1a1a1a", "#2a2a2a"] as const
-    : ["#F8F9FA", "#F0F2F5", "#E9ECEF"] as const;
+
 
   useEffect(() => {
     const fetchUser = async () => {
-      if (!supabase) return;
-
       try {
-        const {
-          data: { user },
-          error,
-        } = await supabase.auth.getUser();
-
-        if (error) {
-          console.error("Error fetching current user:", error);
-          return;
-        }
-
+        // Use cached auth manager instead of direct Supabase call
+        const user = await authManager.getCurrentUser();
         setCurrentUserId(user?.id || null);
       } catch (error) {
         console.error("Error in fetchUser:", error);
+        // Fallback to direct Supabase call
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          setCurrentUserId(user?.id || null);
+        } catch (fallbackError) {
+          console.error("Fallback auth error:", fallbackError);
+        }
       }
     };
 
@@ -283,29 +279,19 @@ const UserProfile = () => {
 
   if (loading || !userProfile) {
     return (
-      <LinearGradient
-        colors={gradientColors}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.container}
-      >
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.primary} />
           </View>
         </SafeAreaView>
-      </LinearGradient>
+      </View>
     );
   }
 
 
   return (
-    <LinearGradient
-      colors={gradientColors}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.container}
-    >
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <SafeAreaView style={styles.safeArea}>
         <View style={[styles.header, { borderBottomColor: `${colors.primary}20` }]}>
           <TouchableOpacity
@@ -343,9 +329,11 @@ const UserProfile = () => {
         style={styles.scrollView}
       >
         <View style={styles.profileInfo}>
-          <Image
-            source={{ uri: userProfile.avatar_url }}
-            style={[styles.profileImage, { borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.3)` }]}
+          <CachedImage
+            uri={userProfile.avatar_url}
+            style={styles.profileImage}
+            showLoader={true}
+            fallbackUri="https://via.placeholder.com/150"
           />
           <View style={styles.statsContainer}>
             <View style={styles.stat}>
@@ -356,22 +344,28 @@ const UserProfile = () => {
                 Posts
               </Text>
             </View>
-            <View style={styles.stat}>
+            <TouchableOpacity
+              style={styles.stat}
+              onPress={() => router.push(`/(root)/followers/${id}`)}
+            >
               <Text className="font-rubik-bold" style={[styles.statNumber, { color: colors.text }]}>
                 {userProfile.followersCount}
               </Text>
               <Text className="font-rubik-medium" style={[styles.statLabel, { color: colors.textSecondary }]}>
                 Followers
               </Text>
-            </View>
-            <View style={styles.stat}>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.stat}
+              onPress={() => router.push(`/(root)/following/${id}`)}
+            >
               <Text className="font-rubik-bold" style={[styles.statNumber, { color: colors.text }]}>
                 {userProfile.followingCount}
               </Text>
               <Text className="font-rubik-medium" style={[styles.statLabel, { color: colors.textSecondary }]}>
                 Following
               </Text>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -409,7 +403,7 @@ const UserProfile = () => {
                   backgroundColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.1)`,
                   borderColor: `rgba(${isDarkMode ? '255, 215, 0' : '184, 134, 11'}, 0.3)`
                 }]}
-                onPress={() => router.push(`/chat/${id}`)}
+                onPress={() => router.push(`/chats/${id}`)}
               >
                 <Text
                   className="font-rubik-bold"
@@ -475,7 +469,7 @@ const UserProfile = () => {
         />
       </ScrollView>
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 };
 
@@ -513,7 +507,6 @@ const styles = StyleSheet.create({
     height: 90,
     borderRadius: 45,
     marginRight: 16,
-    borderWidth: 2,
   },
   statsContainer: {
     flex: 1,

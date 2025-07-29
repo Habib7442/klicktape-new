@@ -1,7 +1,20 @@
 import { supabase } from "./supabase";
 
+interface UserProfile {
+  id: string;
+  username: string;
+  avatar: string;
+  bio: string;
+  followersCount: number;
+  followingCount: number;
+  postsCount: number;
+  isFollowing: boolean;
+  account_type?: string;
+  gender?: string;
+}
+
 export const usersApi = {
-  getUserProfile: async (userId: string) => {
+  getUserProfile: async (userId: string): Promise<UserProfile> => {
     try {
       const { data: user, error: userError } = await supabase
         .from("profiles")
@@ -44,7 +57,7 @@ export const usersApi = {
     }
   },
 
-  checkFollowing: async (targetUserId: string, currentUserId: string) => {
+  checkFollowing: async (targetUserId: string, currentUserId: string): Promise<boolean> => {
     try {
       const { data, error } = await supabase
         .from("follows")
@@ -59,7 +72,7 @@ export const usersApi = {
     }
   },
 
-  toggleFollow: async (targetUserId: string, currentUserId: string) => {
+  toggleFollow: async (targetUserId: string, currentUserId: string): Promise<boolean> => {
     try {
       const { data: existingFollow, error: followError } = await supabase
         .from("follows")
@@ -94,7 +107,7 @@ export const usersApi = {
     }
   },
 
-  getUserPosts: async (userId: string) => {
+  getUserPosts: async (userId: string): Promise<Array<{id: string, image_urls: string[], created_at: string}>> => {
     try {
       const { data, error } = await supabase
         .from("posts")
@@ -109,7 +122,7 @@ export const usersApi = {
     }
   },
 
-  getUserReels: async (userId: string) => {
+  getUserReels: async (userId: string): Promise<Array<{id: string, video_url: string, created_at: string}>> => {
     try {
       const { data, error } = await supabase
         .from("reels")
@@ -121,6 +134,34 @@ export const usersApi = {
       return data;
     } catch (error: any) {
       throw new Error(`Failed to fetch user reels: ${error.message}`);
+    }
+  },
+
+  getFollowers: async (userId: string, limit: number = 50): Promise<Array<{id: string, username: string, avatar_url: string | null, is_following: boolean}>> => {
+    try {
+      const { data, error } = await supabase.rpc("get_user_followers", {
+        target_user_id: userId,
+      });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      console.error("Error fetching followers:", error);
+      throw new Error(`Failed to fetch followers: ${error.message}`);
+    }
+  },
+
+  getFollowing: async (userId: string, limit: number = 50): Promise<Array<{id: string, username: string, avatar_url: string | null, is_following: boolean}>> => {
+    try {
+      const { data, error } = await supabase.rpc("get_user_following", {
+        target_user_id: userId,
+      });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      console.error("Error fetching following:", error);
+      throw new Error(`Failed to fetch following: ${error.message}`);
     }
   },
 };

@@ -1,0 +1,46 @@
+import { Platform } from 'react-native';
+
+// Simple encryption for demo purposes
+// In a real app, you'd use proper crypto libraries
+const ENCRYPTION_KEY = 'SecureChatApp2024Key!';
+
+export const encryptMessage = (message: string): string => {
+  try {
+    // Simple XOR encryption for demo
+    let encrypted = '';
+    for (let i = 0; i < message.length; i++) {
+      const keyChar = ENCRYPTION_KEY.charCodeAt(i % ENCRYPTION_KEY.length);
+      const messageChar = message.charCodeAt(i);
+      encrypted += String.fromCharCode(messageChar ^ keyChar);
+    }
+    return btoa(encrypted); // Base64 encode
+  } catch (error) {
+    console.error('Encryption failed:', error);
+    return message; // Fallback to plain text
+  }
+};
+
+export const decryptMessage = (encryptedMessage: string): string => {
+  try {
+    const encrypted = atob(encryptedMessage); // Base64 decode
+    let decrypted = '';
+    for (let i = 0; i < encrypted.length; i++) {
+      const keyChar = ENCRYPTION_KEY.charCodeAt(i % ENCRYPTION_KEY.length);
+      const encryptedChar = encrypted.charCodeAt(i);
+      decrypted += String.fromCharCode(encryptedChar ^ keyChar);
+    }
+    return decrypted;
+  } catch (error) {
+    console.error('Decryption failed:', error);
+    return encryptedMessage; // Fallback to encrypted text
+  }
+};
+
+export const generateEncryptionKey = (): string => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 32; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+};

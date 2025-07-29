@@ -105,10 +105,10 @@ export const storiesAPIEnhanced = {
     try {
       // Use enhanced database function
       const { data, error } = await supabase.rpc("create_story_enhanced", {
-        image_url_param: imageUrl,
-        caption_param: caption,
-        duration_param: duration,
-        story_type_param: storyType,
+        p_image_url: imageUrl,
+        p_caption: caption,
+        p_duration: duration,
+        p_story_type: storyType,
       });
 
       if (error) {
@@ -136,7 +136,7 @@ export const storiesAPIEnhanced = {
         console.log("🔄 Fetching stories feed from database");
         
         const { data, error } = await supabase.rpc("get_stories_feed_enhanced", {
-          limit_param: limit,
+          limit_count: limit,
         });
 
         if (error) {
@@ -162,7 +162,7 @@ export const storiesAPIEnhanced = {
         console.log(`🔄 Fetching user stories for ${userId} from database`);
         
         const { data, error } = await supabase.rpc("get_user_stories_enhanced", {
-          user_id_param: userId,
+          target_user_id: userId,
         });
 
         if (error) {
@@ -194,8 +194,8 @@ export const storiesAPIEnhanced = {
 
       // Update database
       const { data, error } = await supabase.rpc("mark_story_viewed", {
-        story_id_param: storyId,
-        view_duration_param: viewDuration,
+        story_id: storyId,
+        view_duration: viewDuration,
       });
 
       if (error) {

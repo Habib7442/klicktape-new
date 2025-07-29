@@ -23,6 +23,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { toggleLike, toggleBookmark } from "@/src/store/slices/postsSlice";
 import { RootState } from "@/src/store/store";
 import { useTheme } from "@/src/context/ThemeContext";
+import { authManager } from "@/lib/authManager";
 
 const { width } = Dimensions.get("window");
 const IMAGE_HEIGHT = width * 0.9;
@@ -79,10 +80,20 @@ const PostDetailScreen = () => {
 
   useEffect(() => {
     const fetchUser = async () => {
-      const {
-        data: { user },
-      } = await supabase!.auth.getUser();
-      setUserId(user?.id || null);
+      try {
+        // Use cached auth manager instead of direct Supabase call
+        const user = await authManager.getCurrentUser();
+        setUserId(user?.id || null);
+      } catch (error) {
+        console.error("Error fetching user:", error);
+        // Fallback to direct Supabase call if auth manager fails
+        try {
+          const { data: { user } } = await supabase!.auth.getUser();
+          setUserId(user?.id || null);
+        } catch (fallbackError) {
+          console.error("Fallback auth error:", fallbackError);
+        }
+      }
     };
 
     fetchUser();
@@ -395,7 +406,9 @@ const PostDetailScreen = () => {
                   />
                 </Animated.View>
               </TouchableOpacity>
-              <Text style={[styles.count, { color: colors.textSecondary }]}>{post.likes_count} likes</Text>
+              <TouchableOpacity onPress={() => router.push(`/(root)/post-likes/${post.id}` as any)}>
+                <Text style={[styles.count, { color: colors.textSecondary }]}>{post.likes_count} likes</Text>
+              </TouchableOpacity>
             </View>
 
             <TouchableOpacity

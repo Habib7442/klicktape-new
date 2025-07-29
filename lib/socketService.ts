@@ -2,6 +2,7 @@
 import 'react-native-get-random-values';
 import { io, Socket } from 'socket.io-client';
 import { Platform } from 'react-native';
+import { PUBLIC_CONFIG } from '@/lib/config/environment';
 
 interface Message {
   id: string;
@@ -25,6 +26,23 @@ interface MessageStatusUpdate {
   isRead: boolean;
 }
 
+interface ReactionData {
+  messageId: string;
+  reaction: {
+    id: string;
+    message_id: string;
+    user_id: string;
+    emoji: string;
+    created_at: string;
+  };
+}
+
+interface ReactionRemovedData {
+  messageId: string;
+  reactionId: string;
+  userId: string;
+}
+
 class SocketService {
   private socket: Socket | null = null;
   private isConnected = false;
@@ -37,6 +55,8 @@ class SocketService {
   private typingListeners: ((data: TypingData) => void)[] = [];
   private statusListeners: ((data: MessageStatusUpdate) => void)[] = [];
   private connectionListeners: ((connected: boolean) => void)[] = [];
+  private reactionListeners: ((data: ReactionData) => void)[] = [];
+  private reactionRemovedListeners: ((data: ReactionRemovedData) => void)[] = [];
 
   constructor() {
     this.connect();
@@ -49,7 +69,7 @@ class SocketService {
         const urls = [];
 
         // Check for environment variable first (deployed server)
-        const SERVER_URL = process.env.EXPO_PUBLIC_SOCKET_SERVER_URL;
+        const SERVER_URL = PUBLIC_CONFIG.SOCKET_SERVER_URL;
         console.log('🌐 Environment SERVER_URL:', SERVER_URL);
 
         if (SERVER_URL) {
@@ -167,6 +187,17 @@ class SocketService {
       console.log('⌨️ Typing update:', data);
       this.notifyTypingListeners(data);
     });
+
+    // Listen for reaction updates
+    this.socket.on('reaction_added', (data: ReactionData) => {
+      console.log('😀 Reaction added:', data);
+      this.notifyReactionListeners(data);
+    });
+
+    this.socket.on('reaction_removed', (data: ReactionRemovedData) => {
+      console.log('😐 Reaction removed:', data);
+      this.notifyReactionRemovedListeners(data);
+    });
   }
 
   private tryNextUrl() {
@@ -251,6 +282,26 @@ class SocketService {
     }
   }
 
+  // Send reaction
+  sendReaction(data: { messageId: string; userId: string; emoji: string }) {
+    if (this.socket && this.isConnected) {
+      console.log('😀 Sending reaction via Socket.IO:', data);
+      this.socket.emit('add_reaction', data);
+    } else {
+      console.error('❌ Cannot send reaction: Socket not connected');
+    }
+  }
+
+  // Remove reaction
+  removeReaction(data: { messageId: string; userId: string }) {
+    if (this.socket && this.isConnected) {
+      console.log('😐 Removing reaction via Socket.IO:', data);
+      this.socket.emit('remove_reaction', data);
+    } else {
+      console.error('❌ Cannot remove reaction: Socket not connected');
+    }
+  }
+
   // Event listener management
   onMessage(callback: (message: Message) => void) {
     this.messageListeners.push(callback);
@@ -277,6 +328,20 @@ class SocketService {
     this.connectionListeners.push(callback);
     return () => {
       this.connectionListeners = this.connectionListeners.filter(cb => cb !== callback);
+    };
+  }
+
+  onReaction(callback: (data: ReactionData) => void) {
+    this.reactionListeners.push(callback);
+    return () => {
+      this.reactionListeners = this.reactionListeners.filter(cb => cb !== callback);
+    };
+  }
+
+  onReactionRemoved(callback: (data: ReactionRemovedData) => void) {
+    this.reactionRemovedListeners.push(callback);
+    return () => {
+      this.reactionRemovedListeners = this.reactionRemovedListeners.filter(cb => cb !== callback);
     };
   }
 
@@ -317,6 +382,26 @@ class SocketService {
         callback(connected);
       } catch (error) {
         console.error('Error in connection listener:', error);
+      }
+    });
+  }
+
+  private notifyReactionListeners(data: ReactionData) {
+    this.reactionListeners.forEach(callback => {
+      try {
+        callback(data);
+      } catch (error) {
+        console.error('Error in reaction listener:', error);
+      }
+    });
+  }
+
+  private notifyReactionRemovedListeners(data: ReactionRemovedData) {
+    this.reactionRemovedListeners.forEach(callback => {
+      try {
+        callback(data);
+      } catch (error) {
+        console.error('Error in reaction removed listener:', error);
       }
     });
   }

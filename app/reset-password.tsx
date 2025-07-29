@@ -19,23 +19,36 @@ const ResetPassword = () => {
   const params = useLocalSearchParams();
 
   // Get the access token from the URL if it exists
-  // This will be present if user is coming from a password reset email link
-  const accessToken = params.access_token;
+  // This will be present if user is coming from a password reset email link via Expo deep link
+  const accessToken = Array.isArray(params.access_token) ? params.access_token[0] : params.access_token;
+  const refreshToken = Array.isArray(params.refresh_token) ? params.refresh_token[0] : params.refresh_token;
 
   useEffect(() => {
+    console.log('🔗 Reset password screen opened via deep link');
+    console.log('📋 All params:', params);
+    console.log('🔑 Access token:', accessToken);
+    console.log('🔄 Refresh token:', refreshToken);
+
     // If there's an access token in the URL, set the session
     if (accessToken) {
-      setSession(accessToken);
+      console.log('✅ Access token found, setting session...');
+      setSession(accessToken, refreshToken);
+    } else {
+      console.log('❌ No access token found, checking existing session...');
+      checkSession();
     }
-    // Remove the else clause - we don't want to check session when coming from email link
-  }, [accessToken]);
+  }, [accessToken, refreshToken]);
 
-  const setSession = async (token: string) => {
+  const setSession = async (token: string, refresh_token?: string) => {
     setIsLoading(true);
     try {
+      if (!supabase) {
+        throw new Error("Supabase client not available");
+      }
+
       const { data, error } = await supabase.auth.setSession({
         access_token: token,
-        refresh_token: "", 
+        refresh_token: refresh_token || "",
       });
 
       if (error) throw error;
@@ -59,6 +72,10 @@ const ResetPassword = () => {
   const checkSession = async () => {
     setIsLoading(true);
     try {
+      if (!supabase) {
+        throw new Error("Supabase client not available");
+      }
+
       const {
         data: { session },
         error,
@@ -100,6 +117,10 @@ const ResetPassword = () => {
 
     setIsLoading(true);
     try {
+      if (!supabase) {
+        throw new Error("Supabase client not available");
+      }
+
       const { error } = await supabase.auth.updateUser({
         password,
       });
@@ -116,11 +137,11 @@ const ResetPassword = () => {
           },
         ]
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error("Reset password error:", error);
       Alert.alert(
         "Error",
-        error.message || "Failed to reset password. Please try again."
+        error?.message || "Failed to reset password. Please try again."
       );
     } finally {
       setIsLoading(false);

@@ -10,6 +10,7 @@ import authReducer from "./slices/authSlice";
 import sidebarReducer from "./slices/sidebarSlice";
 import commentsReducer from "./slices/commentsSlice";
 import storiesReducer from "./slices/storiesSlice";
+import chatUIReducer from "./slices/chatUISlice";
 
 const postsPersistConfig = {
   key: "posts",
@@ -37,6 +38,7 @@ export const store = configureStore({
     sidebar: sidebarReducer,
     comments: commentsReducer,
     stories: storiesReducer,
+    chatUI: chatUIReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

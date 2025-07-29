@@ -37,7 +37,7 @@ export const reelsAPI = {
         .from("reels")
         .select(`
           *,
-          user:profiles!reels_user_id_fkey (username, avatar_url)
+          user:profiles(username, avatar_url)
         `)
         .order("created_at", { ascending: false })
         .range(offset, offset + limit - 1);
@@ -116,7 +116,7 @@ export const reelsAPI = {
         .from(table)
         .select(`
           *,
-          user:profiles!comments_user_id_fkey(username, avatar_url)
+          user:profiles(username, avatar_url)
         `)
         .eq(`${entityType}_id`, entityId)
         .order("created_at", { ascending: true });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo, memo } from "react";
 import {
   View,
   Text,
@@ -13,158 +13,98 @@ import { supabase } from "@/lib/supabase";
 import { router } from "expo-router";
 import { AntDesign } from "@expo/vector-icons";
 import { messagesAPI } from "@/lib/messagesApi";
-import { encryption } from "@/lib/encryption";
 import { useTheme } from "@/src/context/ThemeContext";
 import ThemedGradient from "@/components/ThemedGradient";
+import LazyQueryProvider from "@/lib/query/LazyQueryProvider";
+import { useConversations } from "@/lib/query/hooks/useChatQuery";
+import { animationPerformanceUtils } from "@/lib/utils/animationPerformance";
 
+// Memoized conversation item component for better performance
+const ConversationItem = memo(({ item, colors, onPress }: {
+  item: any;
+  colors: any;
+  onPress: () => void;
+}) => (
+  <TouchableOpacity
+    style={[styles.userItem, {
+      backgroundColor: colors.card,
+      borderBottomColor: colors.cardBorder
+    }]}
+    onPress={onPress}
+    activeOpacity={0.7}
+  >
+    <Image
+      source={{ uri: item.avatar }}
+      style={[styles.avatar, { borderColor: colors.cardBorder }]}
+      {...animationPerformanceUtils.getOptimizedImageProps()}
+    />
+    <View style={styles.userInfo}>
+      <Text className="font-rubik-bold" style={[styles.username, { color: colors.text }]}>
+        {item.username}
+      </Text>
+      <Text
+        className="font-rubik-medium"
+        style={[styles.lastMessage, { color: colors.textSecondary }]}
+        numberOfLines={1}
+      >
+        {item.lastMessage}
+      </Text>
+    </View>
+  </TouchableOpacity>
+));
+
+// Wrapper component with LazyQueryProvider
 export default function ChatList() {
-  const [conversations, setConversations] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  return (
+    <LazyQueryProvider>
+      <ChatListContent />
+    </LazyQueryProvider>
+  );
+}
+
+// Main chat list component
+function ChatListContent() {
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const { colors, isDarkMode } = useTheme();
 
-  useEffect(() => {
-    const loadConversations = async () => {
-      try {
-        if (!supabase) {
-          console.error("Supabase client not initialized");
-          setLoading(false);
-          return;
-        }
+  // TanStack Query hook for conversations
+  const { data: conversations = [], isLoading: loading, error } = useConversations(currentUserId || '');
 
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          console.error("No authenticated user found");
-          setLoading(false);
-          return;
-        }
+  // Memoize current user fetching to prevent unnecessary re-renders
+  const getCurrentUser = useCallback(async () => {
+    try {
+      if (!supabase) return;
 
-        const messages = await messagesAPI.getUserConversations(user.id);
-
-        if (!messages?.documents || messages.documents.length === 0) {
-          setConversations([]);
-          setLoading(false);
-          return;
-        }
-
-        const uniqueUserIds = new Set();
-        messages.documents.forEach((msg) => {
-          const otherUserId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id;
-          uniqueUserIds.add(otherUserId);
-        });
-
-        const conversationUsers = await Promise.all(
-          Array.from(uniqueUserIds).map(async (otherId) => {
-            if (!supabase) {
-              throw new Error("Supabase client not initialized");
-            }
-
-            const { data: userDoc, error } = await supabase
-              .from("profiles")
-              .select("username, avatar_url")
-              .eq("id", otherId)
-              .single();
-
-            if (error) throw error;
-
-            const lastMessage = messages.documents
-              .filter((msg) => msg.sender_id === otherId || msg.receiver_id === otherId)
-              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-
-            // Try to decrypt the last message if it's encrypted
-            let decryptedContent = lastMessage.content;
-
-            try {
-              if (lastMessage.content && typeof lastMessage.content === 'string') {
-                try {
-                  // Check if it's JSON and has isEncrypted flag
-                  const parsed = JSON.parse(lastMessage.content);
-                  if (parsed.isEncrypted) {
-                    // Create a chat room ID (consistent for both users)
-                    const chatId = [user.id, otherId].sort().join("-");
-
-                    // Try to decrypt the message
-                    decryptedContent = await encryption.decryptMessage(lastMessage.content, chatId);
-                  }
-                } catch (e) {
-                  // Not JSON or not encrypted, continue with original content
-                  console.log("Not an encrypted message or parsing error:", e);
-                }
-              }
-            } catch (decryptError) {
-              console.error("Error decrypting last message:", decryptError);
-              // Fall back to the original content
-            }
-
-            return {
-              userId: otherId,
-              username: userDoc.username,
-              avatar: userDoc.avatar_url || "https://via.placeholder.com/50",
-              lastMessage: decryptedContent,
-              timestamp: lastMessage.created_at,
-              isRead: lastMessage.is_read,
-            };
-          })
-        );
-
-        const sortedConversations = conversationUsers.sort(
-          (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        );
-
-        setConversations(sortedConversations);
-        setLoading(false);
-      } catch (error) {
-        console.error("Error loading conversations:", error);
-        setConversations([]);
-        setLoading(false);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setCurrentUserId(user.id);
       }
-    };
-
-    loadConversations();
-
-    const interval = setInterval(() => {
-      loadConversations();
-    }, 30000);
-
-    return () => clearInterval(interval);
+    } catch (error) {
+      console.error("Error getting current user:", error);
+    }
   }, []);
 
-  const renderConversation = ({ item }: any) => (
-    <TouchableOpacity
-      style={[styles.userItem, {
-        backgroundColor: colors.card,
-        borderBottomColor: colors.cardBorder
-      }]}
-      onPress={() => router.push(`/chat/${item.userId}`)}
-    >
-      <Image
-        source={{ uri: item.avatar }}
-        style={[styles.avatar, { borderColor: colors.cardBorder }]}
-      />
-      <View style={styles.userInfo}>
-        <Text className="font-rubik-bold" style={[styles.username, { color: colors.text }]}>
-          {item.username}
-        </Text>
-        <Text
-          className="font-rubik-medium"
-          style={[
-            styles.lastMessage,
-            { color: colors.textSecondary },
-            item.lastMessage && item.lastMessage.includes("encrypted")
-              ? [styles.encryptedMessage, { color: colors.textTertiary }]
-              : null
-          ]}
-          numberOfLines={1}
-        >
-          {item.lastMessage && item.lastMessage.includes("encrypted")
-            ? "🔒 " + item.lastMessage
-            : item.lastMessage}
-        </Text>
-      </View>
-      <Text className="font-rubik-medium" style={[styles.timestamp, { color: colors.textTertiary }]}>
-        {new Date(item.timestamp).toLocaleDateString()}
-      </Text>
-    </TouchableOpacity>
-  );
+  // Get current user ID
+  useEffect(() => {
+    getCurrentUser();
+  }, [getCurrentUser]);
+
+
+
+  // Optimized render function using memoized component
+  const renderConversation = useCallback(({ item }: any) => (
+    <ConversationItem
+      item={item}
+      colors={colors}
+      onPress={() => router.push(`/chats/${item.userId}`)}
+    />
+  ), [colors, router]);
+
+  // Memoize FlatList props for better performance
+  const flatListProps = useMemo(() => ({
+    ...animationPerformanceUtils.getOptimizedFlatListProps(80),
+    extraData: `${isDarkMode}-${conversations.length}`,
+  }), [isDarkMode, conversations.length]);
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
@@ -190,6 +130,12 @@ export default function ChatList() {
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
+      ) : error ? (
+        <View style={styles.emptyContainer}>
+          <Text className="font-rubik-medium" style={[styles.emptyText, { color: colors.textSecondary }]}>
+            Failed to load conversations. Please try again.
+          </Text>
+        </View>
       ) : conversations.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text className="font-rubik-medium" style={[styles.emptyText, { color: colors.textSecondary }]}>
@@ -202,6 +148,8 @@ export default function ChatList() {
           renderItem={renderConversation}
           keyExtractor={(item) => item.userId}
           contentContainerStyle={styles.flatListContent}
+          // Performance optimizations using memoized props
+          {...flatListProps}
         />
       )}
       </ThemedGradient>
@@ -261,9 +209,7 @@ const styles = StyleSheet.create({
   lastMessage: {
     fontSize: 14,
   },
-  encryptedMessage: {
-    fontStyle: "italic",
-  },
+
   timestamp: {
     fontSize: 12,
     marginLeft: 8,

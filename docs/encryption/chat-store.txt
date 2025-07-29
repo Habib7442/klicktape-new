@@ -1,0 +1,112 @@
+import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Conversation, Message } from '@/types/chat';
+import { encryptMessage, decryptMessage } from '@/utils/encryption';
+
+interface ChatState {
+  conversations: Conversation[];
+  isLoading: boolean;
+  loadConversations: () => Promise<void>;
+  createConversation: (name: string) => void;
+  addMessage: (conversationId: string, message: Omit<Message, 'id'>) => void;
+  clearAllData: () => void;
+}
+
+const STORAGE_KEY = 'secure_chat_data';
+
+export const useChatStore = create<ChatState>((set, get) => ({
+  conversations: [],
+  isLoading: false,
+
+  loadConversations: async () => {
+    set({ isLoading: true });
+    try {
+      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const data = JSON.parse(stored);
+        // Decrypt messages when loading
+        const decryptedConversations = data.conversations.map((conv: Conversation) => ({
+          ...conv,
+          messages: conv.messages.map((msg: Message) => ({
+            ...msg,
+            content: msg.isEncrypted ? decryptMessage(msg.content) : msg.content,
+          })),
+        }));
+        set({ conversations: decryptedConversations });
+      }
+    } catch (error) {
+      console.error('Failed to load conversations:', error);
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  createConversation: (name: string) => {
+    const newConversation: Conversation = {
+      id: Date.now().toString(),
+      name,
+      messages: [],
+      createdAt: Date.now(),
+      lastMessage: undefined,
+    };
+
+    const conversations = [...get().conversations, newConversation];
+    set({ conversations });
+    saveToStorage(conversations);
+  },
+
+  addMessage: (conversationId: string, messageData: Omit<Message, 'id'>) => {
+    const conversations = get().conversations.map(conv => {
+      if (conv.id === conversationId) {
+        const newMessage: Message = {
+          ...messageData,
+          id: Date.now().toString(),
+        };
+
+        const updatedMessages = [...conv.messages, newMessage];
+        
+        return {
+          ...conv,
+          messages: updatedMessages,
+          lastMessage: newMessage,
+        };
+      }
+      return conv;
+    });
+
+    set({ conversations });
+    saveToStorage(conversations);
+  },
+
+  clearAllData: async () => {
+    try {
+      await AsyncStorage.removeItem(STORAGE_KEY);
+      set({ conversations: [] });
+    } catch (error) {
+      console.error('Failed to clear data:', error);
+    }
+  },
+}));
+
+const saveToStorage = async (conversations: Conversation[]) => {
+  try {
+    // Encrypt messages before saving
+    const encryptedConversations = conversations.map(conv => ({
+      ...conv,
+      messages: conv.messages.map(msg => ({
+        ...msg,
+        content: msg.isEncrypted ? encryptMessage(msg.content) : msg.content,
+      })),
+    }));
+
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({
+      conversations: encryptedConversations,
+      lastUpdated: Date.now(),
+    }));
+  } catch (error) {
+    console.error('Failed to save conversations:', error);
+  }
+};
+
+// Initialize store
+useChatStore.getState().loadConversations();

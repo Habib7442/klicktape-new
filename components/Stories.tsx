@@ -17,10 +17,12 @@ import {
   Animated,
   Alert,
   Dimensions,
+  RefreshControl,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import Modal from "react-native-modal";
 import StoryViewer from "./StoryViewer";
+import CachedImage from "./CachedImage";
 import AntDesign from "@expo/vector-icons/AntDesign";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
@@ -85,9 +87,11 @@ const StoryItem = ({
   isYourStory,
   onPress,
   onDelete,
+  onLongPressDelete,
 }: StoryProps & {
   onPress?: () => void;
   onDelete?: () => void;
+  onLongPressDelete?: () => void;
 }) => {
   const { colors } = useTheme();
   const { latestStory, hasUnviewed, stories } = groupedStory;
@@ -101,10 +105,11 @@ const StoryItem = ({
           borderWidth: hasUnviewed ? 3 : 2,
         }
       ]}>
-        <Image
-          source={{ uri: latestStory.image_url }}
+        <CachedImage
+          uri={latestStory.image_url}
           style={styles.storyImage}
-          resizeMode="cover"
+          showLoader={true}
+          fallbackUri="https://via.placeholder.com/150"
         />
 
         {/* Story count indicator for multiple stories */}
@@ -129,6 +134,8 @@ const StoryItem = ({
               }
             ]}
             onPress={onDelete}
+            onLongPress={onLongPressDelete}
+            delayLongPress={500}
           >
             <AntDesign name="delete" size={16} color={colors.error} />
           </TouchableOpacity>
@@ -165,10 +172,11 @@ const CreateStoryItem = ({
       ]}>
         {userAvatar ? (
           <>
-            <Image
-              source={{ uri: userAvatar }}
+            <CachedImage
+              uri={userAvatar}
               style={styles.createStoryImage}
-              resizeMode="cover"
+              showLoader={true}
+              fallbackUri="https://via.placeholder.com/150"
             />
             <View style={[
               styles.addStoryIcon,
@@ -266,6 +274,7 @@ const Stories = () => {
   // Local state for user data
   const [userId, setUserId] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const { colors } = useTheme();
@@ -301,18 +310,20 @@ const Stories = () => {
   }, []);
 
   // Fetch stories with enhanced caching
-  const fetchStories = async () => {
+  const fetchStories = async (skipCache = false) => {
     try {
       dispatch(setLoading(true));
 
-      // Check cache first
-      const cachedStories = cacheManager.get("stories");
-      if (cachedStories) {
-        console.log("📦 Loading stories from cache");
-        console.log("Cache status:", cacheManager.getStatus("stories"));
-        dispatch(setStories(cachedStories));
-        dispatch(setLoading(false));
-        return;
+      // Check cache first (unless skipping cache for refresh)
+      if (!skipCache) {
+        const cachedStories = cacheManager.get("stories");
+        if (cachedStories) {
+          console.log("📦 Loading stories from cache");
+          console.log("Cache status:", cacheManager.getStatus("stories"));
+          dispatch(setStories(cachedStories));
+          dispatch(setLoading(false));
+          return;
+        }
       }
 
       console.log("🌐 Fetching stories from API");
@@ -342,6 +353,27 @@ const Stories = () => {
       }
     } finally {
       dispatch(setLoading(false));
+    }
+  };
+
+  // Handle pull-to-refresh
+  const handleRefresh = async () => {
+    try {
+      setRefreshing(true);
+
+      // Clear cache to ensure fresh data
+      cacheManager.remove("stories");
+      console.log('🔄 Cache cleared for refresh');
+
+      // Fetch fresh stories (skip cache)
+      await fetchStories(true);
+
+      console.log('✅ Stories refreshed successfully');
+    } catch (error) {
+      console.error("Error refreshing stories:", error);
+      Alert.alert("Error", "Failed to refresh stories. Please try again.");
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -416,12 +448,12 @@ const Stories = () => {
     dispatch(showStoryViewer({ stories: groupedStory.stories, startIndex: 0 }));
   };
 
-  const handleDeleteGroupedStory = (groupedStory: GroupedStory) => {
-    // If user has multiple stories, show selection modal
-    if (groupedStory.stories.length > 1) {
+  const handleDeleteGroupedStory = (groupedStory: GroupedStory, forceSelectionModal = false) => {
+    // Always show selection modal if forced, or if user has multiple stories
+    if (forceSelectionModal || groupedStory.stories.length > 1) {
       dispatch(showStorySelectionModal(groupedStory));
     } else {
-      // If only one story, delete directly
+      // If only one story and not forced, delete directly
       dispatch(showDeleteModal(groupedStory.latestStory.id));
     }
   };
@@ -481,6 +513,15 @@ const Stories = () => {
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollViewContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+            progressBackgroundColor={colors.backgroundSecondary}
+          />
+        }
       >
         {/* Create Story Button */}
         <CreateStoryItem 
@@ -496,6 +537,7 @@ const Stories = () => {
             isYourStory={true}
             onPress={() => handleGroupedStoryPress(groupedStory)}
             onDelete={() => handleDeleteGroupedStory(groupedStory)}
+            onLongPressDelete={() => handleDeleteGroupedStory(groupedStory, true)}
           />
         ))}
 

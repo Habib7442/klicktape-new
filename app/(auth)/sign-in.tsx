@@ -180,8 +180,8 @@ const SignIn = () => {
       attempts.timestamp = now;
       await AsyncStorage.setItem(rateLimitKey, JSON.stringify(attempts));
 
-      // Use a secure, validated redirect URL
-      const redirectUrl = 'https://klicktape.com/reset-password.html';
+      // Use direct deep link to open app immediately (no web redirect needed)
+      const redirectUrl = 'klicktape://reset-password';
 
       const { error } = await supabase.auth.resetPasswordForEmail(sanitizedEmail, {
         redirectTo: redirectUrl,
@@ -196,7 +196,7 @@ const SignIn = () => {
     } catch (error) {
       Alert.alert(
         "Error",
-        error.message || "Failed to process request. Please try again."
+        (error as Error)?.message || "Failed to process request. Please try again."
       );
     } finally {
       setIsLoading(false);

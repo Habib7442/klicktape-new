@@ -129,7 +129,7 @@ export class ImageCacheManager {
       
       if (downloadResult.status === 200) {
         const fileInfo = await FileSystem.getInfoAsync(localPath);
-        const size = fileInfo.size || 0;
+        const size = (fileInfo.exists && 'size' in fileInfo) ? fileInfo.size : 0;
         
         // Check cache size limits
         await this.ensureCacheSpace(size);

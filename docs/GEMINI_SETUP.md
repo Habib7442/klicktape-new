@@ -18,14 +18,29 @@ Add your Gemini API key to your environment variables:
 Create or update your `.env` file in the project root:
 
 ```env
-EXPO_PUBLIC_GEMINI_API_KEY=your_gemini_api_key_here
+# SECURE: Use without EXPO_PUBLIC_ prefix for API keys
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-### For Production
-Set the environment variable in your deployment platform:
-- **Vercel**: Add in Project Settings > Environment Variables
-- **Netlify**: Add in Site Settings > Environment Variables  
-- **EAS Build**: Add to `eas.json` or use `eas secret:create`
+**⚠️ SECURITY WARNING**: Never use `EXPO_PUBLIC_GEMINI_API_KEY` as this exposes your API key in the client bundle!
+
+### For Production (EAS Environment Variables)
+Set the environment variable securely via EAS:
+
+```bash
+# Set as secret (not readable outside EAS servers)
+eas env:create --name GEMINI_API_KEY --value "your_gemini_api_key_here" --environment production --visibility secret
+
+# For preview builds
+eas env:create --name GEMINI_API_KEY --value "your_gemini_api_key_here" --environment preview --visibility secret
+
+# For development builds
+eas env:create --name GEMINI_API_KEY --value "your_gemini_api_key_here" --environment development --visibility secret
+```
+
+### For Other Platforms
+- **Vercel**: Add `GEMINI_API_KEY` in Project Settings > Environment Variables
+- **Netlify**: Add `GEMINI_API_KEY` in Site Settings > Environment Variables
 
 ## 3. Usage Examples
 
@@ -251,7 +266,7 @@ async function convertImageToBase64(imageUri: string): Promise<string> {
 
 The service includes comprehensive error handling. Common issues:
 
-- **API Key Missing**: Ensure `EXPO_PUBLIC_GEMINI_API_KEY` is set
+- **API Key Missing**: Ensure `GEMINI_API_KEY` is set (without EXPO_PUBLIC_ prefix for security)
 - **Invalid Image Format**: Ensure image is in supported format (JPEG, PNG, WebP)
 - **Rate Limiting**: Implement retry logic for production use
 - **Network Issues**: Handle offline scenarios gracefully

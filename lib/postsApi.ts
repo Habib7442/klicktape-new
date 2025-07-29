@@ -844,4 +844,19 @@ export const postsAPI = {
       throw error;
     }
   },
+
+  getPostLikes: async (postId: string, limit: number = 50) => {
+    try {
+      const { data, error } = await supabase.rpc("get_post_likes", {
+        post_id_param: postId,
+        limit_param: limit,
+      });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      console.error("Error fetching post likes:", error);
+      throw new Error(`Failed to fetch post likes: ${error.message}`);
+    }
+  },
 };

@@ -6,19 +6,26 @@
 import { QueryClient, QueryCache, MutationCache } from '@tanstack/react-query';
 import { REDIS_CONFIG } from '../config/redis';
 import StoriesCache from '../redis/storiesCache';
+import ReelsCache from '../redis/reelsCache';
 import { performanceOptimizer } from '../utils/performanceOptimizer';
 import { queryKeyToRedisKey, redisKeyToQueryKey } from './queryKeys';
 
-// Cache time configurations (in milliseconds)
+// Optimized cache time configurations to reduce API calls
 const CACHE_TIME = {
-  STORIES_FEED: 5 * 60 * 1000,      // 5 minutes
-  USER_STORIES: 10 * 60 * 1000,     // 10 minutes
-  STORY_VIEWS: 60 * 60 * 1000,      // 1 hour
-  STORY_ANALYTICS: 2 * 60 * 60 * 1000, // 2 hours
-  POSTS: 5 * 60 * 1000,             // 5 minutes
-  USER_PROFILE: 15 * 60 * 1000,     // 15 minutes
-  NOTIFICATIONS: 2 * 60 * 1000,     // 2 minutes
-  DEFAULT: 5 * 60 * 1000,           // 5 minutes
+  STORIES_FEED: 10 * 60 * 1000,     // 10 minutes (increased)
+  USER_STORIES: 15 * 60 * 1000,     // 15 minutes (increased)
+  STORY_VIEWS: 2 * 60 * 60 * 1000,  // 2 hours (increased)
+  STORY_ANALYTICS: 4 * 60 * 60 * 1000, // 4 hours (increased)
+  REELS_FEED: 10 * 60 * 1000,       // 10 minutes (increased)
+  USER_REELS: 20 * 60 * 1000,       // 20 minutes (increased)
+  REEL_DETAILS: 30 * 60 * 1000,     // 30 minutes (increased)
+  REEL_ANALYTICS: 2 * 60 * 60 * 1000, // 2 hours (increased)
+  TRENDING_REELS: 60 * 60 * 1000,   // 1 hour (increased)
+  POSTS: 10 * 60 * 1000,            // 10 minutes (increased)
+  USER_PROFILE: 30 * 60 * 1000,     // 30 minutes (increased)
+  NOTIFICATIONS: 5 * 60 * 1000,     // 5 minutes (increased)
+  AUTH_USER: 10 * 60 * 1000,        // 10 minutes (new)
+  DEFAULT: 10 * 60 * 1000,          // 10 minutes (increased)
 } as const;
 
 // Stale time configurations (when data is considered stale)
@@ -27,6 +34,11 @@ const STALE_TIME = {
   USER_STORIES: 5 * 60 * 1000,      // 5 minutes
   STORY_VIEWS: 30 * 60 * 1000,      // 30 minutes
   STORY_ANALYTICS: 60 * 60 * 1000,  // 1 hour
+  REELS_FEED: 2 * 60 * 1000,        // 2 minutes
+  USER_REELS: 3 * 60 * 1000,        // 3 minutes
+  REEL_DETAILS: 5 * 60 * 1000,      // 5 minutes
+  REEL_ANALYTICS: 30 * 60 * 1000,   // 30 minutes
+  TRENDING_REELS: 10 * 60 * 1000,   // 10 minutes
   POSTS: 2 * 60 * 1000,             // 2 minutes
   USER_PROFILE: 10 * 60 * 1000,     // 10 minutes
   NOTIFICATIONS: 30 * 1000,         // 30 seconds
@@ -72,7 +84,7 @@ const syncToRedisCache = async (queryKey: readonly unknown[], data: any) => {
   try {
     const redisKey = queryKeyToRedisKey(queryKey);
     
-    // Only sync stories data to Redis for now
+    // Sync stories data to Redis
     if (redisKey.startsWith('stories:')) {
       if (redisKey.startsWith('stories:feed:')) {
         const limit = parseInt(redisKey.split(':')[2]) || 50;
@@ -80,6 +92,27 @@ const syncToRedisCache = async (queryKey: readonly unknown[], data: any) => {
       } else if (redisKey.startsWith('stories:user:')) {
         const userId = redisKey.split(':')[2];
         await StoriesCache.setUserStories(userId, data);
+      }
+    }
+
+    // Sync reels data to Redis
+    if (redisKey.startsWith('reels:')) {
+      if (redisKey.startsWith('reels:feed:')) {
+        const parts = redisKey.split(':');
+        const page = parseInt(parts[2]) || 1;
+        const limit = parseInt(parts[3]) || 10;
+        await ReelsCache.setReelsFeed(data, page, limit);
+      } else if (redisKey.startsWith('reels:user:')) {
+        const userId = redisKey.split(':')[2];
+        await ReelsCache.setUserReels(userId, data);
+      } else if (redisKey.startsWith('reels:detail:')) {
+        const reelId = redisKey.split(':')[2];
+        await ReelsCache.setReelDetails(reelId, data);
+      } else if (redisKey.startsWith('reels:trending:')) {
+        const limit = parseInt(redisKey.split(':')[2]) || 20;
+        await ReelsCache.setTrendingReels(data, limit);
+      } else if (redisKey.startsWith('reels:explore:')) {
+        await ReelsCache.setExploreReels(data);
       }
     }
   } catch (error) {
@@ -176,7 +209,7 @@ export const invalidateCache = async (queryKey: readonly unknown[]) => {
     // Invalidate TanStack Query cache
     await queryClient.invalidateQueries({ queryKey });
     
-    // Invalidate Redis cache if it's a stories query
+    // Invalidate Redis cache for stories
     if (REDIS_CONFIG.enabled && queryKey[0] === 'stories') {
       if (queryKey[1] === 'users' && queryKey[2]) {
         // Invalidate specific user's stories
@@ -184,6 +217,20 @@ export const invalidateCache = async (queryKey: readonly unknown[]) => {
       } else {
         // Invalidate all stories cache
         await StoriesCache.invalidateStoriesCache();
+      }
+    }
+
+    // Invalidate Redis cache for reels
+    if (REDIS_CONFIG.enabled && queryKey[0] === 'reels') {
+      if (queryKey[1] === 'users' && queryKey[2]) {
+        // Invalidate specific user's reels
+        await ReelsCache.invalidateReelsCache(queryKey[2] as string);
+      } else if (queryKey[1] === 'details' && queryKey[2]) {
+        // Invalidate specific reel
+        await ReelsCache.invalidateReelsCache(undefined, queryKey[2] as string);
+      } else {
+        // Invalidate all reels cache
+        await ReelsCache.invalidateReelsCache();
       }
     }
     
@@ -200,15 +247,15 @@ export const prefetchWithRedis = async (
 ) => {
   try {
     // For stories queries, try Redis first
+    // Try to get stories data from Redis first
     if (REDIS_CONFIG.enabled && queryKey[0] === 'stories') {
       const redisKey = queryKeyToRedisKey(queryKey);
-      
+
       if (redisKey.startsWith('stories:feed:')) {
         const limit = parseInt(redisKey.split(':')[2]) || 50;
         const cachedData = await StoriesCache.getStoriesFeed(limit);
-        
+
         if (cachedData.length > 0) {
-          // Set the data in TanStack Query cache
           queryClient.setQueryData(queryKey, cachedData);
           console.log(`📱 Prefetched from Redis: ${JSON.stringify(queryKey)}`);
           return cachedData;
@@ -216,7 +263,52 @@ export const prefetchWithRedis = async (
       } else if (redisKey.startsWith('stories:user:')) {
         const userId = redisKey.split(':')[2];
         const cachedData = await StoriesCache.getUserStories(userId);
-        
+
+        if (cachedData.length > 0) {
+          queryClient.setQueryData(queryKey, cachedData);
+          console.log(`📱 Prefetched from Redis: ${JSON.stringify(queryKey)}`);
+          return cachedData;
+        }
+      }
+    }
+
+    // Try to get reels data from Redis first
+    if (REDIS_CONFIG.enabled && queryKey[0] === 'reels') {
+      const redisKey = queryKeyToRedisKey(queryKey);
+
+      if (redisKey.startsWith('reels:feed:')) {
+        const parts = redisKey.split(':');
+        const page = parseInt(parts[2]) || 1;
+        const limit = parseInt(parts[3]) || 10;
+        const cachedData = await ReelsCache.getReelsFeed(page, limit);
+
+        if (cachedData.reels.length > 0) {
+          queryClient.setQueryData(queryKey, cachedData);
+          console.log(`📱 Prefetched from Redis: ${JSON.stringify(queryKey)}`);
+          return cachedData;
+        }
+      } else if (redisKey.startsWith('reels:user:')) {
+        const userId = redisKey.split(':')[2];
+        const cachedData = await ReelsCache.getUserReels(userId);
+
+        if (cachedData.length > 0) {
+          queryClient.setQueryData(queryKey, cachedData);
+          console.log(`📱 Prefetched from Redis: ${JSON.stringify(queryKey)}`);
+          return cachedData;
+        }
+      } else if (redisKey.startsWith('reels:detail:')) {
+        const reelId = redisKey.split(':')[2];
+        const cachedData = await ReelsCache.getReelDetails(reelId);
+
+        if (cachedData) {
+          queryClient.setQueryData(queryKey, cachedData);
+          console.log(`📱 Prefetched from Redis: ${JSON.stringify(queryKey)}`);
+          return cachedData;
+        }
+      } else if (redisKey.startsWith('reels:trending:')) {
+        const limit = parseInt(redisKey.split(':')[2]) || 20;
+        const cachedData = await ReelsCache.getTrendingReels(limit);
+
         if (cachedData.length > 0) {
           queryClient.setQueryData(queryKey, cachedData);
           console.log(`📱 Prefetched from Redis: ${JSON.stringify(queryKey)}`);

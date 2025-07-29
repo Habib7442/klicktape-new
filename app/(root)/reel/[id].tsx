@@ -7,13 +7,12 @@ import {
   Text,
   TouchableOpacity,
   Image,
-  Pressable,
   Alert,
+  Share,
 } from 'react-native';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 
 import { Feather, AntDesign, Ionicons } from '@expo/vector-icons';
-import { Share } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -25,6 +24,8 @@ import { supabase } from '@/lib/supabase';
 import { useDispatch as useReduxDispatch } from 'react-redux';
 import { AppDispatch } from '@/src/store/store';
 import { toggleLike } from '@/src/store/slices/reelsSlice';
+import ShareToChatModal from '@/components/ShareToChatModal';
+import InstagramStyleShareModal from '@/components/InstagramStyleShareModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -52,6 +53,8 @@ const ReelDetail = () => {
   const [isLiked, setIsLiked] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [showFullCaption, setShowFullCaption] = useState(false);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [instagramShareModalVisible, setInstagramShareModalVisible] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const isMounted = useRef(true);
   const dispatch = useReduxDispatch<AppDispatch>();
@@ -283,14 +286,19 @@ const ReelDetail = () => {
   const handleShare = async () => {
     if (!reel) return;
 
+    scaleValues.share.value = withSpring(1.2, {}, () => {
+      scaleValues.share.value = withSpring(1);
+    });
+
+    setInstagramShareModalVisible(true);
+  };
+
+  const handleExternalShare = async () => {
+    if (!reel) return;
+
     try {
       await Share.share({
         message: `Check out this reel: ${reel.caption}\n${reel.videoUrl}`,
-      });
-      if (!isMounted.current) return;
-
-      scaleValues.share.value = withSpring(1.2, {}, () => {
-        scaleValues.share.value = withSpring(1);
       });
     } catch (error) {
       console.error('Error sharing reel:', error);
@@ -427,12 +435,12 @@ const ReelDetail = () => {
       </TouchableOpacity>
 
       <View style={styles.gradientOverlay}>
-        <Pressable style={styles.userInfo} onPress={handleProfilePress}>
+        <TouchableOpacity style={styles.userInfo} onPress={handleProfilePress} activeOpacity={0.7}>
           <Image source={{ uri: reel.user.avatar }} style={styles.avatar} />
           <Text className="font-rubik-bold" style={styles.username}>
             {reel.user.username}
           </Text>
-        </Pressable>
+        </TouchableOpacity>
 
         <View style={styles.captionContainer}>
           <Text className="font-rubik-regular" style={styles.caption}>
@@ -448,8 +456,12 @@ const ReelDetail = () => {
         </View>
 
         <View style={styles.actions}>
-          <Animated.View style={[styles.actionButton, animatedStyles.like]}>
-            <TouchableOpacity onPress={handleLike}>
+          <TouchableOpacity
+            style={[styles.actionButton]}
+            onPress={handleLike}
+            activeOpacity={0.7}
+          >
+            <Animated.View style={animatedStyles.like}>
               <AntDesign
                 name={isLiked ? 'heart' : 'hearto'}
                 size={24}
@@ -458,45 +470,101 @@ const ReelDetail = () => {
               <Text className="font-rubik-regular" style={styles.actionText}>
                 {reel.likesCount}
               </Text>
-            </TouchableOpacity>
-          </Animated.View>
+            </Animated.View>
+          </TouchableOpacity>
 
-          <Animated.View style={[styles.actionButton, animatedStyles.comment]}>
-            <TouchableOpacity onPress={handleComment}>
+          <TouchableOpacity
+            style={[styles.actionButton]}
+            onPress={handleComment}
+            activeOpacity={0.7}
+          >
+            <Animated.View style={animatedStyles.comment}>
               <Feather name="message-circle" size={24} color="#FFFFFF" />
               <Text className="font-rubik-regular" style={styles.actionText}>
                 {reel.commentsCount}
               </Text>
-            </TouchableOpacity>
-          </Animated.View>
+            </Animated.View>
+          </TouchableOpacity>
 
-          <Animated.View style={[styles.actionButton, animatedStyles.share]}>
-            <TouchableOpacity onPress={handleShare}>
-              <Feather name="share" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
-          </Animated.View>
+          <TouchableOpacity
+            style={[styles.actionButton]}
+            onPress={handleShare}
+            activeOpacity={0.7}
+          >
+            <Animated.View style={animatedStyles.share}>
+              <Feather name="send" size={24} color="#FFFFFF" />
+            </Animated.View>
+          </TouchableOpacity>
 
-          <Animated.View style={[styles.actionButton, animatedStyles.mute]}>
-            <TouchableOpacity onPress={handleMute}>
+          <TouchableOpacity
+            style={[styles.actionButton]}
+            onPress={handleMute}
+            activeOpacity={0.7}
+          >
+            <Animated.View style={animatedStyles.mute}>
               <Feather
                 name={isMuted ? 'volume-x' : 'volume-2'}
                 size={24}
                 color="#FFFFFF"
               />
-            </TouchableOpacity>
-          </Animated.View>
+            </Animated.View>
+          </TouchableOpacity>
 
-          <Animated.View style={[styles.actionButton, animatedStyles.playPause]}>
-            <TouchableOpacity onPress={handlePlayPause}>
+          <TouchableOpacity
+            style={[styles.actionButton]}
+            onPress={handlePlayPause}
+            activeOpacity={0.7}
+          >
+            <Animated.View style={animatedStyles.playPause}>
               <Feather
                 name={isPlaying ? 'pause' : 'play'}
                 size={24}
                 color="#FFFFFF"
               />
-            </TouchableOpacity>
-          </Animated.View>
+            </Animated.View>
+          </TouchableOpacity>
         </View>
       </View>
+
+      {/* Share to Chat Modal */}
+      {reel && (
+        <ShareToChatModal
+          isVisible={shareModalVisible}
+          onClose={() => setShareModalVisible(false)}
+          reel={{
+            id: reel.id,
+            caption: reel.caption,
+            video_url: reel.videoUrl,
+            thumbnail_url: reel.thumbnailUrl,
+            user: {
+              username: reel.user.username,
+            },
+          }}
+          onShareSuccess={() => {
+            setShareModalVisible(false);
+          }}
+        />
+      )}
+
+      {/* Instagram-style Share Modal */}
+      {reel && (
+        <InstagramStyleShareModal
+          isVisible={instagramShareModalVisible}
+          onClose={() => setInstagramShareModalVisible(false)}
+          reel={{
+            id: reel.id,
+            caption: reel.caption,
+            video_url: reel.videoUrl,
+            thumbnail_url: reel.thumbnailUrl,
+            user: {
+              username: reel.user.username,
+            },
+          }}
+          onShareSuccess={() => {
+            setInstagramShareModalVisible(false);
+          }}
+        />
+      )}
     </View>
   );
 };

@@ -64,7 +64,7 @@ export const useSupabaseFetch = () => {
     try {
       const { data: user, error: userError } = await supabase
         .from("profiles")
-        .select("id, username, avatar_url, account_type, gender, bio")
+        .select("id, username, name, avatar_url, account_type, gender, bio")
         .eq("id", userId)
         .single();
 

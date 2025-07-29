@@ -23,7 +23,8 @@ import { supabase } from "@/lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
 import DeleteModal from "@/components/DeleteModal";
-import ThemedGradient from "@/components/ThemedGradient";
+
+import CachedImage from "@/components/CachedImage";
 import { useTheme } from "@/src/context/ThemeContext";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -38,6 +39,7 @@ const Profile = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [userInfo, setUserInfo] = useState({
     username: "Username",
+    name: "Full Name",
     bio: "Bio goes here",
     followers: 0,
     following: 0,
@@ -82,6 +84,7 @@ const Profile = () => {
       const userProfile = await fetchUserProfile(userId);
       setUserInfo({
         username: userProfile.username || "Username",
+        name: userProfile.name || "Full Name",
         bio: userProfile.bio || "Bio goes here",
         followers: userProfile.followersCount || 0,
         following: userProfile.followingCount || 0,
@@ -459,11 +462,14 @@ const Profile = () => {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
-      <ThemedGradient style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.header, { borderBottomColor: `${colors.primary}20` }]}>
-        <Text className="font-rubik-bold" style={[styles.headerTitle, { color: colors.text }]}>
-          Profile
-        </Text>
+        <View style={styles.headerUserInfo}>
+          <Text className="font-rubik-bold" style={[styles.headerTitle, { color: colors.text }]}>
+            {userInfo.username}
+          </Text>
+          
+        </View>
         <View style={styles.headerButtons}>
           <TouchableOpacity
             onPress={() => router.push("/create")}
@@ -513,9 +519,11 @@ const Profile = () => {
           contentContainerStyle={{ paddingBottom: 20 }}
         >
           <View style={styles.profileInfo}>
-            <Image
-              source={{ uri: userInfo.avatar }}
-              style={[styles.profileImage, { borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)' }]}
+            <CachedImage
+              uri={userInfo.avatar}
+              style={styles.profileImage}
+              showLoader={true}
+              fallbackUri="https://via.placeholder.com/150"
             />
             <View style={styles.statsContainer}>
               <View style={styles.stat}>
@@ -526,22 +534,28 @@ const Profile = () => {
                   Posts
                 </Text>
               </View>
-              <View style={styles.stat}>
+              <TouchableOpacity
+                style={styles.stat}
+                onPress={() => router.push(`/(root)/followers/${userId}`)}
+              >
                 <Text className="font-rubik-bold" style={[styles.statNumber, { color: colors.text }]}>
                   {userInfo.followers}
                 </Text>
                 <Text className="font-rubik-medium" style={[styles.statLabel, { color: colors.textSecondary }]}>
                   Followers
                 </Text>
-              </View>
-              <View style={styles.stat}>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.stat}
+                onPress={() => router.push(`/(root)/following/${userId}`)}
+              >
                 <Text className="font-rubik-bold" style={[styles.statNumber, { color: colors.text }]}>
                   {userInfo.following}
                 </Text>
                 <Text className="font-rubik-medium" style={[styles.statLabel, { color: colors.textSecondary }]}>
                   Following
                 </Text>
-              </View>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -549,7 +563,7 @@ const Profile = () => {
             <View style={styles.bioHeader}>
               <View style={styles.bioTextContainer}>
                 <Text className="font-rubik-bold" style={[styles.username, { color: colors.text }]}>
-                  {userInfo.username}
+                  {userInfo.name}
                 </Text>
                 <Text className="font-rubik-medium" style={[styles.bio, { color: colors.textSecondary }]}>
                   {userInfo.bio}
@@ -674,7 +688,7 @@ const Profile = () => {
         }}
         confirm={handleConfirmDelete}
       />
-      </ThemedGradient>
+      </View>
     </SafeAreaView>
   );
 };
@@ -695,8 +709,17 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: 1,
   },
+  headerUserInfo: {
+    flex: 1,
+  },
   headerTitle: {
     fontSize: 20,
+    fontFamily: 'Rubik-Bold',
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    fontFamily: 'Rubik-Medium',
+    marginTop: 2,
   },
   headerButtons: {
     flexDirection: "row",
@@ -717,7 +740,6 @@ const styles = StyleSheet.create({
     height: 90,
     borderRadius: 45,
     marginRight: 16,
-    borderWidth: 2,
   },
   statsContainer: {
     flex: 1,

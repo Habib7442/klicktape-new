@@ -111,11 +111,11 @@ const HomeScreen = () => {
 const YourHomeContent = () => {
   const { data: stories, isLoading } = useStories();
   const { data: posts } = usePosts();
-  
+
   // Your component logic here
   return (
     <View>
-      {/* Your UI */}
+      {/* Your UI *\/}
     </View>
   );
 };

@@ -1,0 +1,288 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { 
+  StyleSheet, 
+  Text, 
+  View, 
+  TextInput, 
+  TouchableOpacity, 
+  ScrollView, 
+  KeyboardAvoidingView,
+  Platform 
+} from 'react-native';
+import { Stack, useLocalSearchParams } from 'expo-router';
+import { Send, Lock } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useChatStore } from '@/hooks/chat-store';
+import { Message } from '@/types/chat';
+
+export default function ChatScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { conversations, addMessage } = useChatStore();
+  const [inputText, setInputText] = useState('');
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  const conversation = conversations.find(conv => conv.id === id);
+  const messages = conversation?.messages || [];
+
+  useEffect(() => {
+    // Auto-scroll to bottom when new messages arrive
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  }, [messages.length]);
+
+  const handleSend = () => {
+    if (inputText.trim() && conversation) {
+      const newMessage: Omit<Message, 'id'> = {
+        content: inputText.trim(),
+        timestamp: Date.now(),
+        isOwn: true,
+        isEncrypted: true,
+      };
+      
+      addMessage(conversation.id, newMessage);
+      setInputText('');
+    }
+  };
+
+  const formatTime = (timestamp: number) => {
+    return new Date(timestamp).toLocaleTimeString([], { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  };
+
+  const MessageBubble = ({ message }: { message: Message }) => (
+    <View style={[
+      styles.messageBubble,
+      message.isOwn ? styles.ownMessage : styles.otherMessage
+    ]}>
+      <LinearGradient
+        colors={message.isOwn ? ['#667eea', '#764ba2'] : ['#f8f9fa', '#e9ecef']}
+        style={styles.messageGradient}
+      >
+        <Text style={[
+          styles.messageText,
+          { color: message.isOwn ? '#fff' : '#333' }
+        ]}>
+          {message.content}
+        </Text>
+        <View style={styles.messageFooter}>
+          {message.isEncrypted && (
+            <Lock size={10} color={message.isOwn ? '#fff' : '#4ade80'} />
+          )}
+          <Text style={[
+            styles.messageTime,
+            { color: message.isOwn ? 'rgba(255,255,255,0.7)' : '#666' }
+          ]}>
+            {formatTime(message.timestamp)}
+          </Text>
+        </View>
+      </LinearGradient>
+    </View>
+  );
+
+  if (!conversation) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>Conversation not found</Text>
+      </View>
+    );
+  }
+
+  return (
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <Stack.Screen 
+        options={{ 
+          title: conversation.name,
+          headerStyle: { backgroundColor: '#667eea' },
+          headerTintColor: '#fff',
+          headerTitleStyle: { fontWeight: 'bold' },
+          headerRight: () => (
+            <View style={styles.headerRight}>
+              <Lock size={16} color="#4ade80" />
+              <Text style={styles.encryptedText}>Encrypted</Text>
+            </View>
+          )
+        }} 
+      />
+      
+      <LinearGradient
+        colors={['#f8f9fa', '#ffffff']}
+        style={styles.messagesContainer}
+      >
+        <ScrollView 
+          ref={scrollViewRef}
+          style={styles.messagesList}
+          contentContainerStyle={styles.messagesContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {messages.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Lock size={48} color="#ccc" />
+              <Text style={styles.emptyStateText}>
+                This conversation is secured with end-to-end encryption
+              </Text>
+              <Text style={styles.emptyStateSubtext}>
+                Send your first message to start chatting securely
+              </Text>
+            </View>
+          ) : (
+            messages.map((message) => (
+              <MessageBubble key={message.id} message={message} />
+            ))
+          )}
+        </ScrollView>
+      </LinearGradient>
+
+      <View style={styles.inputContainer}>
+        <View style={styles.inputWrapper}>
+          <TextInput
+            style={styles.textInput}
+            value={inputText}
+            onChangeText={setInputText}
+            placeholder="Type a message..."
+            placeholderTextColor="#666"
+            multiline
+            maxLength={1000}
+          />
+          <TouchableOpacity 
+            style={[
+              styles.sendButton,
+              { opacity: inputText.trim() ? 1 : 0.5 }
+            ]}
+            onPress={handleSend}
+            disabled={!inputText.trim()}
+          >
+            <LinearGradient
+              colors={['#667eea', '#764ba2']}
+              style={styles.sendButtonGradient}
+            >
+              <Send size={20} color="#fff" />
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  encryptedText: {
+    color: '#4ade80',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  messagesContainer: {
+    flex: 1,
+  },
+  messagesList: {
+    flex: 1,
+  },
+  messagesContent: {
+    padding: 20,
+    paddingBottom: 10,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  messageBubble: {
+    marginVertical: 4,
+    maxWidth: '80%',
+  },
+  ownMessage: {
+    alignSelf: 'flex-end',
+  },
+  otherMessage: {
+    alignSelf: 'flex-start',
+  },
+  messageGradient: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 20,
+  },
+  messageText: {
+    fontSize: 16,
+    lineHeight: 22,
+    marginBottom: 4,
+  },
+  messageFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    justifyContent: 'flex-end',
+  },
+  messageTime: {
+    fontSize: 11,
+  },
+  inputContainer: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 12,
+  },
+  textInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 25,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    maxHeight: 100,
+    backgroundColor: '#f8f9fa',
+  },
+  sendButton: {
+    marginBottom: 2,
+  },
+  sendButtonGradient: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorText: {
+    fontSize: 18,
+    color: '#666',
+  },
+});

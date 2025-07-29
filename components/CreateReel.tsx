@@ -800,29 +800,32 @@ const CreateReel = () => {
                   player={player}
                   style={styles.preview}
                   contentFit="contain"
+                  showsTimecodes={false}
+                  allowsFullscreen={false}
+                  allowsPictureInPicture={false}
                 />
                 <View style={[styles.videoControls, {
                   backgroundColor: `${colors.backgroundTertiary}90`,
-                  borderTopColor: `${colors.primary}20`
+                  borderTopColor: `${colors.text}20`
                 }]}>
                   <TouchableOpacity
                     style={[styles.videoControlButton, {
-                      backgroundColor: `${colors.primary}10`,
-                      borderColor: `${colors.primary}30`
+                      backgroundColor: `${colors.text}10`,
+                      borderColor: `${colors.text}30`
                     }]}
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       pickVideo();
                     }}
                   >
-                    <Feather name="refresh-ccw" size={20} color={colors.primary} />
-                    <Text style={[styles.videoControlText, { color: colors.primary }]}>Change</Text>
+                    <Feather name="refresh-ccw" size={20} color={colors.text} />
+                    <Text style={[styles.videoControlText, { color: colors.text }]}>Change</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     style={[styles.videoControlButton, {
-                      backgroundColor: `${colors.primary}10`,
-                      borderColor: `${colors.primary}30`
+                      backgroundColor: `${colors.text}10`,
+                      borderColor: `${colors.text}30`
                     }]}
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -834,9 +837,9 @@ const CreateReel = () => {
                     <Feather
                       name="play"
                       size={20}
-                      color={colors.primary}
+                      color={colors.text}
                     />
-                    <Text style={[styles.videoControlText, { color: colors.primary }]}>
+                    <Text style={[styles.videoControlText, { color: colors.text }]}>
                       Play
                     </Text>
                   </TouchableOpacity>
@@ -846,9 +849,9 @@ const CreateReel = () => {
 
             <View style={[styles.formContainer, {
               backgroundColor: `${colors.backgroundSecondary}90`,
-              borderColor: `${colors.primary}20`
+              borderColor: `${colors.text}20`
             }]}>
-              <Text style={[styles.sectionTitle, { color: colors.primary }]}>Caption</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Caption</Text>
               <View style={styles.inputContainer}>
                 <TextInput
                   placeholder="Write a caption..."
@@ -856,11 +859,11 @@ const CreateReel = () => {
                   onChangeText={setCaption}
                   multiline
                   style={[styles.input, {
-                    backgroundColor: `${colors.primary}10`,
-                    borderColor: `${colors.primary}30`,
+                    backgroundColor: `${colors.text}10`,
+                    borderColor: `${colors.text}30`,
                     color: colors.text
                   }]}
-                  placeholderTextColor={`${colors.primary}50`}
+                  placeholderTextColor={`${colors.text}50`}
                   maxLength={150}
                 />
                 <Text style={[styles.characterCount, { color: `${colors.text}70` }]}>
@@ -1167,7 +1170,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 215, 0, 0.2)',
+    borderTopColor: 'rgba(128, 128, 128, 0.2)',
   },
   videoControlButton: {
     alignItems: 'center',
@@ -1175,12 +1178,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    backgroundColor: 'rgba(128, 128, 128, 0.1)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 215, 0, 0.3)',
+    borderColor: 'rgba(128, 128, 128, 0.3)',
   },
   videoControlText: {
-    color: '#FFD700',
+    color: '#FFFFFF',
     fontFamily: 'Rubik-Regular',
     fontSize: 12,
     marginTop: 4,
@@ -1193,12 +1196,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginHorizontal: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 215, 0, 0.2)',
+    borderColor: 'rgba(128, 128, 128, 0.2)',
   },
   sectionTitle: {
     fontSize: 18,
     fontFamily: 'Rubik-Medium',
-    color: '#FFD700',
+    color: '#FFFFFF',
     marginBottom: 12,
   },
   inputContainer: {
@@ -1207,11 +1210,11 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: "rgba(255, 215, 0, 0.3)",
+    borderColor: "rgba(128, 128, 128, 0.3)",
     borderRadius: 12,
     padding: 16,
     fontSize: 16,
-    backgroundColor: "rgba(255, 215, 0, 0.1)",
+    backgroundColor: "rgba(128, 128, 128, 0.1)",
     color: "#ffffff",
     fontFamily: "Rubik-Regular",
     minHeight: 120,

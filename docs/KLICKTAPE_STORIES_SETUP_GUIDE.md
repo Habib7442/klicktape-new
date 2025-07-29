@@ -47,9 +47,14 @@ This guide covers the implementation of the comprehensive stories feature redesi
    - Copy the REST URL and Token from your Upstash dashboard
    - Add them to your `.env` file:
    ```env
+   # Public URL (safe for EXPO_PUBLIC_)
    EXPO_PUBLIC_UPSTASH_REDIS_REST_URL=your_upstash_redis_rest_url
-   EXPO_PUBLIC_UPSTASH_REDIS_REST_TOKEN=your_upstash_redis_rest_token
+
+   # Token (SECURE - do NOT use EXPO_PUBLIC_ prefix)
+   UPSTASH_REDIS_REST_TOKEN=your_upstash_redis_rest_token
    ```
+
+   **⚠️ SECURITY WARNING**: Never use `EXPO_PUBLIC_UPSTASH_REDIS_REST_TOKEN` as this exposes your Redis token in the client bundle!
 
 ### Step 3: Install Dependencies
 

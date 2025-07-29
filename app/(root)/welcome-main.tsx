@@ -81,11 +81,11 @@ const styles = StyleSheet.create({
     elevation: 10,
     borderWidth: 2,
     borderColor: "rgba(255, 215, 0, 0.3)",
-    borderRadius: 125,
+    borderRadius: 75,
   },
   logo: {
-    width: 250,
-    height: 250,
+    width: 150,
+    height: 150,
   },
   title: {
     fontSize: 28,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,9 +9,14 @@ import {
   StyleSheet,
   Dimensions,
   Share,
+  Platform,
+  Alert,
 } from "react-native";
 import Carousel from "react-native-reanimated-carousel";
 import CommentsModal from "./Comments";
+import CachedImage from "./CachedImage";
+import ShareToChatModal from "./ShareToChatModal";
+import InstagramStyleShareModal from "./InstagramStyleShareModal";
 
 import { AntDesign, FontAwesome, Feather, Ionicons } from "@expo/vector-icons";
 import { useDispatch, useSelector } from "react-redux";
@@ -54,11 +59,22 @@ const Posts = () => {
     ownerUsername: string;
   } | null>(null);
 
+  // State for share to chat modal
+  const [shareToChatModalVisible, setShareToChatModalVisible] = useState(false);
+  const [selectedPostForShare, setSelectedPostForShare] = useState<Post | null>(null);
+
+  // State for Instagram-style share modal
+  const [instagramShareModalVisible, setInstagramShareModalVisible] = useState(false);
+
   const dispatch = useDispatch();
   const posts = useSelector((state: RootState) => state.posts.posts);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const POSTS_PER_PAGE = 5;
+
+  // Estimated item height for FlatList optimization
+  // This is an approximation - adjust based on your typical post height
+  const ESTIMATED_ITEM_HEIGHT = 600;
 
   useEffect(() => {
     fetchPosts();
@@ -71,27 +87,31 @@ const Posts = () => {
 
   // Helper function to toggle caption expansion
   const toggleCaptionExpansion = (postId: string) => {
-    setExpandedCaptions(prev => ({
+    setExpandedCaptions((prev) => ({
       ...prev,
-      [postId]: !prev[postId]
+      [postId]: !prev[postId],
     }));
   };
 
   // Helper functions for comments modal
   const openCommentsModal = (postId: string, ownerUsername: string) => {
-    console.log('Opening comments modal for post:', postId);
+    console.log("Opening comments modal for post:", postId);
     setSelectedPostForComments({ id: postId, ownerUsername });
     setCommentsModalVisible(true);
   };
 
   const closeCommentsModal = () => {
-    console.log('Closing comments modal');
+    console.log("Closing comments modal");
     setCommentsModalVisible(false);
     setSelectedPostForComments(null);
   };
 
   // Function to get image dimensions and maintain aspect ratio
-  const getImageDimensions = (imageUrl: string, postId: string, imageIndex: number) => {
+  const getImageDimensions = (
+    imageUrl: string,
+    postId: string,
+    imageIndex: number
+  ) => {
     const key = `${postId}_${imageIndex}`;
     if (imageDimensions[key]) {
       return imageDimensions[key];
@@ -104,18 +124,18 @@ const Posts = () => {
         const aspectRatio = width / height;
         const imageHeight = screenWidth / aspectRatio;
 
-        setImageDimensions(prev => ({
+        setImageDimensions((prev) => ({
           ...prev,
-          [key]: { width: screenWidth, height: imageHeight }
+          [key]: { width: screenWidth, height: imageHeight },
         }));
       },
       (error) => {
         console.log("Error getting image size:", error);
         // Fallback to square aspect ratio
         const screenWidth = Dimensions.get("window").width;
-        setImageDimensions(prev => ({
+        setImageDimensions((prev) => ({
           ...prev,
-          [key]: { width: screenWidth, height: screenWidth }
+          [key]: { width: screenWidth, height: screenWidth },
         }));
       }
     );
@@ -185,27 +205,32 @@ const Posts = () => {
       // Explicitly check if the current user has liked or bookmarked each post
       const updatedPosts = fetchedPosts.map((post) => {
         // Check if the current user's ID is in the likes array
-        const isLiked = Array.isArray(post.likes) &&
+        const isLiked =
+          Array.isArray(post.likes) &&
           post.likes.some((like: any) => like.user_id === user.id);
 
         // Check if the current user's ID is in the bookmarks array
-        const isBookmarked = Array.isArray(post.bookmarks) &&
+        const isBookmarked =
+          Array.isArray(post.bookmarks) &&
           post.bookmarks.some((bookmark: any) => bookmark.user_id === user.id);
 
         // Get the actual comment count from the comments array
-        const actualCommentsCount = Array.isArray(post.comments) ? post.comments.length : 0;
+        const actualCommentsCount = Array.isArray(post.comments)
+          ? post.comments.length
+          : 0;
 
         console.log(`Post ${post.id} liked status for user ${user.id}:`, {
           isLiked,
           likesArray: post.likes,
           commentsCount: post.comments_count,
-          actualCommentsCount
+          actualCommentsCount,
         });
 
         // Extract user data from profiles
         const profileData = post.profiles || {};
         const username = profileData.username || "Unknown User";
-        const avatar_url = profileData.avatar_url || "https://via.placeholder.com/150";
+        const avatar_url =
+          profileData.avatar_url || "https://via.placeholder.com/150";
 
         return {
           ...post,
@@ -231,13 +256,19 @@ const Posts = () => {
     }
   };
 
-  const handleLoadMore = () => {
+  const handleLoadMore = useCallback(() => {
     if (!loading && hasMore) {
       setLoading(true);
       setPage((prev) => prev + 1);
       fetchPosts(page + 1, true);
     }
-  };
+  }, [loading, hasMore, page]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    setPage(1);
+    fetchPosts(1);
+  }, []);
 
   const handleLike = async (postId: string) => {
     try {
@@ -266,10 +297,13 @@ const Posts = () => {
 
       // Make the API call to update the database using the new RPC function
       // The RPC function handles like records, triggers handle count updates
-      const { data: isLiked, error } = await supabase.rpc("lightning_toggle_like_v4", {
-        post_id_param: postId,
-        user_id_param: user.id,
-      });
+      const { data: isLiked, error } = await supabase.rpc(
+        "lightning_toggle_like_v4",
+        {
+          post_id_param: postId,
+          user_id_param: user.id,
+        }
+      );
 
       if (error) {
         console.error("Error in toggle_like RPC:", error);
@@ -279,7 +313,9 @@ const Posts = () => {
       }
 
       // No need for forced refresh - the RPC function handles everything atomically
-      console.log(`✅ Like toggled successfully: ${isLiked ? 'liked' : 'unliked'}`);
+      console.log(
+        `✅ Like toggled successfully: ${isLiked ? "liked" : "unliked"}`
+      );
     } catch (error) {
       // Revert the optimistic update if there's an exception
       dispatch(toggleLike(postId));
@@ -336,9 +372,12 @@ const Posts = () => {
     }
   };
 
+  const handleShare = (post: Post) => {
+    setSelectedPostForShare(post);
+    setInstagramShareModalVisible(true);
+  };
 
-
-  const handleShare = async (post: Post) => {
+  const handleExternalShare = async (post: Post) => {
     try {
       if (post.image_urls.length > 0) {
         const currentImageIndex = activeImageIndexes[post.id] || 0;
@@ -354,226 +393,297 @@ const Posts = () => {
     }
   };
 
-  const renderPost = ({ item: post }: { item: Post }) => {
-    const renderCarouselItem = ({ item: imageUrl, index }: { item: string; index: number }) => {
-      const dimensions = getImageDimensions(imageUrl, post.id, index);
+  const handleShareToChatSuccess = () => {
+    setShareToChatModalVisible(false);
+    setSelectedPostForShare(null);
+  };
+
+  // Optimized getItemLayout for better FlatList performance
+  const getItemLayout = useCallback(
+    (_data: any, index: number) => ({
+      length: ESTIMATED_ITEM_HEIGHT,
+      offset: ESTIMATED_ITEM_HEIGHT * index,
+      index,
+    }),
+    []
+  );
+
+  const renderPost = useCallback(
+    ({ item: post }: { item: Post }) => {
+      const renderCarouselItem = ({
+        item: imageUrl,
+        index,
+      }: {
+        item: string;
+        index: number;
+      }) => {
+        const dimensions = getImageDimensions(imageUrl, post.id, index);
+
+        return (
+          <TouchableOpacity
+            onPress={() =>
+              router.push({
+                pathname: "/post/[id]",
+                params: { id: post.id },
+              })
+            }
+          >
+            <View style={[styles.carouselItem, { height: dimensions.height }]}>
+              <CachedImage
+                uri={imageUrl}
+                style={[
+                  styles.postImage,
+                  { width: dimensions.width, height: dimensions.height },
+                ]}
+                showLoader={true}
+                fallbackUri="https://via.placeholder.com/400"
+                resizeMode="contain"
+              />
+            </View>
+          </TouchableOpacity>
+        );
+      };
 
       return (
-        <TouchableOpacity
-          onPress={() =>
-            router.push({
-              pathname: "/post/[id]",
-              params: { id: post.id },
-            })
-          }
-        >
-          <View style={[styles.carouselItem, { height: dimensions.height }]}>
-            <Image
-              source={{ uri: imageUrl }}
-              style={[styles.postImage, { width: dimensions.width, height: dimensions.height }]}
-              resizeMode="contain"
-            />
-          </View>
-        </TouchableOpacity>
-      );
-    };
+        <View style={styles.postContainer}>
+          <View style={styles.postHeader}>
+            <View style={styles.userInfo}>
+              <CachedImage
+                uri={post.user.avatar_url}
+                style={[styles.avatar, { borderColor: `${colors.primary}30` }]}
+                showLoader={true}
+                fallbackUri="https://via.placeholder.com/150"
+              />
 
-    return (
-      <View style={styles.postContainer}>
-        <View style={styles.postHeader}>
-          <View style={styles.userInfo}>
-            <Image
-              source={{ uri: post.user.avatar_url }}
-              style={[styles.avatar, { borderColor: `${colors.primary}30` }]}
-            />
-
-            <View>
-              <TouchableOpacity
-                onPress={() =>
-                  router.push({
-                    pathname: "/userProfile/[id]",
-                    params: { id: post.user_id },
-                  })
-                }
-              >
-                <Text style={[styles.username, { color: colors.text }]}>{post.user.username}</Text>
-              </TouchableOpacity>
+              <View>
+                <TouchableOpacity
+                  onPress={() =>
+                    router.push({
+                      pathname: "/userProfile/[id]",
+                      params: { id: post.user_id },
+                    })
+                  }
+                >
+                  <Text style={[styles.username, { color: colors.text }]}>
+                    {post.user.username}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
 
-        {/* Caption with expand/collapse functionality */}
-        {post.caption && (
-          <View style={styles.captionContainer}>
-            <Text style={[styles.postText, { color: colors.text }]}>
-              {shouldTruncateCaption(post.caption) && !expandedCaptions[post.id]
-                ? `${post.caption.substring(0, 100)}...`
-                : post.caption}
-            </Text>
-            {shouldTruncateCaption(post.caption) && (
-              <TouchableOpacity
-                onPress={() => toggleCaptionExpansion(post.id)}
-                style={styles.seeMoreButton}
-              >
-                <Text style={[styles.seeMoreText, { color: colors.text + '80' }]}>
-                  {expandedCaptions[post.id] ? 'See less' : 'See more'}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-        {/* Hashtags Display */}
-        {post.hashtags && post.hashtags.length > 0 && (
-          <View style={styles.hashtagsContainer}>
-            <FlatList
-              data={post.hashtags}
-              renderItem={({ item: hashtag, index }) => (
+          {/* Caption with expand/collapse functionality */}
+          {post.caption && (
+            <View style={styles.captionContainer}>
+              <Text style={[styles.postText, { color: colors.text }]}>
+                {shouldTruncateCaption(post.caption) &&
+                !expandedCaptions[post.id]
+                  ? `${post.caption.substring(0, 100)}...`
+                  : post.caption}
+              </Text>
+              {shouldTruncateCaption(post.caption) && (
                 <TouchableOpacity
-                  key={index}
-                  style={[styles.hashtagButton, { backgroundColor: `${colors.primary}15` }]}
-                  onPress={() => {
-                    // Navigate to hashtag search or handle hashtag tap
-                    console.log("Hashtag tapped:", hashtag);
-                  }}
+                  onPress={() => toggleCaptionExpansion(post.id)}
+                  style={styles.seeMoreButton}
                 >
-                  <Text style={[styles.hashtagText, { color: colors.primary }]}>
-                    #{hashtag}
+                  <Text
+                    style={[styles.seeMoreText, { color: colors.text + "80" }]}
+                  >
+                    {expandedCaptions[post.id] ? "See less" : "See more"}
                   </Text>
                 </TouchableOpacity>
               )}
-              keyExtractor={(item, index) => `${item}-${index}`}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.hashtagsList}
-            />
-          </View>
-        )}
-
-        <View style={styles.imageContainer}>
-          <Carousel
-            loop={false}
-            width={Dimensions.get("window").width}
-            height={(() => {
-              // Calculate height based on first image dimensions for consistency
-              const firstImageDimensions = getImageDimensions(post.image_urls[0], post.id, 0);
-              return firstImageDimensions.height;
-            })()}
-            data={post.image_urls}
-            defaultIndex={activeImageIndexes[post.id] || 0}
-            onSnapToItem={(index) =>
-              setActiveImageIndexes((prev) => ({ ...prev, [post.id]: index }))
-            }
-            renderItem={({ item: imageUrl, index }) => {
-              const dimensions = getImageDimensions(imageUrl, post.id, index);
-              return (
-                <View style={[styles.carouselItem, { height: dimensions.height }]}>
-                  <Image
-                    source={{ uri: imageUrl }}
-                    style={[styles.postImage, { width: dimensions.width, height: dimensions.height }]}
-                    resizeMode="contain"
-                  />
-                </View>
-              );
-            }}
-            onConfigurePanGesture={(gestureChain) =>
-              gestureChain.activeOffsetX([-10, 10])
-            }
-            enabled={post.image_urls.length > 1}
-            scrollAnimationDuration={300}
-            withAnimation={{
-              type: "spring",
-              config: {
-                damping: 15,
-                stiffness: 100,
-              },
-            }}
-          />
-
-          {post.image_urls.length > 1 && (
-            <View style={styles.pagination}>
-              {post.image_urls.map((_, index) => (
-                <View
-                  key={index}
-                  style={[
-                    styles.paginationDot,
-                    { backgroundColor: `${colors.text}50` },
-                    index === (activeImageIndexes[post.id] || 0) && [
-                      styles.paginationDotActive,
-                      { backgroundColor: colors.primary }
-                    ],
-                  ]}
-                />
-              ))}
             </View>
           )}
-        </View>
 
-        <View style={styles.postStats}>
-          <Text style={[styles.statText, { color: colors.text }]}>
-            {post.likes_count} {post.likes_count === 1 ? "like" : "likes"}
-          </Text>
-          <TouchableOpacity
-            onPress={() => openCommentsModal(post.id, post.user.username)}
-          >
-            {post.comments_count > 0 ? (
-              <Text style={[styles.statText, { color: colors.text }]}>
-                {post.comments_count}{" "}
-                {post.comments_count === 1 ? "comment" : "comments"}
-              </Text>
-            ) : (
-              <Text style={[styles.statText, { color: colors.text }]}>
-                No comments
-              </Text>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        <View style={[styles.postActions, { borderTopColor: `${colors.primary}20` }]}>
-          <View style={styles.leftActions}>
-            <TouchableOpacity
-              onPress={() => handleLike(post.id)}
-              style={styles.actionButton}
-            >
-              <AntDesign
-                name={post.is_liked ? "heart" : "hearto"}
-                size={24}
-                color={post.is_liked ? colors.error : colors.text}
+          {/* Hashtags Display */}
+          {post.hashtags && post.hashtags.length > 0 && (
+            <View style={styles.hashtagsContainer}>
+              <FlatList
+                data={post.hashtags}
+                renderItem={({ item: hashtag, index }) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={[
+                      styles.hashtagButton,
+                      { backgroundColor: `${colors.primary}15` },
+                    ]}
+                    onPress={() => {
+                      // Navigate to hashtag search or handle hashtag tap
+                      console.log("Hashtag tapped:", hashtag);
+                    }}
+                  >
+                    <Text
+                      style={[styles.hashtagText, { color: colors.primary }]}
+                    >
+                      #{hashtag}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                keyExtractor={(item, index) => `${item}-${index}`}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.hashtagsList}
               />
+            </View>
+          )}
+
+          <View style={styles.imageContainer}>
+            <Carousel
+              loop={false}
+              width={Dimensions.get("window").width}
+              height={(() => {
+                // Calculate height based on first image dimensions for consistency
+                const firstImageDimensions = getImageDimensions(
+                  post.image_urls[0],
+                  post.id,
+                  0
+                );
+                return firstImageDimensions.height;
+              })()}
+              data={post.image_urls}
+              defaultIndex={activeImageIndexes[post.id] || 0}
+              onSnapToItem={(index) =>
+                setActiveImageIndexes((prev) => ({ ...prev, [post.id]: index }))
+              }
+              renderItem={({ item: imageUrl, index }) => {
+                const dimensions = getImageDimensions(imageUrl, post.id, index);
+                return (
+                  <View
+                    style={[styles.carouselItem, { height: dimensions.height }]}
+                  >
+                    <CachedImage
+                      uri={imageUrl}
+                      style={[
+                        styles.postImage,
+                        { width: dimensions.width, height: dimensions.height },
+                      ]}
+                      showLoader={true}
+                      fallbackUri="https://via.placeholder.com/400"
+                      resizeMode="contain"
+                    />
+                  </View>
+                );
+              }}
+              onConfigurePanGesture={(gestureChain) =>
+                gestureChain.activeOffsetX([-10, 10])
+              }
+              enabled={post.image_urls.length > 1}
+              scrollAnimationDuration={200}
+              withAnimation={{
+                type: "timing",
+                config: {
+                  duration: 200,
+                },
+              }}
+            />
+
+            {post.image_urls.length > 1 && (
+              <View style={styles.pagination}>
+                {post.image_urls.map((_, index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.paginationDot,
+                      { backgroundColor: `${colors.text}30` },
+                      index === (activeImageIndexes[post.id] || 0) && [
+                        styles.paginationDotActive,
+                        { backgroundColor: colors.text },
+                      ],
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
+
+          <View style={styles.postStats}>
+            <TouchableOpacity
+              onPress={() =>
+                router.push(`/(root)/post-likes/${post.id}` as any)
+              }
+            >
+              <Text style={[styles.statText, { color: colors.text }]}>
+                {post.likes_count} {post.likes_count === 1 ? "like" : "likes"}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => openCommentsModal(post.id, post.user.username)}
-              style={styles.actionButton}
             >
-              <Ionicons name="chatbubble-outline" size={24} color={colors.text} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => handleShare(post)}
-              style={styles.actionButton}
-            >
-              <Feather name="send" size={24} color={colors.text} />
+              {post.comments_count > 0 ? (
+                <Text style={[styles.statText, { color: colors.text }]}>
+                  {post.comments_count}{" "}
+                  {post.comments_count === 1 ? "comment" : "comments"}
+                </Text>
+              ) : (
+                <Text style={[styles.statText, { color: colors.text }]}>
+                  No comments
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
-          <TouchableOpacity
-            onPress={() => handleBookmark(post.id)}
-            style={styles.bookmarkButton}
-          >
-            <FontAwesome
-              name={post.is_bookmarked ? "bookmark" : "bookmark-o"}
-              size={24}
-              color={post.is_bookmarked ? colors.primary : colors.text}
-            />
-          </TouchableOpacity>
-        </View>
 
-        {/* Comment input section removed - now handled in the comments screen */}
-      </View>
-    );
-  };
+          <View
+            style={[
+              styles.postActions,
+              { borderTopColor: `${colors.primary}20` },
+            ]}
+          >
+            <View style={styles.leftActions}>
+              <TouchableOpacity
+                onPress={() => handleLike(post.id)}
+                style={styles.actionButton}
+              >
+                <AntDesign
+                  name={post.is_liked ? "heart" : "hearto"}
+                  size={24}
+                  color={post.is_liked ? colors.error : colors.text}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => openCommentsModal(post.id, post.user.username)}
+                style={styles.actionButton}
+              >
+                <Ionicons
+                  name="chatbubble-outline"
+                  size={24}
+                  color={colors.text}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleShare(post)}
+                style={styles.actionButton}
+              >
+                <Feather name="send" size={24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              onPress={() => handleBookmark(post.id)}
+              style={styles.bookmarkButton}
+            >
+              <FontAwesome
+                name={post.is_bookmarked ? "bookmark" : "bookmark-o"}
+                size={24}
+                color={post.is_bookmarked ? colors.primary : colors.text}
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Comment input section removed - now handled in the comments screen */}
+        </View>
+      );
+    },
+    [activeImageIndexes, expandedCaptions, colors, posts]
+  );
 
   if (loading && posts.length === 0) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: colors.backgroundSecondary }]}>
+      <View
+        style={[
+          styles.loadingContainer,
+          { backgroundColor: colors.backgroundSecondary },
+        ]}
+      >
         <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
@@ -585,12 +695,16 @@ const Posts = () => {
         data={posts}
         renderItem={renderPost}
         keyExtractor={(item) => item.id}
+        // Performance optimizations
+        getItemLayout={getItemLayout}
+        removeClippedSubviews={Platform.OS === "android"}
+        windowSize={10}
+        initialNumToRender={3}
+        maxToRenderPerBatch={5}
+        updateCellsBatchingPeriod={50}
+        // Refresh and pagination
         refreshing={refreshing}
-        onRefresh={() => {
-          setRefreshing(true);
-          setPage(1);
-          fetchPosts(1);
-        }}
+        onRefresh={handleRefresh}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
         ListFooterComponent={() =>
@@ -613,6 +727,25 @@ const Posts = () => {
           visible={commentsModalVisible}
         />
       )}
+
+      {/* Share to Chat Modal */}
+      <ShareToChatModal
+        isVisible={shareToChatModalVisible}
+        onClose={() => setShareToChatModalVisible(false)}
+        post={selectedPostForShare}
+        onShareSuccess={handleShareToChatSuccess}
+      />
+
+      {/* Instagram-style Share Modal */}
+      <InstagramStyleShareModal
+        isVisible={instagramShareModalVisible}
+        onClose={() => setInstagramShareModalVisible(false)}
+        post={selectedPostForShare}
+        onShareSuccess={() => {
+          setInstagramShareModalVisible(false);
+          setSelectedPostForShare(null);
+        }}
+      />
     </>
   );
 };
@@ -670,13 +803,13 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   seeMoreButton: {
-    alignSelf: 'flex-start',
+    alignSelf: "flex-start",
     paddingVertical: 2,
   },
   seeMoreText: {
     fontSize: 14,
     fontFamily: "Rubik-Medium",
-    fontWeight: '500',
+    fontWeight: "500",
   },
   hashtagsContainer: {
     marginBottom: 12,
@@ -714,23 +847,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   pagination: {
-    position: "absolute",
-    bottom: 16,
-    left: 0,
-    right: 0,
     flexDirection: "row",
     justifyContent: "center",
-    alignItems: "center",
+    paddingVertical: 8,
   },
   paginationDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     marginHorizontal: 4,
   },
   paginationDotActive: {
-    width: 8,
-    height: 8,
+    // backgroundColor will be set dynamically
   },
   postStats: {
     flexDirection: "row",
@@ -790,7 +918,6 @@ const styles = StyleSheet.create({
     padding: 16,
     alignItems: "center",
   },
-
 });
 
 export default Posts;

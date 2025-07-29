@@ -61,6 +61,8 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
     // Add like status tracking
     const [likedComments, setLikedComments] = useState<Set<string>>(new Set());
     const [deletingComments, setDeletingComments] = useState<Set<string>>(new Set());
+    // Add expanded replies tracking
+    const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
     const mentionInputRef = useRef<TextInput>(null);
     const mentionStartIndex = useRef<number>(-1);
     const subscriptionRef = useRef<any>(null);
@@ -849,15 +851,52 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
         console.log(`Successfully updated like status for comment ${commentId}`);
 
         // Note: Like count is now automatically updated by database triggers
-        // Refresh comments to get updated counts and like status
-        await fetchComments(false);
+        // No need to refresh comments since we already updated optimistically
       } catch (error) {
         console.error(`Error liking ${entityType} comment:`, error);
         Alert.alert("Error", `Failed to like ${entityType} comment.`);
 
         // Revert optimistic update on error
-        await fetchComments(false);
+        const revertedLikedComments = new Set(likedComments);
+        if (isCurrentlyLiked) {
+          revertedLikedComments.add(commentId);
+        } else {
+          revertedLikedComments.delete(commentId);
+        }
+        setLikedComments(revertedLikedComments);
+
+        // Revert comment count
+        const revertCommentsLikeCount = (comments: Comment[]): Comment[] => {
+          return comments.map(comment => {
+            if (comment.id === commentId) {
+              return {
+                ...comment,
+                likes_count: Math.max(0, comment.likes_count + (isCurrentlyLiked ? 1 : -1))
+              };
+            }
+            if (comment.replies && comment.replies.length > 0) {
+              return {
+                ...comment,
+                replies: revertCommentsLikeCount(comment.replies)
+              };
+            }
+            return comment;
+          });
+        };
+        setComments(revertCommentsLikeCount(comments));
       }
+    };
+
+    const toggleRepliesExpansion = (commentId: string) => {
+      setExpandedReplies(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(commentId)) {
+          newSet.delete(commentId);
+        } else {
+          newSet.add(commentId);
+        }
+        return newSet;
+      });
     };
 
     const parseCommentText = (
@@ -948,7 +987,10 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
           <View
             style={[
               styles.commentContainer,
-              comment.parent_comment_id && styles.replyContainer,
+              comment.parent_comment_id && {
+                ...styles.replyContainer,
+                borderLeftColor: colors.border,
+              },
               isDeleting && { opacity: 0.5 },
             ]}
           >
@@ -983,8 +1025,8 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                     onPress={() => handleLikeComment(comment.id)}
                     style={styles.actionButton}
                   >
-                    <Ionicons
-                      name={isLikedByUser ? "heart" : "heart-outline"}
+                    <AntDesign
+                      name={isLikedByUser ? "heart" : "hearto"}
                       size={16}
                       color={isLikedByUser ? "#FF3040" : colors.textSecondary}
                     />
@@ -1033,13 +1075,38 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
               </View>
             </View>
             {comment.replies && comment.replies.length > 0 && (
-              <FlatList
-                data={comment.replies}
-                renderItem={renderComment}
-                keyExtractor={(item) => item.id}
-                style={styles.repliesList}
-                showsVerticalScrollIndicator={false}
-              />
+              <View style={styles.repliesSection}>
+                {!expandedReplies.has(comment.id) ? (
+                  <TouchableOpacity
+                    onPress={() => toggleRepliesExpansion(comment.id)}
+                    style={styles.viewRepliesButton}
+                  >
+                    <View style={[styles.replyLine, { backgroundColor: colors.border }]} />
+                    <Text style={[styles.viewRepliesText, { color: colors.textSecondary }]}>
+                      View all {comment.replies.length} {comment.replies.length === 1 ? 'reply' : 'replies'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View>
+                    <TouchableOpacity
+                      onPress={() => toggleRepliesExpansion(comment.id)}
+                      style={styles.hideRepliesButton}
+                    >
+                      <View style={[styles.replyLine, { backgroundColor: colors.border }]} />
+                      <Text style={[styles.hideRepliesText, { color: colors.textSecondary }]}>
+                        Hide replies
+                      </Text>
+                    </TouchableOpacity>
+                    <FlatList
+                      data={comment.replies}
+                      renderItem={renderComment}
+                      keyExtractor={(item) => item.id}
+                      style={styles.repliesList}
+                      showsVerticalScrollIndicator={false}
+                    />
+                  </View>
+                )}
+              </View>
             )}
           </View>
         );
@@ -1431,9 +1498,11 @@ const styles = StyleSheet.create({
     borderBottomColor: "#222",
   },
   replyContainer: {
-    marginLeft: 40,
+    marginLeft: 50,
     marginTop: 5,
     borderBottomWidth: 0,
+    paddingLeft: 10,
+    borderLeftWidth: 2,
   },
   commentRow: {
     flexDirection: "row",
@@ -1489,8 +1558,34 @@ const styles = StyleSheet.create({
     color: "#999",
     marginLeft: 5,
   },
+  repliesSection: {
+    marginTop: 8,
+    marginLeft: 50,
+  },
   repliesList: {
     marginTop: 5,
+  },
+  viewRepliesButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 5,
+  },
+  hideRepliesButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 5,
+  },
+  viewRepliesText: {
+    fontSize: 12,
+    marginLeft: 8,
+  },
+  hideRepliesText: {
+    fontSize: 12,
+    marginLeft: 8,
+  },
+  replyLine: {
+    width: 24,
+    height: 1,
   },
   inputContainer: {
     paddingHorizontal: 10,

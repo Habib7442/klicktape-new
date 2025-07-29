@@ -65,14 +65,18 @@ io.on('connection', (socket) => {
 
   // Handle sending messages
   socket.on('send_message', (message) => {
-    console.log(`📤 Message from ${message.sender_id} to ${message.receiver_id}:`, message.content);
-    
+    console.log(`📤 Message from ${message.sender_id} to ${message.receiver_id}`, {
+      id: message.id,
+      timestamp: message.created_at,
+      hasContent: !!message.content
+    });
+
     // Create chat room ID from sender and receiver
     const chatId = [message.sender_id, message.receiver_id].sort().join('-');
-    
+
     // Broadcast message to all users in the chat room
     io.to(chatId).emit('new_message', message);
-    
+
     console.log(`📨 Message broadcasted to room ${chatId}`);
   });
 

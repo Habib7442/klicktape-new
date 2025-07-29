@@ -8,6 +8,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import SplashScreen from "@/components/SplashScreen";
 import { checkProfileCompletion, getUserProfileData, getAuthRedirectPath } from "@/lib/profileUtils";
 
+
 const Page = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSignedIn, setIsSignedIn] = useState(false);
@@ -62,6 +63,8 @@ const Page = () => {
           }));
           console.log("✅ User data stored in Redux and AsyncStorage");
         }
+
+
 
         // Determine where to redirect the user
         const redirectPath = await getAuthRedirectPath(session.user.id, session.user.email);

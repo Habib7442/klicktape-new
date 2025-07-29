@@ -11,10 +11,41 @@ import { Provider } from "react-redux";
 import { PersistGate } from "redux-persist/integration/react";
 import { store, persistor } from "@/src/store/store";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { ThemeProvider } from "@/src/context/ThemeContext";
+import { ThemeProvider, useTheme } from "@/src/context/ThemeContext";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
+
+// Theme-aware Stack component
+function ThemedStack() {
+  const { isDarkMode } = useTheme();
+
+  return (
+    <Stack
+      screenOptions={{
+        // Set theme-aware background for all screens to prevent white flash
+        contentStyle: {
+          backgroundColor: isDarkMode ? '#000000' : '#FFFFFF',
+        },
+      }}
+    >
+      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+      <Stack.Screen name="(root)" options={{ headerShown: false }} />
+
+      <Stack.Screen
+        name="verify-email"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="reset-password"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen name="+not-found" />
+    </Stack>
+  );
+}
 
 export default function RootLayout() {
   const [fontsLoaded, error] = useFonts({
@@ -39,21 +70,7 @@ export default function RootLayout() {
       <Provider store={store}>
         <PersistGate loading={null} persistor={persistor}>
           <ThemeProvider>
-            <Stack>
-              <Stack.Screen name="index" options={{ headerShown: false }} />
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-              <Stack.Screen name="(root)" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="verify-email"
-                options={{ headerShown: false }}
-              />
-              <Stack.Screen
-                name="reset-password"
-                options={{ headerShown: false }}
-              />
-              <Stack.Screen name="+not-found" />
-            </Stack>
+            <ThemedStack />
           </ThemeProvider>
         </PersistGate>
       </Provider>

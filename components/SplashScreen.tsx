@@ -1,6 +1,5 @@
 import { View, Text, Image, StyleSheet, Animated } from "react-native";
 import { useEffect, useRef } from "react";
-import { LinearGradient } from "expo-linear-gradient";
 import { useTheme } from "@/src/context/ThemeContext";
 
 interface SplashScreenProps {
@@ -35,12 +34,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
   }, []);
 
   return (
-    <LinearGradient
-      colors={[colors.background, colors.backgroundSecondary, colors.backgroundTertiary]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.container}
-    >
+    <View style={[styles.container, { backgroundColor: '#000000' }]}>
       <Animated.View
         style={[
           styles.imageContainer,
@@ -69,7 +63,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
       <Text className="font-rubik-medium" style={[styles.subtitle, { color: colors.textSecondary }]}>
         The ultimate social experience
       </Text>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -91,11 +85,11 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 10,
     borderWidth: 2,
-    borderRadius: 125,
+    borderRadius: 75,
   },
   logo: {
-    width: 250,
-    height: 250,
+    width: 150,
+    height: 150,
   },
   title: {
     fontSize: 28,

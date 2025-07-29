@@ -7,14 +7,15 @@ import { queryClient } from '../queryClient';
 import StoriesCache from '../../redis/storiesCache';
 import PostsCache from '../../redis/postsCache';
 import CommentsCache from '../../redis/commentsCache';
+import ReelsCache from '../../redis/reelsCache';
 import { queryKeys } from '../queryKeys';
 import { REDIS_CONFIG } from '../../config/redis';
 import { supabase } from '../../supabase';
 
 // Types for invalidation events
 interface InvalidationEvent {
-  type: 'stories' | 'posts' | 'users' | 'notifications' | 'messages';
-  action: 'create' | 'update' | 'delete' | 'view' | 'like' | 'bookmark';
+  type: 'stories' | 'posts' | 'reels' | 'users' | 'notifications' | 'messages';
+  action: 'create' | 'update' | 'delete' | 'view' | 'like' | 'bookmark' | 'share' | 'comment';
   entityId?: string;
   userId?: string;
   relatedIds?: string[];
@@ -76,7 +77,10 @@ class CacheInvalidator {
       
       case 'posts':
         return this.getPostsInvalidationStrategy(action, entityId, userId, relatedIds);
-      
+
+      case 'reels':
+        return this.getReelsInvalidationStrategy(action, entityId, userId, relatedIds);
+
       case 'users':
         return this.getUsersInvalidationStrategy(action, entityId, userId, relatedIds);
       
@@ -271,6 +275,137 @@ class CacheInvalidator {
         customActions.push(async () => {
           if (REDIS_CONFIG.enabled) {
             await PostsCache.invalidatePostsCache(userId, entityId);
+          }
+        });
+        break;
+    }
+
+    return { tanstackQueries, redisKeys, customActions };
+  }
+
+  /**
+   * Reels invalidation strategies
+   */
+  private getReelsInvalidationStrategy(
+    action: string,
+    entityId?: string,
+    userId?: string,
+    relatedIds?: string[]
+  ): InvalidationStrategy {
+    const tanstackQueries: unknown[][] = [];
+    const redisKeys: string[] = [];
+    const customActions: (() => Promise<void>)[] = [];
+
+    switch (action) {
+      case 'create':
+        // Invalidate reels feed and user reels
+        tanstackQueries.push(
+          queryKeys.reels.lists(),
+          queryKeys.reels.explore(),
+          ...(userId ? [queryKeys.reels.user(userId)] : [])
+        );
+
+        redisKeys.push(
+          'reels:feed:*',
+          'reels:trending:*',
+          'reels:explore:*',
+          ...(userId ? [`reels:user:${userId}:*`] : [])
+        );
+
+        // Custom action to invalidate reels cache
+        customActions.push(async () => {
+          if (REDIS_CONFIG.enabled) {
+            await ReelsCache.invalidateReelsCache(userId);
+          }
+        });
+        break;
+
+      case 'delete':
+        tanstackQueries.push(
+          queryKeys.reels.lists(),
+          queryKeys.reels.explore(),
+          ...(entityId ? [queryKeys.reels.detail(entityId)] : []),
+          ...(userId ? [queryKeys.reels.user(userId)] : [])
+        );
+
+        redisKeys.push(
+          'reels:feed:*',
+          'reels:trending:*',
+          'reels:explore:*',
+          ...(entityId ? [`reels:detail:${entityId}`, `reels:*:${entityId}`] : []),
+          ...(userId ? [`reels:user:${userId}:*`] : [])
+        );
+
+        customActions.push(async () => {
+          if (REDIS_CONFIG.enabled) {
+            await ReelsCache.invalidateReelsCache(userId, entityId);
+          }
+        });
+        break;
+
+      case 'like':
+      case 'bookmark':
+      case 'view':
+      case 'share':
+        tanstackQueries.push(
+          queryKeys.reels.lists(),
+          ...(entityId ? [queryKeys.reels.detail(entityId)] : [])
+        );
+
+        redisKeys.push(
+          'reels:feed:*',
+          ...(entityId ? [`reels:detail:${entityId}`, `reels:${action}s:${entityId}`] : [])
+        );
+
+        customActions.push(async () => {
+          if (REDIS_CONFIG.enabled && entityId && userId) {
+            await ReelsCache.trackReelInteraction({
+              reel_id: entityId,
+              user_id: userId,
+              interaction_type: action as any,
+              timestamp: new Date().toISOString(),
+            });
+            await ReelsCache.invalidateReelsCache(undefined, entityId);
+          }
+        });
+        break;
+
+      case 'comment':
+        tanstackQueries.push(
+          queryKeys.reels.lists(),
+          ...(entityId ? [queryKeys.reels.detail(entityId)] : [])
+        );
+
+        redisKeys.push(
+          'reels:feed:*',
+          ...(entityId ? [`reels:detail:${entityId}`] : [])
+        );
+
+        customActions.push(async () => {
+          if (REDIS_CONFIG.enabled && entityId) {
+            await ReelsCache.updateReelEngagement(entityId, {
+              comments_count: undefined, // Will be updated by the backend
+            });
+          }
+        });
+        break;
+
+      case 'update':
+        tanstackQueries.push(
+          queryKeys.reels.lists(),
+          ...(entityId ? [queryKeys.reels.detail(entityId)] : []),
+          ...(userId ? [queryKeys.reels.user(userId)] : [])
+        );
+
+        redisKeys.push(
+          'reels:feed:*',
+          ...(entityId ? [`reels:detail:${entityId}`] : []),
+          ...(userId ? [`reels:user:${userId}:*`] : [])
+        );
+
+        customActions.push(async () => {
+          if (REDIS_CONFIG.enabled) {
+            await ReelsCache.invalidateReelsCache(userId, entityId);
           }
         });
         break;
