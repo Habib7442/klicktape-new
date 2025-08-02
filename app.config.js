@@ -181,7 +181,7 @@ export default {
         origin: false,
       },
       eas: {
-        projectId: '79789b66-edbb-406a-99df-7a43c1795247',
+        projectId: '5e659cc8-04f7-411a-b259-27add65af103',
       },
       // Environment information (safe to expose)
       environment: {
