@@ -69,7 +69,6 @@ const securityChecks = {
 
   // Required secure configuration files
   requiredFiles: [
-    'lib/config/environment.ts',
     'eas.json',
     'docs/SECURITY_ENVIRONMENT_VARIABLES.md',
     'scripts/setup-eas-env.sh',
@@ -106,7 +105,6 @@ function findFiles(pattern, dir = '.') {
   const knownFiles = [
     '.env',
     '.env.example',
-    'lib/config/environment.ts',
     'lib/config/redis.ts',
     'lib/supabase.ts',
     'lib/geminiService.ts',

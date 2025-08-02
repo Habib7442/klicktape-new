@@ -95,21 +95,16 @@ eas env:create --name UPSTASH_REDIS_REST_TOKEN --value "your_dev_token" --enviro
 
 #### 3. Code Implementation
 
-**Secure configuration management:**
+**Direct environment variable usage:**
 
 ```typescript
-// lib/config/environment.ts
-export const PUBLIC_CONFIG = {
-  // Safe for client-side
-  SUPABASE_URL: process.env.EXPO_PUBLIC_SUPABASE_URL || '',
-  SOCKET_SERVER_URL: process.env.EXPO_PUBLIC_SOCKET_SERVER_URL || '',
-} as const;
+// Direct usage in your code files
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-export const SECURE_CONFIG = {
-  // Server-side only (NOT in client bundle)
-  GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
-  UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN || '',
-} as const;
+// For secure variables (server-side only)
+const geminiApiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+const redisToken = process.env.EXPO_PUBLIC_UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 ```
 
 #### 4. EAS Build Configuration

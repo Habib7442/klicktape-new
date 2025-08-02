@@ -5,13 +5,15 @@
  */
 
 import { Redis } from '@upstash/redis';
-import { getRedisConfig } from '@/lib/config/environment';
 
-// Initialize Redis client with secure configuration
-const redisConfig = getRedisConfig();
+// Get Redis configuration from environment variables
+const redisUrl = process.env.EXPO_PUBLIC_UPSTASH_REDIS_REST_URL;
+const redisToken = process.env.EXPO_PUBLIC_UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+
+// Initialize Redis client
 const redis = new Redis({
-  url: redisConfig.url,
-  token: redisConfig.token,
+  url: redisUrl || '',
+  token: redisToken || '',
 });
 
 // Cache key prefixes

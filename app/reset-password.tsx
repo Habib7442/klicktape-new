@@ -11,6 +11,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "@/lib/supabase";
+import * as Linking from "expo-linking";
 
 const ResetPassword = () => {
   const [password, setPassword] = useState("");
@@ -25,22 +26,120 @@ const ResetPassword = () => {
 
   useEffect(() => {
     console.log('🔗 Reset password screen opened via deep link');
-    console.log('📋 All params:', params);
+    console.log('📋 All params:', JSON.stringify(params, null, 2));
     console.log('🔑 Access token:', accessToken);
+    console.log('🔑 Access token length:', accessToken?.length);
     console.log('🔄 Refresh token:', refreshToken);
+    console.log('🔄 Refresh token length:', refreshToken?.length);
 
-    // If there's an access token in the URL, set the session
-    if (accessToken) {
-      console.log('✅ Access token found, setting session...');
+    // Try to get tokens from the initial URL if params are empty
+    const checkInitialURL = async () => {
+      try {
+        const initialUrl = await Linking.getInitialURL();
+        console.log('🔗 Initial URL:', initialUrl);
+
+        // Also listen for URL changes (in case app is already open)
+        const handleUrlChange = (url: string) => {
+          console.log('🔗 URL changed:', url);
+          processUrl(url);
+        };
+
+        const subscription = Linking.addEventListener('url', handleUrlChange);
+
+        // Process the initial URL
+        if (initialUrl) {
+          processUrl(initialUrl);
+        }
+
+        // Cleanup subscription
+        return () => subscription?.remove();
+      } catch (error) {
+        console.log('⚠️ Could not setup URL handling:', error.message);
+      }
+    };
+
+    const processUrl = (urlString: string) => {
+      try {
+        if (!urlString || accessToken) return; // Skip if we already have a token
+
+        const url = new URL(urlString);
+
+        // Check for errors in the URL (like expired links)
+        const error = url.searchParams.get('error') || url.hash.match(/error=([^&]+)/)?.[1];
+        const errorCode = url.searchParams.get('error_code') || url.hash.match(/error_code=([^&]+)/)?.[1];
+        const errorDescription = url.searchParams.get('error_description') || url.hash.match(/error_description=([^&]+)/)?.[1];
+
+        if (error) {
+          console.log('❌ Error in reset URL:', error);
+          console.log('❌ Error code:', errorCode);
+          console.log('❌ Error description:', decodeURIComponent(errorDescription || ''));
+
+          let errorMessage = "This password reset link is invalid or expired.";
+          if (errorCode === 'otp_expired') {
+            errorMessage = "This password reset link has expired. Please request a new password reset.";
+          }
+
+          Alert.alert(
+            "Reset Link Expired",
+            errorMessage + " Please go back to the sign-in screen and request a new password reset.",
+            [{ text: "OK", onPress: () => router.replace("/sign-in") }]
+          );
+          return;
+        }
+
+        // Check both query parameters and hash parameters
+        let urlAccessToken = url.searchParams.get('access_token');
+        let urlRefreshToken = url.searchParams.get('refresh_token');
+
+        // If not in query params, check the hash
+        if (!urlAccessToken && url.hash) {
+          const hashParams = new URLSearchParams(url.hash.substring(1));
+          urlAccessToken = hashParams.get('access_token');
+          urlRefreshToken = hashParams.get('refresh_token');
+          console.log('🔍 Found tokens in URL hash');
+        }
+
+        console.log('🔍 URL access token:', urlAccessToken?.substring(0, 20) + '...');
+        console.log('🔍 URL refresh token:', urlRefreshToken?.substring(0, 20) + '...');
+
+        if (urlAccessToken) {
+          console.log('✅ Access token found in URL, setting session...');
+          setSession(urlAccessToken, urlRefreshToken);
+          return;
+        }
+      } catch (error) {
+        console.log('⚠️ Could not parse URL:', error.message);
+      }
+    };
+
+    // Start the URL checking process
+    const cleanup = checkInitialURL();
+
+    // If there's an access token in params, set the session
+    if (accessToken && accessToken.length > 0) {
+      console.log('✅ Access token found in params, setting session...');
       setSession(accessToken, refreshToken);
-    } else {
-      console.log('❌ No access token found, redirecting to sign-in...');
-      Alert.alert(
-        "Invalid Reset Link",
-        "This password reset link is invalid or expired. Please request a new password reset from the sign-in screen.",
-        [{ text: "OK", onPress: () => router.replace("/sign-in") }]
-      );
+    } else if (!accessToken) {
+      // Only show error if we don't have tokens and no URL processing is happening
+      setTimeout(() => {
+        if (!accessToken) {
+          console.log('❌ No access token found after URL processing, redirecting to sign-in...');
+          console.log('❌ Params received:', Object.keys(params));
+          Alert.alert(
+            "Invalid Reset Link",
+            "This password reset link is invalid or expired. Please request a new password reset from the sign-in screen.",
+            [{ text: "OK", onPress: () => router.replace("/sign-in") }]
+          );
+        }
+      }, 2000); // Wait 2 seconds for URL processing
     }
+
+    // Cleanup function
+    return () => {
+      if (cleanup && typeof cleanup === 'function') {
+        cleanup();
+      }
+    };
   }, [accessToken, refreshToken]);
 
   const setSession = async (token: string, refresh_token?: string) => {
@@ -51,6 +150,10 @@ const ResetPassword = () => {
       }
 
       console.log('🔄 Setting session with tokens...');
+      console.log('🔑 Token length:', token?.length);
+      console.log('🔄 Refresh token length:', refresh_token?.length);
+      console.log('🔑 Token preview:', token?.substring(0, 50) + '...');
+
       const { data, error } = await supabase.auth.setSession({
         access_token: token,
         refresh_token: refresh_token || "",

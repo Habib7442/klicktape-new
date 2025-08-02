@@ -8,9 +8,12 @@ import { router } from 'expo-router';
  */
 export default function DeepLinkHandler() {
   useEffect(() => {
+    console.log('🚀 DeepLinkHandler: Component mounted and listening for deep links');
     // Handle deep links when app is already open
     const handleDeepLink = (url: string) => {
       console.log('🔗 Deep link received:', url);
+      console.log('🔗 URL type:', typeof url);
+      console.log('🔗 URL length:', url?.length);
       
       try {
         // Parse the URL
@@ -43,9 +46,14 @@ export default function DeepLinkHandler() {
         } else if (path.startsWith('/reset-password')) {
           const accessToken = params.get('access_token');
           const refreshToken = params.get('refresh_token');
+          console.log('🔗 DeepLinkHandler: Reset password path detected');
+          console.log('🔑 DeepLinkHandler: Access token:', accessToken?.substring(0, 20) + '...');
+          console.log('🔄 DeepLinkHandler: Refresh token:', refreshToken?.substring(0, 20) + '...');
           if (accessToken) {
-            console.log('🔑 Navigating to reset password');
+            console.log('🔑 DeepLinkHandler: Navigating to reset password with tokens');
             router.push(`/reset-password?access_token=${accessToken}&refresh_token=${refreshToken || ''}`);
+          } else {
+            console.log('❌ DeepLinkHandler: No access token found in deep link');
           }
         } else {
           // Default to home screen for unrecognized paths

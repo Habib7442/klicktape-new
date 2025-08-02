@@ -1,6 +1,5 @@
 import { io, Socket } from 'socket.io-client';
 import { Platform, AppState } from 'react-native';
-import { PUBLIC_CONFIG } from './config/environment';
 
 // Mobile-optimized Socket.IO configuration
 const SOCKET_CONFIG = {
@@ -25,7 +24,7 @@ const SOCKET_CONFIG = {
   enablesXDR: false,
 };
 
-const SERVER_URL = PUBLIC_CONFIG.SOCKET_SERVER_URL;
+const SERVER_URL = process.env.EXPO_PUBLIC_SOCKET_SERVER_URL;
 // Get the appropriate server URL based on platform
 const getServerUrl = (): string => {
   if (__DEV__) {

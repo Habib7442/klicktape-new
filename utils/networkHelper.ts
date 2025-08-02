@@ -1,5 +1,4 @@
 import { Platform } from 'react-native';
-import { PUBLIC_CONFIG } from '@/lib/config/environment';
 
 /**
  * Network Helper Utility
@@ -10,7 +9,7 @@ export const getSocketUrls = (customIP?: string) => {
   const urls: string[] = [];
 
   // Check for environment variable first
-  const SERVER_URL = PUBLIC_CONFIG.SOCKET_SERVER_URL;
+  const SERVER_URL = process.env.EXPO_PUBLIC_SOCKET_SERVER_URL;
   if (SERVER_URL) {
     urls.push(SERVER_URL);
   }

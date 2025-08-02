@@ -1,14 +1,10 @@
 import { GoogleGenAI } from "@google/genai";
-import { getAIConfig, warnAboutDevelopmentSecurity } from '@/lib/config/environment';
 
-// Warn about development security issues
-warnAboutDevelopmentSecurity();
-
-// Get secure AI configuration
-const { geminiApiKey } = getAIConfig();
+// Get Gemini API key from environment variables
+const geminiApiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
 
 if (!geminiApiKey) {
-    console.error("Gemini API key is missing. Please set the GEMINI_API_KEY environment variable via EAS Environment Variables.");
+    console.error("Gemini API key is missing. Please set the GEMINI_API_KEY environment variable.");
     throw new Error("Gemini API key is required for AI features");
 }
 

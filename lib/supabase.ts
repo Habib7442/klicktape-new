@@ -3,18 +3,18 @@ import "react-native-url-polyfill/auto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
 import { Database } from '@/types/supabase';
-import { getSupabaseConfig, validatePublicConfig, logConfigStatus } from '@/lib/config/environment';
 
-// Validate configuration and get secure config
-const validation = validatePublicConfig();
-if (!validation.isValid) {
-  throw new Error(`Missing required Supabase environment variables: ${validation.missing.join(', ')}`);
+// Get Supabase configuration from environment variables
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+
+// Validate required environment variables
+if (!supabaseUrl || !supabaseAnonKey) {
+  const missing = [];
+  if (!supabaseUrl) missing.push('EXPO_PUBLIC_SUPABASE_URL');
+  if (!supabaseAnonKey) missing.push('EXPO_PUBLIC_SUPABASE_ANON_KEY');
+  throw new Error(`Missing required Supabase environment variables: ${missing.join(', ')}`);
 }
-
-const { url: supabaseUrl, anonKey: supabaseAnonKey } = getSupabaseConfig();
-
-// Log configuration status in development
-logConfigStatus();
 
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
@@ -22,8 +22,6 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
-    // Set longer session timeout
-    sessionRefreshMargin: 60, // 1 minute before expiry
   },
   // Optimize database connection
   db: {

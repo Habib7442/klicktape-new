@@ -24,62 +24,90 @@ const Page = () => {
       return;
     }
 
-    // First check existing session
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    await verifyAuthState(session);
+    try {
+      // First check existing session with error handling
+      const {
+        data: { session },
+        error
+      } = await supabase.auth.getSession();
 
-    // Then subscribe to auth changes
-    supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        await verifyAuthState(session);
+      if (error) {
+        console.warn('⚠️ Session check error (non-critical):', error.message);
+        // Continue with null session instead of failing
       }
-    );
+
+      await verifyAuthState(session);
+
+      // Then subscribe to auth changes
+      supabase.auth.onAuthStateChange(
+        async (event, session) => {
+          console.log('🔐 Auth state change event:', event);
+
+          // Don't interfere with password reset flow
+          if (event === 'PASSWORD_RECOVERY') {
+            console.log('🔑 Password recovery event detected, skipping auth verification');
+            return;
+          }
+
+          await verifyAuthState(session);
+        }
+      );
+    } catch (error) {
+      console.error('❌ Auth initialization error:', error);
+      // Continue with no session instead of crashing
+      setIsSignedIn(false);
+      setRedirectPath(null);
+      setIsLoading(false);
+    }
   };
 
   const verifyAuthState = async (session: any) => {
-    const signedIn = !!session;
-    setIsSignedIn(signedIn);
+    try {
+      const signedIn = !!session;
+      setIsSignedIn(signedIn);
 
-    if (signedIn && session?.user?.email) {
-      try {
-        if (!supabase) {
-          console.error("Supabase client is not initialized");
-          setIsLoading(false);
-          return;
+      if (signedIn && session?.user?.email) {
+        try {
+          if (!supabase) {
+            console.error("Supabase client is not initialized");
+            setIsLoading(false);
+            return;
+          }
+
+          console.log("🔐 Verifying auth state for user:", session.user.id);
+
+          // Get user profile data for Redux store
+          const profileData = await getUserProfileData(session.user.id);
+
+          if (profileData) {
+            await AsyncStorage.setItem("user", JSON.stringify(profileData));
+            dispatch(setUser({
+              id: profileData.id,
+              username: profileData.username || '',
+            }));
+            console.log("✅ User data stored in Redux and AsyncStorage");
+          }
+
+          // Determine where to redirect the user
+          const redirectPath = await getAuthRedirectPath(session.user.id, session.user.email);
+          setRedirectPath(redirectPath);
+
+          console.log("🧭 Redirect path determined:", redirectPath);
+        } catch (error) {
+          console.error("❌ Error in auth state verification:", error);
+          // Default to create-profile for safety
+          setRedirectPath('/(root)/create-profile');
         }
-
-        console.log("🔐 Verifying auth state for user:", session.user.id);
-
-        // Get user profile data for Redux store
-        const profileData = await getUserProfileData(session.user.id);
-
-        if (profileData) {
-          await AsyncStorage.setItem("user", JSON.stringify(profileData));
-          dispatch(setUser({
-            id: profileData.id,
-            username: profileData.username || '',
-          }));
-          console.log("✅ User data stored in Redux and AsyncStorage");
-        }
-
-
-
-        // Determine where to redirect the user
-        const redirectPath = await getAuthRedirectPath(session.user.id, session.user.email);
-        setRedirectPath(redirectPath);
-
-        console.log("🧭 Redirect path determined:", redirectPath);
-      } catch (error) {
-        console.error("❌ Error in auth state verification:", error);
-        // Default to create-profile for safety
-        setRedirectPath('/(root)/create-profile');
+      } else {
+        setRedirectPath(null);
       }
-    } else {
+    } catch (error) {
+      console.error("❌ Error in verifyAuthState:", error);
+      setIsSignedIn(false);
       setRedirectPath(null);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   useEffect(() => {

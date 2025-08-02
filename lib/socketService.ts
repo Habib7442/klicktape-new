@@ -2,7 +2,6 @@
 import 'react-native-get-random-values';
 import { io, Socket } from 'socket.io-client';
 import { Platform } from 'react-native';
-import { PUBLIC_CONFIG } from '@/lib/config/environment';
 
 interface Message {
   id: string;
@@ -69,7 +68,7 @@ class SocketService {
         const urls = [];
 
         // Check for environment variable first (deployed server)
-        const SERVER_URL = PUBLIC_CONFIG.SOCKET_SERVER_URL;
+        const SERVER_URL = process.env.EXPO_PUBLIC_SOCKET_SERVER_URL;
         console.log('🌐 Environment SERVER_URL:', SERVER_URL);
 
         if (SERVER_URL) {

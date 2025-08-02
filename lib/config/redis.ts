@@ -1,18 +1,17 @@
 /**
  * Redis Configuration for Klicktape Stories
  * Environment setup and connection management
- *
- * SECURITY NOTE: Redis token is now handled securely via EAS Environment Variables
- * and is NOT exposed in the client bundle.
  */
 
-import { getRedisConfig, warnAboutDevelopmentSecurity } from './environment';
+// Get Redis configuration from environment variables
+const redisUrl = process.env.EXPO_PUBLIC_UPSTASH_REDIS_REST_URL;
+const redisToken = process.env.EXPO_PUBLIC_UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 
-// Warn about development security issues
-warnAboutDevelopmentSecurity();
-
-// Get Redis configuration with proper security
-export const REDIS_CONFIG = getRedisConfig();
+export const REDIS_CONFIG = {
+  url: redisUrl || '',
+  token: redisToken || '',
+  enabled: !!(redisUrl && redisToken),
+};
 
 // Cache configuration
 export const CACHE_CONFIG = {

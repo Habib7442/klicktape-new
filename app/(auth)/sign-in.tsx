@@ -182,12 +182,22 @@ const SignIn = () => {
       await AsyncStorage.setItem(rateLimitKey, JSON.stringify(attempts));
 
       // Clear any existing session to ensure clean state for password reset
+      console.log('🔄 Signing out existing session before password reset...');
       await supabase.auth.signOut();
 
-      // Use direct deep link to open app immediately (no web redirect needed)
-      const redirectUrl = 'klicktape://reset-password';
+      // Wait a moment for signout to complete
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Use different redirect URL based on environment
+      const isDevelopment = __DEV__;
+
+      // Force development URL for local testing
+      const redirectUrl = 'exp://192.168.31.241:8081/--/reset-password';
 
       console.log('🔄 Sending password reset email to:', sanitizedEmail);
+      console.log('🔗 Using redirect URL:', redirectUrl);
+      console.log('🏗️ Development mode:', isDevelopment);
+
       const { error } = await supabase.auth.resetPasswordForEmail(sanitizedEmail, {
         redirectTo: redirectUrl,
       });
