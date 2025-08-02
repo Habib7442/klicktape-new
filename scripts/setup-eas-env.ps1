@@ -69,8 +69,7 @@ function Setup-Environment {
     # Redis Token (CRITICAL - must be secret)
     Create-EnvVar -Name "UPSTASH_REDIS_REST_TOKEN" -Environment $Environment -Visibility "secret" -Description "Redis authentication token from Upstash dashboard"
     
-    # Gemini API Key (CRITICAL - must be secret)
-    Create-EnvVar -Name "GEMINI_API_KEY" -Environment $Environment -Visibility "secret" -Description "Google Gemini AI API key from AI Studio"
+
     
     # Supabase Service Role Key (CRITICAL - must be secret)
     Create-EnvVar -Name "SUPABASE_SERVICE_ROLE_KEY" -Environment $Environment -Visibility "secret" -Description "Supabase service role key (admin access)"

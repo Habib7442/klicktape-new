@@ -37,8 +37,7 @@ import { useTheme } from "@/src/context/ThemeContext";
 import GenreSelector, { Genre, GENRES } from "@/components/GenreSelector";
 import HashtagInput from "@/components/HashtagInput";
 import UserTagging, { TaggedUser } from "@/components/UserTagging";
-import { generateCaptionFromImage, generateHashtagsFromText, improveCaptionWithAI } from "@/lib/geminiService";
-import * as FileSystem from 'expo-file-system';
+
 
 const TAB_BAR_HEIGHT = 90;
 const TAB_BAR_MARGIN = 24;
@@ -71,9 +70,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
 
   const [showGenreSelector, setShowGenreSelector] = useState(false);
 
-  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
-  const [selectedTone, setSelectedTone] = useState<'casual' | 'professional' | 'funny' | 'inspirational' | 'trendy'>('casual');
-  const [showToneSelector, setShowToneSelector] = useState(false);
+
 
   const scaleValue = new Animated.Value(1);
 
@@ -451,157 +448,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
     setShowEmojiPicker(false);
   };
 
-  // Helper function to convert image URI to base64
-  const convertImageToBase64 = async (imageUri: string): Promise<string> => {
-    try {
-      const base64 = await FileSystem.readAsStringAsync(imageUri, {
-        encoding: 'base64'
-      });
-      return base64;
-    } catch (error) {
-      throw new Error('Failed to convert image to base64');
-    }
-  };
 
-  // AI Caption Generation from Image
-  const handleAIGeneration = async () => {
-    if (!media.length) {
-      Alert.alert('No Image', 'Please select an image first');
-      return;
-    }
-
-    try {
-      setIsGeneratingAI(true);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-      // Convert image to base64
-      const base64Image = await convertImageToBase64(media[activeMediaIndex].uri);
-
-      // Create tone-aware prompt
-      const tonePrompt = caption.trim()
-        ? `Generate a ${selectedTone} caption based on this image. Current context: "${caption.trim()}"`
-        : `Generate a ${selectedTone} caption for this image`;
-
-      const result = await generateCaptionFromImage(
-        base64Image,
-        'image/jpeg',
-        tonePrompt
-      );
-
-      // If we have an existing caption, improve it with the selected tone
-      let finalCaption = result.caption;
-      if (caption.trim()) {
-        try {
-          finalCaption = await improveCaptionWithAI(result.caption, selectedTone);
-        } catch (error) {
-          // If improvement fails, use the original generated caption
-          console.warn('Caption improvement failed, using original:', error);
-        }
-      }
-
-      // Update caption
-      setCaption(finalCaption);
-
-      // Add new hashtags, avoiding duplicates
-      const newHashtags = [...new Set([...hashtags, ...result.hashtags])];
-      setHashtags(newHashtags.slice(0, 30)); // Limit to 30 total
-
-      // Set genre if not already selected and AI suggested one
-      if (result.genre && !selectedGenre) {
-        const genreMatch = GENRES.find(g =>
-          g.name.toLowerCase() === result.genre?.toLowerCase()
-        );
-        if (genreMatch) setSelectedGenre(genreMatch);
-      }
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Success! 🎉', `AI ${selectedTone} caption and hashtags generated!`);
-    } catch (error: any) {
-      console.error('AI Generation Error:', error);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('AI Generation Failed', error.message || 'Please try again.');
-    } finally {
-      setIsGeneratingAI(false);
-    }
-  };
-
-  // AI Hashtag Generation - Independent from Caption
-  const handleHashtagGeneration = async () => {
-    if (!media.length) {
-      Alert.alert('No Image', 'Please select an image first');
-      return;
-    }
-
-    try {
-      setIsGeneratingAI(true);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-      let result;
-
-      if (caption.trim()) {
-        // Generate hashtags from caption text
-        result = await generateHashtagsFromText(
-          caption,
-          selectedGenre?.name,
-          15
-        );
-      } else {
-        // Generate hashtags from image using vision AI
-        const base64Image = await convertImageToBase64(media[activeMediaIndex].uri);
-        const visionResult = await generateCaptionFromImage(
-          base64Image,
-          'image/jpeg',
-          'Analyze this image and generate relevant hashtags only. Focus on the content, mood, and visual elements.'
-        );
-
-        // Use the hashtags from vision result
-        result = {
-          hashtags: visionResult.hashtags,
-          trending: visionResult.hashtags.slice(0, 5),
-          relevant: visionResult.hashtags.slice(5)
-        };
-      }
-
-      // Merge with existing hashtags, avoiding duplicates
-      const newHashtags = [...new Set([...hashtags, ...result.hashtags])];
-      setHashtags(newHashtags.slice(0, 30)); // Limit to 30 total
-
-      const source = caption.trim() ? 'caption' : 'image';
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Success! 🎉', `Generated ${result.hashtags.length} new hashtags from ${source}!`);
-    } catch (error: any) {
-      console.error('Hashtag Generation Error:', error);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Hashtag Generation Failed', error.message || 'Please try again.');
-    } finally {
-      setIsGeneratingAI(false);
-    }
-  };
-
-  // AI Caption Improvement
-  const handleCaptionImprovement = async () => {
-    if (!caption.trim()) {
-      Alert.alert('No Caption', 'Please write a caption first');
-      return;
-    }
-
-    try {
-      setIsGeneratingAI(true);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-      const improved = await improveCaptionWithAI(caption, selectedTone);
-      setCaption(improved);
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Success! ✨', `Caption improved with ${selectedTone} tone!`);
-    } catch (error: any) {
-      console.error('Caption Improvement Error:', error);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Caption Improvement Failed', error.message || 'Please try again.');
-    } finally {
-      setIsGeneratingAI(false);
-    }
-  };
 
 
 
@@ -758,85 +605,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
           </TouchableOpacity>
         </View>
 
-        {/* AI Caption Generation Buttons */}
-        <View style={styles.aiSection}>
-          {/* Tone Selector */}
-          <TouchableOpacity
-            style={[styles.toneSelector, {
-              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
-              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
-            }]}
-            onPress={() => setShowToneSelector(!showToneSelector)}
-          >
-            <Feather name="sliders" size={14} color={isDarkMode ? '#808080' : '#606060'} />
-            <Text style={[styles.toneSelectorText, { color: colors.text }]}>
-              {selectedTone.charAt(0).toUpperCase() + selectedTone.slice(1)}
-            </Text>
-            <Feather name="chevron-down" size={14} color={colors.textSecondary} />
-          </TouchableOpacity>
 
-          {/* AI Caption Button */}
-          <TouchableOpacity
-            style={[styles.aiButton, {
-              backgroundColor: isDarkMode ? '#808080' : '#606060',
-              opacity: isGeneratingAI || !media.length ? 0.5 : 1
-            }]}
-            onPress={handleAIGeneration}
-            disabled={isGeneratingAI || !media.length}
-          >
-            <Feather name="zap" size={16} color="#FFFFFF" />
-            <Text style={[styles.aiButtonText, { color: '#FFFFFF' }]}>
-              {isGeneratingAI ? 'Generating...' : 'AI Caption'}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Improve Caption Button */}
-          <TouchableOpacity
-            style={[styles.aiButton, {
-              backgroundColor: isDarkMode ? '#808080' : '#606060',
-              opacity: isGeneratingAI || !caption.trim() ? 0.5 : 1
-            }]}
-            onPress={handleCaptionImprovement}
-            disabled={isGeneratingAI || !caption.trim()}
-          >
-            <Feather name="edit-3" size={16} color="#FFFFFF" />
-            <Text style={[styles.aiButtonText, { color: '#FFFFFF' }]}>
-              {isGeneratingAI ? 'Improving...' : 'Improve'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Tone Selector Dropdown */}
-        {showToneSelector && (
-          <View style={[styles.toneDropdown, {
-            backgroundColor: colors.backgroundSecondary,
-            borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
-          }]}>
-            {(['casual', 'professional', 'funny', 'inspirational', 'trendy'] as const).map((tone) => (
-              <TouchableOpacity
-                key={tone}
-                style={[styles.toneOption, {
-                  backgroundColor: selectedTone === tone ? `${isDarkMode ? '#808080' : '#606060'}20` : 'transparent'
-                }]}
-                onPress={() => {
-                  setSelectedTone(tone);
-                  setShowToneSelector(false);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-              >
-                <Text style={[styles.toneOptionText, {
-                  color: selectedTone === tone ? colors.text : colors.textSecondary,
-                  fontWeight: selectedTone === tone ? '600' : '400'
-                }]}>
-                  {tone.charAt(0).toUpperCase() + tone.slice(1)}
-                </Text>
-                {selectedTone === tone && (
-                  <Feather name="check" size={16} color={colors.text} />
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
       </View>
 
       {/* Genre Selection */}
@@ -887,20 +656,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
           maxHashtags={30}
         />
 
-        {/* AI Hashtag Generation Button */}
-        <TouchableOpacity
-          style={[styles.aiHashtagButton, {
-            backgroundColor: isDarkMode ? '#808080' : '#606060',
-            opacity: isGeneratingAI || !media.length ? 0.5 : 1
-          }]}
-          onPress={handleHashtagGeneration}
-          disabled={isGeneratingAI || !media.length}
-        >
-          <Feather name="hash" size={16} color="#FFFFFF" />
-          <Text style={[styles.aiButtonText, { color: '#FFFFFF' }]}>
-            {isGeneratingAI ? 'Generating...' : 'Generate AI Hashtags'}
-          </Text>
-        </TouchableOpacity>
+
       </View>
 
       {/* User Tagging Section */}
@@ -1681,76 +1437,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(128, 128, 128, 0.3)',
   },
 
-  // AI Generation Styles
-  aiSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 12,
-    gap: 6,
-  },
-  aiButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    gap: 4,
-    minHeight: 36,
-  },
-  aiButtonText: {
-    fontSize: 12,
-    fontWeight: '500',
-    fontFamily: 'Rubik-Medium',
-  },
-  // Tone Selector Styles
-  toneSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 4,
-    flex: 1,
-    minHeight: 36,
-  },
-  toneSelectorText: {
-    fontSize: 12,
-    fontWeight: '500',
-    fontFamily: 'Rubik-Medium',
-    flex: 1,
-  },
-  toneDropdown: {
-    marginTop: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingVertical: 4,
-  },
-  toneOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  toneOptionText: {
-    fontSize: 14,
-    fontFamily: 'Rubik-Regular',
-  },
-  // AI Hashtag Button
-  aiHashtagButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    marginTop: 12,
-    gap: 6,
-    minHeight: 36,
-  },
+
 });
 
 export default CreatePost;

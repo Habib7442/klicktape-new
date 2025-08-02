@@ -61,8 +61,7 @@ setup_environment() {
     # Redis Token (CRITICAL - must be secret)
     create_env_var "UPSTASH_REDIS_REST_TOKEN" "$env" "secret" "Redis authentication token from Upstash dashboard"
     
-    # Gemini API Key (CRITICAL - must be secret)
-    create_env_var "GEMINI_API_KEY" "$env" "secret" "Google Gemini AI API key from AI Studio"
+
     
     # Supabase Service Role Key (CRITICAL - must be secret)
     create_env_var "SUPABASE_SERVICE_ROLE_KEY" "$env" "secret" "Supabase service role key (admin access)"

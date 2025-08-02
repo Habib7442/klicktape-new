@@ -31,7 +31,7 @@ According to Expo documentation:
 │  └── Non-sensitive configuration                           │
 │                                                             │
 │  🔒 SERVER SIDE (EAS Environment Variables)                │
-│  ├── API Keys (Gemini, Redis tokens)                       │
+│  ├── API Keys (Redis tokens)                               │
 │  ├── Database credentials (Service role keys)              │
 │  └── Authentication secrets                                │
 │                                                             │
@@ -60,7 +60,6 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 **🚨 NEVER use EXPO_PUBLIC_ for these (Server-Side)**
 ```env
 # API Keys and tokens
-GEMINI_API_KEY=your_secret_key
 UPSTASH_REDIS_REST_TOKEN=your_secret_token
 
 # Database admin access
@@ -75,16 +74,13 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 
 ```bash
 # Production environment
-eas env:create --name GEMINI_API_KEY --value "your_key" --environment production --visibility secret
 eas env:create --name UPSTASH_REDIS_REST_TOKEN --value "your_token" --environment production --visibility secret
 eas env:create --name SUPABASE_SERVICE_ROLE_KEY --value "your_key" --environment production --visibility secret
 
 # Preview environment
-eas env:create --name GEMINI_API_KEY --value "your_preview_key" --environment preview --visibility secret
 eas env:create --name UPSTASH_REDIS_REST_TOKEN --value "your_preview_token" --environment preview --visibility secret
 
 # Development environment
-eas env:create --name GEMINI_API_KEY --value "your_dev_key" --environment development --visibility secret
 eas env:create --name UPSTASH_REDIS_REST_TOKEN --value "your_dev_token" --environment development --visibility secret
 ```
 
@@ -103,7 +99,6 @@ const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
 // For secure variables (server-side only)
-const geminiApiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
 const redisToken = process.env.EXPO_PUBLIC_UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 ```
 
@@ -138,7 +133,6 @@ const redisToken = process.env.EXPO_PUBLIC_UPSTASH_REDIS_REST_TOKEN || process.e
 ### Step 2: Set EAS Environment Variables
 ```bash
 # Run these commands to set up secure variables
-eas env:create --name GEMINI_API_KEY --value "AIzaSyDjAvPSoMkEdLfWzX1DldIWcE_tc4C-YiM" --environment production --visibility secret
 eas env:create --name UPSTASH_REDIS_REST_TOKEN --value "your_token" --environment production --visibility secret
 ```
 
@@ -147,7 +141,6 @@ Remove these lines from production .env:
 ```env
 # Remove these (now handled securely via EAS)
 EXPO_PUBLIC_UPSTASH_REDIS_REST_TOKEN=...
-EXPO_PUBLIC_GEMINI_API_KEY=...
 ```
 
 ### Step 4: Test Builds

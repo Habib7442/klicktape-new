@@ -53,7 +53,7 @@ const securityChecks = {
   // Files that should NOT contain EXPO_PUBLIC_ sensitive variables
   sensitiveVariableChecks: [
     {
-      pattern: /EXPO_PUBLIC_(?:.*TOKEN|.*SECRET|.*PASSWORD|.*CREDENTIAL|.*SERVICE_ROLE_KEY|.*GEMINI_API_KEY|UPSTASH_REDIS_REST_TOKEN)/gi,
+      pattern: /EXPO_PUBLIC_(?:.*TOKEN|.*SECRET|.*PASSWORD|.*CREDENTIAL|.*SERVICE_ROLE_KEY|UPSTASH_REDIS_REST_TOKEN)/gi,
       excludePattern: /EXPO_PUBLIC_SUPABASE_ANON_KEY|EXPO_PUBLIC_UPSTASH_REDIS_REST_URL/gi, // These are safe to expose
       files: [
         'lib/**/*.ts',
@@ -85,12 +85,10 @@ const securityChecks = {
     ],
     forbidden: [
       'EXPO_PUBLIC_UPSTASH_REDIS_REST_TOKEN',
-      'EXPO_PUBLIC_GEMINI_API_KEY',
       'EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY'
     ],
     secure: [
       'UPSTASH_REDIS_REST_TOKEN',
-      'GEMINI_API_KEY',
       'SUPABASE_SERVICE_ROLE_KEY'
     ]
   }
@@ -147,7 +145,6 @@ function validateSensitiveVariables() {
 
   const developmentVars = [
     'EXPO_PUBLIC_UPSTASH_REDIS_REST_TOKEN',
-    'EXPO_PUBLIC_GEMINI_API_KEY',
     'EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY'
   ];
 

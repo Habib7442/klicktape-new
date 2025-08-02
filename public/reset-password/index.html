@@ -124,8 +124,15 @@
                 
                 console.log('Redirecting to app:', customSchemeUrl);
                 
-                // Try to open the app
-                window.location.href = customSchemeUrl;
+                // Expo development format (for development)
+                const expoUrl = `exp://192.168.31.241:8081/--/reset-password?access_token=${tokenParam}&refresh_token=${refreshParam}`;
+
+                console.log('Trying expo development first (for local development)...');
+                console.log('Expo URL:', expoUrl);
+                console.log('Custom scheme:', customSchemeUrl);
+
+                // Try to open the app (expo development first)
+                window.location.href = expoUrl;
                 
                 // Show manual option after 2 seconds if auto-redirect fails
                 setTimeout(() => {
@@ -134,9 +141,14 @@
                     document.querySelector('.message').textContent = 'If the app didn\'t open automatically:';
                     
                     document.getElementById('error-message').innerHTML = `
-                        <a href="${customSchemeUrl}" class="manual-link">
-                            Open Klicktape App
+                        <a href="${expoUrl}" class="manual-link">
+                            Open Klicktape App (Development)
                         </a>
+                        <div style="margin-top: 10px;">
+                            <a href="${customSchemeUrl}" class="manual-link">
+                                Open Klicktape App (Production)
+                            </a>
+                        </div>
                         <div style="margin-top: 15px; font-size: 14px; color: #ccc;">
                             Make sure you have the Klicktape app installed on your device.
                         </div>

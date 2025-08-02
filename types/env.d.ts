@@ -30,8 +30,7 @@ declare namespace NodeJS {
     // Redis authentication (should be 'sensitive' or 'secret' in EAS)
     UPSTASH_REDIS_REST_TOKEN: string;
 
-    // AI service keys (should be 'secret' in EAS)
-    GEMINI_API_KEY: string;
+
 
     // Database admin access (should be 'secret' in EAS)
     SUPABASE_SERVICE_ROLE_KEY: string;

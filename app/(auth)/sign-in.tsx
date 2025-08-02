@@ -188,11 +188,9 @@ const SignIn = () => {
       // Wait a moment for signout to complete
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Use different redirect URL based on environment
-      const isDevelopment = __DEV__;
-
-      // Force development URL for local testing
-      const redirectUrl = 'exp://192.168.31.241:8081/--/reset-password';
+      // Use web redirect URL that will redirect to the app
+      // This works for both development and production
+      const redirectUrl = 'https://klicktape.com/reset-password.html';
 
       console.log('🔄 Sending password reset email to:', sanitizedEmail);
       console.log('🔗 Using redirect URL:', redirectUrl);
