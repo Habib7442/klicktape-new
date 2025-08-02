@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -17,6 +17,10 @@ import CommentsModal from "./Comments";
 import CachedImage from "./CachedImage";
 import ShareToChatModal from "./ShareToChatModal";
 import InstagramStyleShareModal from "./InstagramStyleShareModal";
+import MultipleUserShareModal from "./MultipleUserShareModal";
+import PostCollaborators from "./PostCollaborators";
+import { generateShareContent } from "@/utils/deepLinkHelper";
+import { SupabaseNotificationBroadcaster } from "@/lib/supabaseNotificationManager";
 
 import { AntDesign, FontAwesome, Feather, Ionicons } from "@expo/vector-icons";
 import { useDispatch, useSelector } from "react-redux";
@@ -28,14 +32,17 @@ import {
   setPosts,
   toggleBookmark,
   toggleLike,
+  updatePost,
 } from "@/src/store/slices/postsSlice";
 import { Post } from "@/src/types/post";
 import { useTheme } from "@/src/context/ThemeContext";
+import Stories from "./Stories";
 
 const Posts = () => {
   const { colors } = useTheme();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [storiesRefreshTrigger, setStoriesRefreshTrigger] = useState(0);
 
   // State for carousel image indexes
   const [activeImageIndexes, setActiveImageIndexes] = useState<{
@@ -61,10 +68,13 @@ const Posts = () => {
 
   // State for share to chat modal
   const [shareToChatModalVisible, setShareToChatModalVisible] = useState(false);
-  const [selectedPostForShare, setSelectedPostForShare] = useState<Post | null>(null);
+  const [selectedPostForShare, setSelectedPostForShare] = useState<Post | undefined>(undefined);
 
   // State for Instagram-style share modal
   const [instagramShareModalVisible, setInstagramShareModalVisible] = useState(false);
+
+  // State for multiple user share modal
+  const [multipleUserShareModalVisible, setMultipleUserShareModalVisible] = useState(false);
 
   const dispatch = useDispatch();
   const posts = useSelector((state: RootState) => state.posts.posts);
@@ -202,8 +212,38 @@ const Posts = () => {
         return;
       }
 
+      // Get all unique user IDs for tagged users and collaborators
+      const allUserIds = new Set<string>();
+      fetchedPosts.forEach((post: any) => {
+        if (post.tagged_users) {
+          post.tagged_users.forEach((id: string) => allUserIds.add(id));
+        }
+        if (post.collaborators) {
+          post.collaborators.forEach((id: string) => allUserIds.add(id));
+        }
+      });
+
+      // Fetch user details for tagged users and collaborators
+      let userDetailsMap = new Map();
+      if (allUserIds.size > 0) {
+        const { data: userDetails, error: userError } = await supabase
+          .from("profiles")
+          .select("id, username, avatar_url")
+          .in("id", Array.from(allUserIds));
+
+        if (!userError && userDetails) {
+          userDetails.forEach((user: any) => {
+            userDetailsMap.set(user.id, {
+              id: user.id,
+              username: user.username,
+              avatar_url: user.avatar_url || "https://via.placeholder.com/150",
+            });
+          });
+        }
+      }
+
       // Explicitly check if the current user has liked or bookmarked each post
-      const updatedPosts = fetchedPosts.map((post) => {
+      const updatedPosts = fetchedPosts.map((post: any) => {
         // Check if the current user's ID is in the likes array
         const isLiked =
           Array.isArray(post.likes) &&
@@ -232,12 +272,24 @@ const Posts = () => {
         const avatar_url =
           profileData.avatar_url || "https://via.placeholder.com/150";
 
+        // Get tagged users details
+        const tagged_users_details = post.tagged_users
+          ? post.tagged_users.map((id: string) => userDetailsMap.get(id)).filter(Boolean)
+          : [];
+
+        // Get collaborators details
+        const collaborators_details = post.collaborators
+          ? post.collaborators.map((id: string) => userDetailsMap.get(id)).filter(Boolean)
+          : [];
+
         return {
           ...post,
           is_liked: isLiked,
           is_bookmarked: isBookmarked,
           comments_count: actualCommentsCount, // Use the actual count from the comments array
-          user: { username, avatar_url },
+          user: { id: post.user_id, username, avatar_url },
+          tagged_users_details,
+          collaborators_details,
         };
       });
 
@@ -267,8 +319,15 @@ const Posts = () => {
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
     setPage(1);
+    // Trigger Stories refresh by updating the trigger value
+    setStoriesRefreshTrigger(prev => prev + 1);
     fetchPosts(1);
   }, []);
+
+  // Memoize the header component to prevent unnecessary re-renders
+  const headerComponent = useMemo(() => (
+    <Stories refreshTrigger={storiesRefreshTrigger} />
+  ), [storiesRefreshTrigger]);
 
   const handleLike = async (postId: string) => {
     try {
@@ -312,7 +371,77 @@ const Posts = () => {
         return;
       }
 
-      // No need for forced refresh - the RPC function handles everything atomically
+      // After successful like toggle, fetch the updated post data to ensure consistency
+      const { data: updatedPost, error: fetchError } = await supabase
+        .from("posts")
+        .select(
+          `
+          *,
+          profiles(username, avatar_url),
+          likes!likes_post_id_fkey(user_id),
+          bookmarks!bookmarks_post_id_fkey(user_id),
+          comments:comments!comments_post_id_fkey(id)
+          `
+        )
+        .eq("id", postId)
+        .single();
+
+      if (fetchError) {
+        console.error("Error fetching updated post:", fetchError);
+        return;
+      }
+
+      if (updatedPost) {
+        // Process the updated post data
+        const isLikedUpdated =
+          Array.isArray(updatedPost.likes) &&
+          updatedPost.likes.some((like: any) => like.user_id === user.id);
+
+        const isBookmarked =
+          Array.isArray(updatedPost.bookmarks) &&
+          updatedPost.bookmarks.some((bookmark: any) => bookmark.user_id === user.id);
+
+        const actualCommentsCount = Array.isArray(updatedPost.comments)
+          ? updatedPost.comments.length
+          : 0;
+
+        const profileData = updatedPost.profiles || {};
+        const username = profileData.username || "Unknown User";
+        const avatar_url =
+          profileData.avatar_url || "https://via.placeholder.com/150";
+
+        const processedPost = {
+          ...updatedPost,
+          is_liked: isLikedUpdated,
+          is_bookmarked: isBookmarked,
+          comments_count: actualCommentsCount,
+          user: { username, avatar_url },
+        };
+
+        // Update the specific post in Redux with the fresh data from database
+        dispatch(updatePost(processedPost));
+      }
+
+      // Broadcast real-time notification if this was a like (not unlike)
+      if (isLiked) {
+        try {
+          // Get post owner information for broadcasting
+          const post = posts.find(p => p.id === postId);
+          if (post && post.user_id !== user.id) {
+            // Broadcast the like notification via Supabase real-time
+            await SupabaseNotificationBroadcaster.broadcastLike(
+              post.user_id,
+              user.id,
+              postId,
+              undefined // reelId
+            );
+          }
+        } catch (broadcastError) {
+          console.error('Error broadcasting like notification:', broadcastError);
+          // Don't fail the like operation if broadcasting fails
+        }
+      }
+
       console.log(
         `✅ Like toggled successfully: ${isLiked ? "liked" : "unliked"}`
       );
@@ -383,10 +512,15 @@ const Posts = () => {
         const currentImageIndex = activeImageIndexes[post.id] || 0;
         const imageUrl = post.image_urls[currentImageIndex];
 
-        await Share.share({
-          message: `Check out this post by ${post.user.username} on Klicktape: ${post.caption}`,
-          url: imageUrl,
+        const shareContent = generateShareContent({
+          type: 'post',
+          username: post.user.username,
+          caption: post.caption,
+          id: post.id,
+          mediaUrl: imageUrl,
         });
+
+        await Share.share(shareContent);
       }
     } catch (error) {
       console.error("Error sharing post:", error);
@@ -395,7 +529,17 @@ const Posts = () => {
 
   const handleShareToChatSuccess = () => {
     setShareToChatModalVisible(false);
-    setSelectedPostForShare(null);
+    setSelectedPostForShare(undefined);
+  };
+
+  const handleMultipleUserShare = (post: Post) => {
+    setSelectedPostForShare(post);
+    setMultipleUserShareModalVisible(true);
+  };
+
+  const handleMultipleUserShareSuccess = () => {
+    setMultipleUserShareModalVisible(false);
+    setSelectedPostForShare(undefined);
   };
 
   // Optimized getItemLayout for better FlatList performance
@@ -455,19 +599,12 @@ const Posts = () => {
                 fallbackUri="https://via.placeholder.com/150"
               />
 
-              <View>
-                <TouchableOpacity
-                  onPress={() =>
-                    router.push({
-                      pathname: "/userProfile/[id]",
-                      params: { id: post.user_id },
-                    })
-                  }
-                >
-                  <Text style={[styles.username, { color: colors.text }]}>
-                    {post.user.username}
-                  </Text>
-                </TouchableOpacity>
+              <View style={styles.usernameContainer}>
+                <PostCollaborators
+                  mainUser={post.user}
+                  collaborators={post.collaborators_details || []}
+                  style={styles.collaboratorsContainer}
+                />
               </View>
             </View>
           </View>
@@ -707,6 +844,8 @@ const Posts = () => {
         onRefresh={handleRefresh}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
+        // Stories as header component
+        ListHeaderComponent={headerComponent}
         ListFooterComponent={() =>
           loading && hasMore ? (
             <View style={styles.loader}>
@@ -743,8 +882,16 @@ const Posts = () => {
         post={selectedPostForShare}
         onShareSuccess={() => {
           setInstagramShareModalVisible(false);
-          setSelectedPostForShare(null);
+          setSelectedPostForShare(undefined);
         }}
+      />
+
+      {/* Multiple User Share Modal */}
+      <MultipleUserShareModal
+        isVisible={multipleUserShareModalVisible}
+        onClose={() => setMultipleUserShareModalVisible(false)}
+        post={selectedPostForShare}
+        onShareSuccess={handleMultipleUserShareSuccess}
       />
     </>
   );
@@ -784,6 +931,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: "Rubik-Medium",
     fontStyle: "italic",
+  },
+  usernameContainer: {
+    flex: 1,
+  },
+  collaboratorsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
   },
   postTime: {
     fontSize: 12,
@@ -852,10 +1007,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   paginationDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginHorizontal: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginHorizontal: 3,
   },
   paginationDotActive: {
     // backgroundColor will be set dynamically

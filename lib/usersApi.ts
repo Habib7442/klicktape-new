@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { SupabaseNotificationBroadcaster } from "./supabaseNotificationManager";
 
 interface UserProfile {
   id: string;
@@ -92,13 +93,11 @@ export const usersApi = {
           created_at: new Date().toISOString(),
         });
 
-        await supabase.from("notifications").insert({
-          recipient_id: targetUserId,
-          sender_id: currentUserId,
-          type: "follow",
-          created_at: new Date().toISOString(),
-          is_read: false,
-        });
+        // Create and broadcast follow notification
+        await SupabaseNotificationBroadcaster.broadcastFollow(
+          targetUserId, // recipient (user being followed)
+          currentUserId // sender (current user doing the following)
+        );
 
         return true;
       }
@@ -137,13 +136,16 @@ export const usersApi = {
     }
   },
 
-  getFollowers: async (userId: string, limit: number = 50): Promise<Array<{id: string, username: string, avatar_url: string | null, is_following: boolean}>> => {
+  getFollowers: async (userId: string, limit: number = 50): Promise<Array<{follower_id: string, username: string, avatar_url: string | null, created_at: string}>> => {
     try {
       const { data, error } = await supabase.rpc("get_user_followers", {
-        target_user_id: userId,
+        user_id_param: userId,
+        limit_param: limit,
       });
 
       if (error) throw error;
+
+      // Return the data as-is from the database function
       return data || [];
     } catch (error: any) {
       console.error("Error fetching followers:", error);
@@ -151,13 +153,16 @@ export const usersApi = {
     }
   },
 
-  getFollowing: async (userId: string, limit: number = 50): Promise<Array<{id: string, username: string, avatar_url: string | null, is_following: boolean}>> => {
+  getFollowing: async (userId: string, limit: number = 50): Promise<Array<{following_id: string, username: string, avatar_url: string | null, created_at: string}>> => {
     try {
       const { data, error } = await supabase.rpc("get_user_following", {
-        target_user_id: userId,
+        user_id_param: userId,
+        limit_param: limit,
       });
 
       if (error) throw error;
+
+      // Return the data as-is from the database function
       return data || [];
     } catch (error: any) {
       console.error("Error fetching following:", error);

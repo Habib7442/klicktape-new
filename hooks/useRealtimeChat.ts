@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { productionRealtimeOptimizer } from '@/lib/utils/productionRealtimeOptimizer';
 
 interface Message {
   id: string;
@@ -52,12 +53,14 @@ export const useRealtimeChat = ({
     let channelName: string;
     let filter: string;
     let tableName: string;
+    let priority: 'critical' | 'high' | 'medium' | 'low' = 'high'; // Chat is high priority
 
     if (roomId) {
       // Room chat subscription
       channelName = `room_messages:${roomId}`;
       filter = `room_id=eq.${roomId}`;
       tableName = 'room_messages';
+      priority = 'medium'; // Room messages are medium priority
     } else if (chatId) {
       // 1-on-1 chat subscription
       channelName = `messages:${chatId}`;
@@ -65,38 +68,49 @@ export const useRealtimeChat = ({
       const [user1, user2] = chatId.split('-');
       filter = `or(and(sender_id.eq.${user1},receiver_id.eq.${user2}),and(sender_id.eq.${user2},receiver_id.eq.${user1}))`;
       tableName = 'messages';
+      priority = 'high'; // Direct messages are high priority
     } else {
       return;
     }
 
-    console.log(`📡 Setting up real-time subscription`);
+    console.log(`📡 Setting up PRODUCTION real-time subscription (${priority})`);
 
-    subscriptionRef.current = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: tableName,
-          filter,
-        },
-        (payload) => {
-          console.log('📨 Real-time: New message received');
+    // Use production optimizer for INSERT events
+    const cleanupInsert = productionRealtimeOptimizer.createOptimizedSubscription(
+      `${channelName}:insert`,
+      {
+        table: tableName,
+        filter,
+        event: 'INSERT',
+        priority,
+      },
+      (payload) => {
+        if (payload.type === 'batch') {
+          // Handle batched messages
+          payload.messages.forEach((msg: any) => {
+            console.log('📨 Production Real-time: New message received (batched)');
+            onNewMessage(msg.new as Message);
+          });
+        } else {
+          console.log('📨 Production Real-time: New message received');
           onNewMessage(payload.new as Message);
         }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: tableName,
-          filter,
-        },
-        (payload) => {
-          console.log('Message updated:', payload.new);
-          const updatedMessage = payload.new as Message;
+      }
+    );
+
+    // Use production optimizer for UPDATE events
+    const cleanupUpdate = productionRealtimeOptimizer.createOptimizedSubscription(
+      `${channelName}:update`,
+      {
+        table: tableName,
+        filter,
+        event: 'UPDATE',
+        priority,
+      },
+      (payload) => {
+        const handleUpdate = (updatePayload: any) => {
+          console.log('Message updated:', updatePayload.new);
+          const updatedMessage = updatePayload.new as Message;
 
           if (onMessageUpdate) {
             onMessageUpdate(updatedMessage);
@@ -110,40 +124,46 @@ export const useRealtimeChat = ({
               isRead: updatedMessage.is_read || false
             });
           }
+        };
+
+        if (payload.type === 'batch') {
+          // Handle batched updates
+          payload.messages.forEach((msg: any) => handleUpdate(msg));
+        } else {
+          handleUpdate(payload);
         }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: tableName,
-          filter,
-        },
-        (payload) => {
-          console.log('Message deleted:', payload.old);
-          if (onMessageDelete) {
-            onMessageDelete(payload.old.id);
-          }
+      }
+    );
+
+    // Use production optimizer for DELETE events
+    const cleanupDelete = productionRealtimeOptimizer.createOptimizedSubscription(
+      `${channelName}:delete`,
+      {
+        table: tableName,
+        filter,
+        event: 'DELETE',
+        priority,
+      },
+      (payload) => {
+        console.log('Message deleted:', payload.old);
+        if (onMessageDelete) {
+          onMessageDelete(payload.old.id);
         }
-      )
-      .subscribe((status, error) => {
-        if (error) {
-          console.error(`❌ Subscription error:`, error);
-        }
-        if (status === 'SUBSCRIBED') {
-          console.log(`✅ Real-time connected`);
-          setConnectionStatus('connected');
-          isSubscribedRef.current = true;
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.error(`❌ Subscription failed:`, status);
-          setConnectionStatus('disconnected');
-          isSubscribedRef.current = false;
-        } else if (status === 'CLOSED') {
-          setConnectionStatus('disconnected');
-          isSubscribedRef.current = false;
-        }
-      });
+      }
+    );
+
+    // Store cleanup functions
+    subscriptionRef.current = {
+      unsubscribe: () => {
+        cleanupInsert();
+        cleanupUpdate();
+        cleanupDelete();
+      }
+    } as RealtimeChannel;
+
+    // Set connection status
+    setConnectionStatus('connected');
+    isSubscribedRef.current = true;
   }, [userId, chatId, roomId, onNewMessage, onMessageUpdate, onMessageDelete]);
 
   const setupTypingSubscription = useCallback(() => {
@@ -172,10 +192,11 @@ export const useRealtimeChat = ({
         },
         (payload) => {
           console.log('Typing status update:', payload.new);
-          if (payload.new && payload.new.user_id !== userId) {
+          const typingData = payload.new as any;
+          if (typingData && typingData.user_id !== userId) {
             onTypingUpdate({
-              userId: payload.new.user_id,
-              isTyping: payload.new.is_typing,
+              userId: typingData.user_id,
+              isTyping: typingData.is_typing,
             });
           }
         }
@@ -197,8 +218,8 @@ export const useRealtimeChat = ({
             chat_id: chatId || roomId,
             is_typing: isTyping,
             updated_at: new Date().toISOString(),
-          },
-          { onConflict: ['user_id', 'chat_id'] }
+          } as any,
+          { onConflict: 'user_id,chat_id' }
         );
 
       if (error) {

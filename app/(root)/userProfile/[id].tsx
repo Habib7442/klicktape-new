@@ -15,18 +15,39 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 
-import { Video } from "expo-av";
+import { VideoView, useVideoPlayer } from "expo-video";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
 import CachedImage from "@/components/CachedImage";
 import { useTheme } from "@/src/context/ThemeContext";
+import { SupabaseNotificationBroadcaster } from "@/lib/supabaseNotificationManager";
 import { authManager } from "@/lib/authManager";
+import { generateShareContent } from "@/utils/deepLinkHelper";
 
 interface ProfileParams extends Record<string, string | string[]> {
   id: string;
   avatar_url: string;
 }
+
+// Reel Thumbnail Video Component
+const ReelThumbnailVideo = ({ videoUri }: { videoUri: string }) => {
+  const player = useVideoPlayer(videoUri, (player) => {
+    player.loop = false;
+    player.muted = true;
+    player.play();
+  });
+
+  return (
+    <VideoView
+      style={styles.thumbnailImage}
+      player={player}
+      contentFit="cover"
+      allowsFullscreen={false}
+      allowsPictureInPicture={false}
+    />
+  );
+};
 
 const UserProfile = () => {
   const params = useLocalSearchParams<ProfileParams>();
@@ -203,18 +224,12 @@ const UserProfile = () => {
           return;
         }
 
-        // Create notification for the followed user
+        // Create and broadcast notification for the followed user
         try {
-          const { error: notifError } = await supabase.from("notifications").insert({
-            recipient_id: id, // Changed from receiver_id to recipient_id
-            sender_id: currentUserId,
-            type: "follow",
-            created_at: new Date().toISOString(),
-            is_read: false,
-          });
-          if (notifError) {
-            console.error("Error creating follow notification:", notifError);
-          }
+          await SupabaseNotificationBroadcaster.broadcastFollow(
+            id, // recipient (user being followed)
+            currentUserId // sender (current user doing the following)
+          );
         } catch (notifError) {
           console.error("Error creating follow notification:", notifError);
         }
@@ -233,9 +248,15 @@ const UserProfile = () => {
 
   const handleShare = async () => {
     try {
-      await Share.share({
-        message: `Check out ${userProfile?.username}'s profile on KlickTape!`,
-      });
+      if (userProfile) {
+        const shareContent = generateShareContent({
+          type: 'profile',
+          username: userProfile.username,
+          id: userProfile.id,
+        });
+
+        await Share.share(shareContent);
+      }
     } catch (error) {
       console.error("Error sharing profile:", error);
     }
@@ -265,14 +286,7 @@ const UserProfile = () => {
         }]}
         onPress={() => router.push(`/reel/${item.id}`)}
       >
-        <Video
-          source={{ uri: item.video_url }}
-          style={styles.thumbnailImage}
-          shouldPlay={true}
-          isMuted={true}
-          useNativeControls={false}
-          isLooping={false}
-        />
+        <ReelThumbnailVideo videoUri={item.video_url} />
       </TouchableOpacity>
     </View>
   );

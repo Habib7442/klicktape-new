@@ -4,7 +4,7 @@
  * Uses direct Supabase calls with Redis caching for optimal performance
  */
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -17,15 +17,31 @@ import {
   Animated,
   Alert,
   Dimensions,
-  RefreshControl,
+  TextInput,
+  KeyboardAvoidingView,
+  SafeAreaView,
+  StatusBar,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import Modal from "react-native-modal";
 import StoryViewer from "./StoryViewer";
 import CachedImage from "./CachedImage";
 import AntDesign from "@expo/vector-icons/AntDesign";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, Feather } from "@expo/vector-icons";
+import { VideoView, useVideoPlayer } from "expo-video";
 import { supabase } from "../lib/supabase";
+import { debounce } from "../lib/utils/debounce";
+import {
+  FILE_SIZE_LIMITS,
+  generateCompressedThumbnail,
+  showCompressionOptions,
+  getFileInfo,
+  formatFileSize,
+  showFileSizeError,
+  showStorageLimits
+} from "../lib/utils/videoCompression";
+
+
 import { storiesAPI } from "@/lib/storiesApi";
 import { cacheManager } from "../lib/utils/cacheManager";
 import DeleteModal from "./DeleteModal";
@@ -56,6 +72,9 @@ interface Story {
   id: string;
   user_id: string;
   image_url: string;
+  video_url?: string;
+  thumbnail_url?: string;
+  story_type?: 'image' | 'video';
   caption?: string;
   created_at: string;
   expires_at: string;
@@ -106,11 +125,18 @@ const StoryItem = ({
         }
       ]}>
         <CachedImage
-          uri={latestStory.image_url}
+          uri={latestStory.story_type === 'video' ? (latestStory.thumbnail_url || latestStory.image_url) : latestStory.image_url}
           style={styles.storyImage}
           showLoader={true}
           fallbackUri="https://via.placeholder.com/150"
         />
+
+        {/* Video indicator for video stories */}
+        {latestStory.story_type === 'video' && (
+          <View style={styles.videoIndicator}>
+            <Feather name="play" size={16} color="white" />
+          </View>
+        )}
 
         {/* Story count indicator for multiple stories */}
         {stories.length > 1 && (
@@ -248,11 +274,44 @@ const groupStoriesByUser = (stories: Story[], currentUserId: string | null): { u
   return { userGroupedStories, otherGroupedStories };
 };
 
-const Stories = () => {
+interface StoriesProps {
+  refreshTrigger?: number;
+}
+
+const Stories: React.FC<StoriesProps> = ({ refreshTrigger }) => {
   const { isDarkMode } = useTheme();
   // Get screen dimensions for responsive design
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   const isSmallDevice = screenHeight < 700; // Detect small devices
+
+  // Video Preview Component using expo-video
+  const VideoPreview = ({ videoUri, colors }: { videoUri: string; colors: any }) => {
+    const player = useVideoPlayer(videoUri, (player) => {
+      player.loop = true;
+      player.muted = true;
+      player.play();
+    });
+
+    return (
+      <View style={styles.videoPreviewContainer}>
+        <VideoView
+          style={[
+            styles.imagePreview,
+            {
+              borderColor: colors.primary + '30',
+            }
+          ]}
+          player={player}
+          contentFit="cover"
+          allowsFullscreen={false}
+          allowsPictureInPicture={false}
+        />
+        <View style={styles.videoIndicatorPreview}>
+          <Feather name="play" size={16} color="white" />
+        </View>
+      </View>
+    );
+  };
 
   // Redux state
   const dispatch = useDispatch();
@@ -275,9 +334,27 @@ const Stories = () => {
   const [userId, setUserId] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedMediaType, setSelectedMediaType] = useState<'image' | 'video'>('image');
+  const [storyCaption, setStoryCaption] = useState<string>('');
+  const [debouncedCaption, setDebouncedCaption] = useState<string>('');
+  const isRefreshingRef = useRef(false);
+  const isFetchingRef = useRef(false);
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const { colors } = useTheme();
+
+  // Create debounced function for caption updates
+  const debouncedCaptionUpdate = useRef(
+    debounce((caption: string) => {
+      setDebouncedCaption(caption);
+    }, 300) // 300ms delay to prevent excessive re-renders
+  ).current;
+
+  // Handle caption input changes
+  const handleCaptionChange = useCallback((text: string) => {
+    setStoryCaption(text); // Update immediately for UI responsiveness
+    debouncedCaptionUpdate(text); // Debounced update for other components
+  }, [debouncedCaptionUpdate]);
 
 
 
@@ -311,7 +388,14 @@ const Stories = () => {
 
   // Fetch stories with enhanced caching
   const fetchStories = async (skipCache = false) => {
+    // Prevent multiple simultaneous fetch calls
+    if (isFetchingRef.current) {
+      console.log('🚫 Fetch already in progress, skipping...');
+      return;
+    }
+
     try {
+      isFetchingRef.current = true;
       dispatch(setLoading(true));
 
       // Check cache first (unless skipping cache for refresh)
@@ -353,12 +437,20 @@ const Stories = () => {
       }
     } finally {
       dispatch(setLoading(false));
+      isFetchingRef.current = false;
     }
   };
 
   // Handle pull-to-refresh
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
+    // Prevent multiple simultaneous refresh calls
+    if (isRefreshingRef.current) {
+      console.log('🚫 Refresh already in progress, skipping...');
+      return;
+    }
+
     try {
+      isRefreshingRef.current = true;
       setRefreshing(true);
 
       // Clear cache to ensure fresh data
@@ -374,12 +466,21 @@ const Stories = () => {
       Alert.alert("Error", "Failed to refresh stories. Please try again.");
     } finally {
       setRefreshing(false);
+      isRefreshingRef.current = false;
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchStories();
   }, []);
+
+  // Handle refresh trigger from parent component
+  useEffect(() => {
+    if (refreshTrigger && refreshTrigger > 0) {
+      console.log('🔄 Stories refresh triggered by parent, trigger value:', refreshTrigger);
+      handleRefresh();
+    }
+  }, [refreshTrigger, handleRefresh]);
 
   // Group stories by user
   const { userGroupedStories, otherGroupedStories } = groupStoriesByUser(stories, userId);
@@ -392,23 +493,94 @@ const Stories = () => {
         return;
       }
 
+      // Show media type selection alert
+      Alert.alert(
+        "Create Story",
+        "Choose media type for your story",
+        [
+          {
+            text: "Photo",
+            onPress: () => selectMedia('image'),
+          },
+          {
+            text: "Video",
+            onPress: () => selectMedia('video'),
+          },
+          {
+            text: "Cancel",
+            style: "cancel",
+          },
+        ]
+      );
+    } catch (error) {
+      console.error("Error creating story:", error);
+      Alert.alert("Error", "Failed to create story. Please try again.");
+    }
+  };
+
+  const selectMedia = async (mediaType: 'image' | 'video') => {
+    try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        // Remove fixed aspect ratio to allow free cropping
-        quality: 1.0, // Maximum quality to prevent blur
+        mediaTypes: mediaType === 'image' ? ['images'] : ['videos'],
+        allowsEditing: false, // Disable editing to prevent system compression
+        quality: 1.0, // Maintain original quality for preview
         allowsMultipleSelection: false,
-        exif: false, // Reduce file size without affecting visual quality
-        base64: false, // Don't include base64 to save memory
+        exif: false,
+        base64: false,
+        videoMaxDuration: 30, // 30 seconds max for stories
       });
 
       if (!result.canceled && result.assets[0]) {
-        const imageUri = result.assets[0].uri;
-        dispatch(showPreviewModal(imageUri));
+        const mediaUri = result.assets[0].uri;
+        const selectedMediaType = result.assets[0].type === 'video' ? 'video' : 'image';
+
+        // Validate file size before proceeding
+        const fileSizeLimit = selectedMediaType === 'video'
+          ? FILE_SIZE_LIMITS.STORIES_VIDEO
+          : FILE_SIZE_LIMITS.STORIES_IMAGE;
+
+        try {
+          const fileInfo = await getFileInfo(mediaUri);
+          console.log(`Selected ${selectedMediaType} size: ${formatFileSize(fileInfo.size)}`);
+
+          if (fileInfo.sizeInMB > fileSizeLimit) {
+            // Show detailed error with specific guidance
+            showFileSizeError(
+              fileInfo,
+              fileSizeLimit,
+              selectedMediaType,
+              () => {
+                // User wants to try again - reopen media picker
+                selectMedia(mediaType);
+              }
+            );
+          } else {
+            // File size is acceptable
+            dispatch(showPreviewModal(mediaUri));
+            setSelectedMediaType(selectedMediaType);
+          }
+        } catch (sizeError) {
+          console.error("Error checking file size:", sizeError);
+          // If we can't check size, proceed anyway but warn user
+          Alert.alert(
+            "Warning",
+            "Unable to verify file size. The upload may fail if the file is too large.",
+            [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Continue",
+                onPress: () => {
+                  dispatch(showPreviewModal(mediaUri));
+                  setSelectedMediaType(selectedMediaType);
+                }
+              }
+            ]
+          );
+        }
       }
     } catch (error) {
-      console.error("Error picking image:", error);
-      Alert.alert("Error", "Failed to pick image. Please try again.");
+      console.error("Error selecting media:", error);
+      Alert.alert("Error", "Failed to select media. Please try again.");
     }
   };
 
@@ -419,27 +591,111 @@ const Stories = () => {
     dispatch(hidePreviewModal());
 
     try {
-      // First upload the image
-      const fileName = `story_${Date.now()}.jpg`;
-      const uploadResult = await storiesAPI.uploadImage({
-        uri: croppedImage,
-        name: fileName,
-        type: 'image/jpeg',
-      });
+      let uploadResult;
+      let thumbnailUrl;
 
-      // Then create the story with the uploaded image URL
-      await storiesAPI.createStory(uploadResult.publicUrl, userId);
-      
+      if (selectedMediaType === 'video') {
+        // Check file size before upload
+        const fileInfo = await getFileInfo(croppedImage);
+        console.log(`Uploading video: ${formatFileSize(fileInfo.size)}`);
+
+        if (fileInfo.sizeInMB > FILE_SIZE_LIMITS.STORIES_VIDEO) {
+          console.warn(`Video size (${fileInfo.sizeInMB.toFixed(1)}MB) exceeds limit, but proceeding with upload...`);
+        }
+
+        // Generate compressed thumbnail for video
+        let thumbnailUri;
+        try {
+          thumbnailUri = await generateCompressedThumbnail(croppedImage, 0.7);
+          console.log('✅ Video thumbnail generated successfully');
+        } catch (thumbnailError) {
+          console.error("Error generating thumbnail:", thumbnailError);
+          // Continue without thumbnail if generation fails
+        }
+
+        // Upload video
+        const videoFileName = `story_${Date.now()}.mp4`;
+        uploadResult = await storiesAPI.uploadVideo({
+          uri: croppedImage, // This is actually the video URI
+          name: videoFileName,
+          type: 'video/mp4',
+        });
+
+        // Upload thumbnail if generated
+        if (thumbnailUri) {
+          try {
+            const thumbnailFileName = `story_thumbnail_${Date.now()}.jpg`;
+            const thumbnailUploadResult = await storiesAPI.uploadImage({
+              uri: thumbnailUri,
+              name: thumbnailFileName,
+              type: 'image/jpeg',
+            });
+            thumbnailUrl = thumbnailUploadResult.publicUrl;
+          } catch (thumbnailUploadError) {
+            console.error("Error uploading thumbnail:", thumbnailUploadError);
+            // Use video URL as fallback
+            thumbnailUrl = uploadResult.publicUrl;
+          }
+        } else {
+          // Use video URL as fallback
+          thumbnailUrl = uploadResult.publicUrl;
+        }
+      } else {
+        // Check image file size
+        const fileInfo = await getFileInfo(croppedImage);
+        console.log(`Uploading image: ${formatFileSize(fileInfo.size)}`);
+
+        if (fileInfo.sizeInMB > FILE_SIZE_LIMITS.STORIES_IMAGE) {
+          console.warn(`Image size (${fileInfo.sizeInMB.toFixed(1)}MB) exceeds limit, but proceeding with upload...`);
+        }
+
+        // Upload image
+        const fileName = `story_${Date.now()}.jpg`;
+        uploadResult = await storiesAPI.uploadImage({
+          uri: croppedImage,
+          name: fileName,
+          type: 'image/jpeg',
+        });
+      }
+
+      // Create the story with the uploaded media URL and caption
+      await storiesAPI.createStory(
+        uploadResult.publicUrl,
+        userId,
+        storyCaption || undefined, // Pass caption if provided
+        undefined, // No shared content
+        selectedMediaType, // Pass the media type
+        selectedMediaType === 'video' ? thumbnailUrl : undefined // Pass thumbnail for videos
+      );
+
       console.log('✅ Story created successfully');
       dispatch(hideLoadingModal());
       dispatch(clearCroppedImage());
-      
+
+      // Reset caption and media type
+      setStoryCaption('');
+      setSelectedMediaType('image');
+
       // Refresh stories to show the new story
       await fetchStories();
     } catch (error) {
       console.error("Error posting story:", error);
       dispatch(hideLoadingModal());
-      Alert.alert("Error", "Failed to create story. Please try again.");
+
+      // Show more specific error message
+      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+      if (errorMessage.includes("exceeded the maximum allowed size")) {
+        Alert.alert(
+          "Upload Failed - File Too Large",
+          `The file exceeds the 5MB limit for Stories.\n\nOptions:\n• Select a smaller file\n• Use Reels for videos up to 50MB\n• Compress the file before uploading\n\nTip: Record shorter videos (15-20 seconds) for Stories.`,
+          [
+            { text: "View Limits", onPress: () => showStorageLimits() },
+            { text: "OK" }
+          ]
+        );
+      } else {
+        Alert.alert("Error", `Failed to create story: ${errorMessage}`);
+      }
     }
   };
 
@@ -513,15 +769,6 @@ const Stories = () => {
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollViewContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={colors.primary}
-            colors={[colors.primary]}
-            progressBackgroundColor={colors.backgroundSecondary}
-          />
-        }
       >
         {/* Create Story Button */}
         <CreateStoryItem 
@@ -556,73 +803,126 @@ const Stories = () => {
       <Modal
         isVisible={isPreviewModalVisible}
         style={styles.previewModal}
-        animationIn="fadeIn"
-        animationOut="fadeOut"
+        animationIn="slideInUp"
+        animationOut="slideOutDown"
         backdropOpacity={0.9}
+        avoidKeyboard={true}
+        useNativeDriverForBackdrop={true}
+        hideModalContentWhileAnimating={true}
       >
-        <ThemedGradient style={styles.previewContainer}>
-          <View style={[styles.previewHeader, { borderBottomColor: `${colors.primary}20` }]}>
-            <TouchableOpacity
-              onPress={() => dispatch(hidePreviewModal())}
-              style={[styles.headerIconButton, {
-                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
-                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)'
-              }]}
-            >
-              <AntDesign name="close" size={20} color={colors.text} />
-            </TouchableOpacity>
-            <Text
-              className="font-rubik-bold"
-              style={[styles.previewTitle, { color: colors.text }]}
-            >
-              Preview Story
-            </Text>
-            <View style={{ width: 44 }} />
-          </View>
-
-          <View style={[
-            styles.imagePreviewContainer,
-            { minHeight: isSmallDevice ? 300 : 400 }
-          ]}>
-            {croppedImage ? (
-              <Image
-                  source={{
-                    uri: croppedImage,
-                    cache: 'force-cache' // Ensure high quality caching
-                  }}
-                  style={[
-                    styles.imagePreview,
-                    {
-                      borderColor: colors.primary + '30',
-                      width: screenWidth - 64, // Responsive width
-                    }
-                  ]}
-                  resizeMode="cover"
-                  fadeDuration={0}
-                  onError={(error) => {
-                    console.error('Image loading error:', error);
-                  }}
-                />
-            ) : (
-              <Text style={{ color: 'white' }}>No image selected</Text>
-            )}
-          </View>
-
-          <TouchableOpacity
-            style={[styles.postButton, {
-              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
-              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
-            }]}
-            onPress={handlePostStory}
+        <View style={styles.safeAreaContainer}>
+          <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+          <KeyboardAvoidingView
+            style={styles.keyboardAvoidingView}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
           >
-            <Text
-              className="font-rubik-bold"
-              style={[styles.postButtonText, { color: colors.text }]}
-            >
-              Post Story
-            </Text>
-          </TouchableOpacity>
-        </ThemedGradient>
+            <ThemedGradient style={styles.previewContainer}>
+
+              {/* HEADER SECTION - Fixed at top */}
+              <View style={[styles.previewHeader, { borderBottomColor: `${colors.primary}20` }]}>
+                <TouchableOpacity
+                  onPress={() => dispatch(hidePreviewModal())}
+                  style={[styles.headerIconButton, {
+                    backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+                    borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)'
+                  }]}
+                >
+                  <AntDesign name="close" size={20} color={colors.text} />
+                </TouchableOpacity>
+                <Text
+                  className="font-rubik-bold"
+                  style={[styles.previewTitle, { color: colors.text }]}
+                >
+                  Preview Story
+                </Text>
+                <TouchableOpacity
+                  onPress={() => showStorageLimits()}
+                  style={[styles.headerIconButton, {
+                    backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+                    borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)'
+                  }]}
+                >
+                  <Feather name="info" size={16} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+
+              {/* MIDDLE SECTION - Content preview (flexible) */}
+              <View style={styles.contentSection}>
+                <View style={styles.imagePreviewContainer}>
+                  {croppedImage ? (
+                    selectedMediaType === 'video' ? (
+                      <VideoPreview
+                        videoUri={croppedImage}
+                        colors={colors}
+                      />
+                    ) : (
+                      <Image
+                        source={{
+                          uri: croppedImage,
+                          cache: 'force-cache'
+                        }}
+                        style={[
+                          styles.imagePreview,
+                          {
+                            borderColor: colors.primary + '30',
+                          }
+                        ]}
+                        resizeMode="contain"
+                        fadeDuration={0}
+                        // Additional props for maximum quality
+                        loadingIndicatorSource={undefined}
+                        progressiveRenderingEnabled={true}
+                        onError={(error) => {
+                          console.error('Image loading error:', error);
+                        }}
+                      />
+                    )
+                  ) : (
+                    <Text style={{ color: 'white' }}>No media selected</Text>
+                  )}
+                </View>
+              </View>
+
+              {/* FOOTER SECTION - Fixed at bottom */}
+              <View style={styles.footerSection}>
+                {/* Caption Input */}
+                <View style={styles.captionContainer}>
+                  <TextInput
+                    style={[styles.captionInput, {
+                      borderColor: colors.primary + '30',
+                      color: colors.text,
+                      backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.05)',
+                    }]}
+                    placeholder="Add a caption to your story..."
+                    placeholderTextColor={colors.textSecondary}
+                    value={storyCaption}
+                    onChangeText={handleCaptionChange}
+                    multiline={true}
+                    maxLength={200}
+                    textAlignVertical="top"
+                  />
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.postButton, {
+                    backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                    borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
+                  }]}
+                  onPress={handlePostStory}
+                >
+                  <Text
+                    className="font-rubik-bold"
+                    style={[styles.postButtonText, { color: colors.text }]}
+                  >
+                    Post Story
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+            </ThemedGradient>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       {/* Story Viewer Modal */}
@@ -763,6 +1063,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
   },
+  videoIndicator: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   usernameText: {
     fontSize: 14,
     marginTop: 8,
@@ -783,21 +1094,46 @@ const styles = StyleSheet.create({
   },
   previewModal: {
     margin: 0,
-    justifyContent: "flex-end",
+    justifyContent: "flex-end", // Align to bottom for full screen modal
+    alignItems: "center",
+  },
+  safeAreaContainer: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    width: '100%', // Full width
+    height: '100%', // Full height
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+    width: '100%',
   },
   previewContainer: {
     flex: 1,
-    paddingTop: Platform.OS === "ios" ? 50 : 20,
-    maxHeight: '100%', // Ensure it doesn't exceed screen height
+    width: '100%', // Full width
+    height: '100%', // Full height
+    justifyContent: 'flex-start',
   },
   previewHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === "ios" ? 10 : 20,
-    paddingBottom: 12,
+    paddingTop: Platform.OS === 'ios' ? 50 : 25, // Account for status bar
+    paddingBottom: 15,
     borderBottomWidth: 1,
+    backgroundColor: 'transparent',
+    minHeight: Platform.OS === 'ios' ? 90 : 65, // Fixed header height with status bar
+    width: '100%',
+  },
+  contentSection: {
+    flex: 1, // Takes remaining space between header and footer
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  footerSection: {
+    backgroundColor: 'transparent',
+    paddingBottom: Platform.OS === 'ios' ? 10 : 20, // Extra padding for safe area
   },
   headerIconButton: {
     padding: 12,
@@ -814,31 +1150,34 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   imagePreviewContainer: {
-    flex: 1,
+    flex: 1, // Take available space in content section
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 20,
-    minHeight: 400, // Ensure minimum height for small devices
+    width: '100%', // Full width
+    maxHeight: '100%', // Ensure it doesn't overflow
   },
   imagePreview: {
-    width: '100%',
-    height: 400,
+    width: '100%', // Full width
+    height: '100%',
+    // Remove maxHeight constraint to allow full resolution
+    // Remove aspectRatio to prevent unwanted scaling
     borderRadius: 12,
     borderWidth: 1,
     backgroundColor: 'transparent',
     overflow: 'hidden',
+    alignSelf: 'center', // Center the preview
   },
   postButton: {
     marginHorizontal: 20,
-    marginVertical: 16,
+    marginTop: 10,
+    marginBottom: 15,
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    maxWidth: 300, // Limit width for better appearance on larger screens
     alignSelf: 'center',
   },
   postButtonText: {
@@ -876,6 +1215,42 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
     textAlign: "center",
+  },
+  videoPreviewContainer: {
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+    maxHeight: 500,
+    aspectRatio: 9/16, // Maintain story aspect ratio
+    alignSelf: 'center', // Center the video container
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoIndicatorPreview: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  captionContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 15,
+    paddingBottom: 10,
+  },
+  captionInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    minHeight: 50, // Compact height for footer
+    maxHeight: 80, // Limit height to prevent overflow
+    textAlignVertical: 'top',
+    flexShrink: 1, // Allow input to shrink when keyboard appears
   },
 
 });

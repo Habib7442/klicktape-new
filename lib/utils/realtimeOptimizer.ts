@@ -241,22 +241,43 @@ export const optimizeRealtimePerformance = {
   },
 
   /**
-   * Create a batched subscription for bulk operations
+   * Create a batched subscription for bulk operations with egress optimization
    */
   createBatchedSubscription: (
     channelName: string,
     table: string,
     filter: string,
     callback: (payload: any) => void,
-    batchSize: number = 10
+    batchSize: number = 20 // Increased batch size to reduce individual requests
   ) => {
     return realtimeOptimizer.createOptimizedSubscription(
       channelName,
       {
         table,
         filter,
-        debounceMs: 200,
+        debounceMs: 500, // Increased debounce to reduce frequency
         batchSize
+      },
+      callback
+    );
+  },
+
+  /**
+   * Create lightweight subscription for minimal data transfer
+   */
+  createLightweightSubscription: (
+    channelName: string,
+    table: string,
+    filter: string,
+    callback: (payload: any) => void
+  ) => {
+    return realtimeOptimizer.createOptimizedSubscription(
+      channelName,
+      {
+        table,
+        filter,
+        debounceMs: 1000, // High debounce for non-critical updates
+        batchSize: 50
       },
       callback
     );

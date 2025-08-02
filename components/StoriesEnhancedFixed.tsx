@@ -259,9 +259,8 @@ const StoriesEnhancedFixed = () => {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [9, 16],
-        quality: 0.8,
+        allowsEditing: false, // Disable editing to prevent system compression
+        quality: 1.0, // Maintain original quality
       });
 
       if (!result.canceled && result.assets[0]) {

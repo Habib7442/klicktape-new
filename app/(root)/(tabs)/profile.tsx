@@ -18,7 +18,7 @@ import {
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 // import { LinearGradient } from "expo-linear-gradient";
-import { Video } from "expo-av";
+import { VideoView, useVideoPlayer } from "expo-video";
 import { supabase } from "@/lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSupabaseFetch } from "@/hooks/useSupabaseFetch";
@@ -27,6 +27,7 @@ import DeleteModal from "@/components/DeleteModal";
 import CachedImage from "@/components/CachedImage";
 import { useTheme } from "@/src/context/ThemeContext";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { generateShareContent } from "@/utils/deepLinkHelper";
 
 const Profile = () => {
   const { colors, isDarkMode } = useTheme();
@@ -145,9 +146,18 @@ const Profile = () => {
 
   const handleShare = async () => {
     try {
-      await Share.share({
-        message: `Check out ${userInfo.username}'s profile on KlickTape!`,
+      if (!userId) {
+        console.error("User ID is required for sharing");
+        return;
+      }
+
+      const shareContent = generateShareContent({
+        type: 'profile',
+        username: userInfo.username,
+        id: userId,
       });
+
+      await Share.share(shareContent);
     } catch (error) {
       console.error("Error sharing profile:", error);
     }
@@ -168,53 +178,55 @@ const Profile = () => {
   };
 
   const handleConfirmDelete = async () => {
-    if (!itemToDelete) return;
+    if (!itemToDelete || !userId) return;
 
     try {
       if (itemToDelete.type === 'post') {
         const { data: post, error: postError } = await supabase
           .from("posts")
           .select("image_urls")
-          .eq("id", itemToDelete.id)
-          .eq("user_id", userId)
+          .eq("id", itemToDelete.id as any)
+          .eq("user_id", userId as any)
           .single();
 
         if (postError || !post) throw postError || new Error("Post not found");
 
-        if (post.image_urls && post.image_urls.length > 0) {
+        // Type guard to ensure post has image_urls property
+        if (post && 'image_urls' in post && post.image_urls && post.image_urls.length > 0) {
           const filePaths = post.image_urls.map((url: string) =>
             url.split("/").slice(-2).join("/")
           );
-          await supabase.storage.from("media").remove(filePaths);
+          await supabase.storage.from("posts").remove(filePaths);
         }
 
         await supabase
           .from("posts")
           .delete()
-          .eq("id", itemToDelete.id)
-          .eq("user_id", userId);
+          .eq("id", itemToDelete.id as any)
+          .eq("user_id", userId as any);
 
         setPosts(posts.filter((post) => post.id !== itemToDelete.id));
       } else {
         const { data: reel, error: reelError } = await supabase
           .from("reels")
           .select("video_url")
-          .eq("id", itemToDelete.id)
-          .eq("user_id", userId)
+          .eq("id", itemToDelete.id as any)
+          .eq("user_id", userId as any)
           .single();
 
         if (reelError || !reel) throw reelError || new Error("Reel not found");
 
-        if (reel.video_url) {
+        // Type guard to ensure reel has video_url property
+        if (reel && 'video_url' in reel && reel.video_url) {
           const filePath = reel.video_url.split("/").slice(-2).join("/");
-          await supabase.storage.from("media").remove([filePath]);
+          await supabase.storage.from("reels").remove([filePath]);
         }
 
         await supabase
           .from("reels")
           .delete()
-          .eq("id", itemToDelete.id)
-          .eq("user_id", userId);
+          .eq("id", itemToDelete.id as any)
+          .eq("user_id", userId as any);
 
         setReels(reels.filter((reel) => reel.id !== itemToDelete.id));
       }
@@ -395,7 +407,7 @@ const Profile = () => {
           backgroundColor: `${colors.primary}10`,
           shadowOpacity: 0
         }]}
-        onPress={() => router.push(`/post/${item.id}`)}
+        onPress={() => router.navigate(`/post/${item.id}`)}
       >
         <Image
           source={{ uri: item.image_urls[0] }}
@@ -413,16 +425,36 @@ const Profile = () => {
     </View>
   );
 
+  // Reel Thumbnail Video Component using expo-video
+  const ReelThumbnailVideo = ({ videoUri }: { videoUri: string }) => {
+    const player = useVideoPlayer(videoUri, (player) => {
+      player.loop = false;
+      player.muted = true;
+      if (activeTab === "reels") {
+        player.play();
+      }
+    });
+
+    React.useEffect(() => {
+      if (activeTab === "reels") {
+        player.play();
+      } else {
+        player.pause();
+      }
+    }, [activeTab]);
+
+    return (
+      <VideoView
+        style={styles.thumbnailImage}
+        player={player}
+        contentFit="contain"
+        allowsFullscreen={false}
+        allowsPictureInPicture={false}
+      />
+    );
+  };
+
   const ReelItem = React.memo(({ item }: { item: any }) => {
-    const videoRef = useRef<any>(null);
-
-    useEffect(() => {
-      videoRefs.current.set(item.id, videoRef);
-      return () => {
-        videoRefs.current.delete(item.id);
-      };
-    }, [item.id]);
-
     return (
       <View style={styles.postContainer}>
         <TouchableOpacity
@@ -432,20 +464,10 @@ const Profile = () => {
           }]}
           onPress={() => {
             pauseAllVideos();
-            router.push(`/reel/${item.id}`);
+            router.navigate(`/reel/${item.id}`);
           }}
         >
-          <Video
-            ref={videoRef}
-            source={{ uri: item.video_url }}
-            style={styles.thumbnailImage}
-            shouldPlay={activeTab === "reels"}
-            isMuted={true}
-            useNativeControls={false}
-            isLooping={false}
-            // @ts-ignore
-            resizeMode="contain"
-          />
+          <ReelThumbnailVideo videoUri={item.video_url} />
         </TouchableOpacity>
         {activeTab === "reels" && (
           <TouchableOpacity
@@ -472,7 +494,7 @@ const Profile = () => {
         </View>
         <View style={styles.headerButtons}>
           <TouchableOpacity
-            onPress={() => router.push("/create")}
+            onPress={() => router.navigate("/create")}
             style={[styles.headerIconButton, {
               backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
               borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.3)'
@@ -536,7 +558,7 @@ const Profile = () => {
               </View>
               <TouchableOpacity
                 style={styles.stat}
-                onPress={() => router.push(`/(root)/followers/${userId}`)}
+                onPress={() => router.navigate(`/(root)/followers/${userId}`)}
               >
                 <Text className="font-rubik-bold" style={[styles.statNumber, { color: colors.text }]}>
                   {userInfo.followers}
@@ -547,7 +569,7 @@ const Profile = () => {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.stat}
-                onPress={() => router.push(`/(root)/following/${userId}`)}
+                onPress={() => router.navigate(`/(root)/following/${userId}`)}
               >
                 <Text className="font-rubik-bold" style={[styles.statNumber, { color: colors.text }]}>
                   {userInfo.following}
@@ -588,7 +610,7 @@ const Profile = () => {
                 backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
                 borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
               }]}
-              onPress={() => router.push("/edit-profile")}
+              onPress={() => router.navigate("/edit-profile")}
             >
               <Text className="font-rubik-bold" style={[styles.editButtonText, { color: colors.text }]}>
                 Edit Profile

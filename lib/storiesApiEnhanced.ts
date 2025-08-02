@@ -309,33 +309,31 @@ export const storiesAPIEnhanced = {
   },
 
   /**
-   * Delete story with cache invalidation
+   * Delete story with complete storage cleanup and cache invalidation
    */
   deleteStory: async (storyId: string): Promise<boolean> => {
     try {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      
+
       if (!user) {
         return false;
       }
 
-      // Soft delete by marking as inactive
-      const { error } = await supabase
-        .from("stories")
-        .update({ is_active: false })
-        .eq("id", storyId)
-        .eq("user_id", user.id);
+      // Import storiesAPI for proper deletion with storage cleanup
+      const { storiesAPI } = await import('./storiesApi');
 
-      if (error) {
-        throw new Error(`Failed to delete story: ${error.message}`);
+      // Use the enhanced deleteStory function that handles storage cleanup
+      const result = await storiesAPI.deleteStory(storyId);
+
+      if (result) {
+        // Invalidate cache after successful deletion
+        await StoriesCache.invalidateStoriesCache(user.id);
+        console.log("✅ Story deleted and cache invalidated");
       }
 
-      // Invalidate cache
-      await StoriesCache.invalidateStoriesCache(user.id);
-
-      return true;
+      return result;
     } catch (error) {
       console.error("Error deleting story:", error);
       return false;

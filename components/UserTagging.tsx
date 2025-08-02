@@ -18,7 +18,7 @@ export interface TaggedUser {
   id: string;
   username: string;
   avatar_url?: string;
-  full_name?: string;
+  name?: string;
 }
 
 interface UserTaggingProps {
@@ -72,7 +72,7 @@ const UserTagging: React.FC<UserTaggingProps> = ({
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, username, avatar_url, full_name')
+        .select('id, username, avatar_url, name')
         .ilike('username', `%${query}%`)
         .limit(20);
 
@@ -122,9 +122,9 @@ const UserTagging: React.FC<UserTaggingProps> = ({
       />
       <View style={styles.userInfo}>
         <Text style={[styles.username, { color: colors.text, fontFamily: 'Rubik-Regular' }]}>@{item.username}</Text>
-        {item.full_name && (
+        {item.name && (
           <Text style={[styles.fullName, { color: colors.textSecondary, fontFamily: 'Rubik-Regular' }]}>
-            {item.full_name}
+            {item.name}
           </Text>
         )}
       </View>

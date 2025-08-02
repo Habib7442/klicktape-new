@@ -20,7 +20,7 @@ interface User {
   follower_id?: string;
   following_id?: string;
   username: string;
-  avatar_url: string;
+  avatar_url: string | null;
   created_at: string;
 }
 
@@ -63,7 +63,7 @@ const FollowList: React.FC<FollowListProps> = ({ userId, type, title }) => {
     try {
       setLoading(true);
       let data: User[] = [];
-      
+
       if (type === "followers") {
         data = await usersApi.getFollowers(userId);
       } else {
@@ -71,7 +71,7 @@ const FollowList: React.FC<FollowListProps> = ({ userId, type, title }) => {
       }
 
       setUsers(data);
-      
+
       // Check following status for each user
       if (currentUserId) {
         await checkFollowingStatus(data);

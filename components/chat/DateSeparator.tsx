@@ -7,69 +7,89 @@ interface DateSeparatorProps {
 }
 
 const DateSeparator: React.FC<DateSeparatorProps> = ({ date }) => {
-  const { colors, isDarkMode } = useTheme();
+  const { colors } = useTheme();
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
+    const messageDate = new Date(dateString);
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
 
-    // Check if it's today
-    if (date.toDateString() === today.toDateString()) {
+    // Reset time to compare dates only
+    const messageDateOnly = new Date(messageDate.getFullYear(), messageDate.getMonth(), messageDate.getDate());
+    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const yesterdayOnly = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
+
+    if (messageDateOnly.getTime() === todayOnly.getTime()) {
       return 'Today';
-    }
-
-    // Check if it's yesterday
-    if (date.toDateString() === yesterday.toDateString()) {
+    } else if (messageDateOnly.getTime() === yesterdayOnly.getTime()) {
       return 'Yesterday';
+    } else {
+      // Check if it's within the current week
+      const daysDiff = Math.floor((todayOnly.getTime() - messageDateOnly.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (daysDiff < 7) {
+        return messageDate.toLocaleDateString('en-US', { weekday: 'long' });
+      } else if (messageDate.getFullYear() === today.getFullYear()) {
+        // Same year, show month and day (WhatsApp style)
+        return messageDate.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric'
+        });
+      } else {
+        // Different year, show compact date
+        return messageDate.toLocaleDateString('en-US', {
+          year: '2-digit',
+          month: 'short',
+          day: 'numeric'
+        });
+      }
     }
-
-    // Check if it's within the current week
-    const daysDiff = Math.floor((today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-    if (daysDiff < 7) {
-      return date.toLocaleDateString('en-US', { weekday: 'long' });
-    }
-
-    // For older dates, show full date
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined,
-    });
   };
 
   return (
     <View style={styles.container}>
-      <View style={[
-        styles.separator,
-        { backgroundColor: isDarkMode ? '#3A3A3C' : '#E5E5E7' }
-      ]}>
-        <Text 
-          style={[styles.dateText, { color: colors.textSecondary }]}
-          className="font-rubik-medium"
-        >
+      <View style={[styles.separator, { backgroundColor: colors.border }]} />
+      <View style={[styles.dateContainer, { backgroundColor: colors.backgroundSecondary }]}>
+        <Text style={[styles.dateText, { color: colors.textSecondary }]} className="font-rubik-medium">
           {formatDate(date)}
         </Text>
       </View>
+      <View style={[styles.separator, { backgroundColor: colors.border }]} />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 16,
+    marginVertical: 20,
+    paddingHorizontal: 20,
   },
   separator: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    maxWidth: '60%',
+    flex: 1,
+    height: 0.5,
+    opacity: 0.2,
+  },
+  dateContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    marginHorizontal: 16,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   dateText: {
-    fontSize: 12,
+    fontSize: 13,
     textAlign: 'center',
+    fontWeight: '500',
   },
 });
 

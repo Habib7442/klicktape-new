@@ -12,6 +12,7 @@ import { PersistGate } from "redux-persist/integration/react";
 import { store, persistor } from "@/src/store/store";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { ThemeProvider, useTheme } from "@/src/context/ThemeContext";
+import DeepLinkHandler from "@/components/DeepLinkHandler";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -70,6 +71,7 @@ export default function RootLayout() {
       <Provider store={store}>
         <PersistGate loading={null} persistor={persistor}>
           <ThemeProvider>
+            <DeepLinkHandler />
             <ThemedStack />
           </ThemeProvider>
         </PersistGate>

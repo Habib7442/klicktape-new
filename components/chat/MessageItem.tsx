@@ -1,11 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { useSelector } from 'react-redux';
-import { RootState } from '@/src/store/store';
 import MessageBubble from './MessageBubble';
-import SwipeableMessage from './SwipeableMessage';
-import LongPressableMessage from './LongPressableMessage';
-import { selectMessageHighlight } from '@/src/store/slices/chatUISlice';
 
 interface Message {
   id: string;
@@ -21,6 +16,9 @@ interface Message {
     content: string;
     sender_id: string;
     message_type?: string;
+    sender?: {
+      username: string;
+    };
   };
   image_url?: string;
   post_id?: string;
@@ -30,103 +28,76 @@ interface Message {
 interface MessageItemProps {
   message: Message;
   currentUserId: string;
-  onReply: (message: Message) => void;
-  onReaction: (messageId: string, emoji: string) => void;
+  // onReply?: (message: Message) => void; // TODO: Implement reply functionality later
+  onReaction?: (messageId: string, emoji: string) => void;
+  onDelete?: (messageId: string) => void;
   reactions?: Array<{ emoji: string; count: number; userReacted: boolean }>;
-  children?: React.ReactNode; // For media content
+  children?: React.ReactNode;
   onMediaPress?: (message: Message) => void;
+  onScrollToMessage?: (messageId: string) => void;
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({
   message,
   currentUserId,
-  onReply,
+  // onReply, // TODO: Implement reply functionality later
   onReaction,
+  onDelete,
   reactions = [],
   children,
   onMediaPress,
+  onScrollToMessage,
 }) => {
   const isOwnMessage = message.sender_id === currentUserId;
-  
-  // Get highlight state from Redux
-  const { isMessageHighlighted, highlightedMessageId } = useSelector((state: RootState) => 
-    selectMessageHighlight(state)
-  );
-  
-  const isHighlighted = isMessageHighlighted && highlightedMessageId === message.id;
-
-  const handleSwipeLeft = () => {
-    if (isOwnMessage) {
-      onReply(message);
-    }
-  };
-
-  const handleSwipeRight = () => {
-    if (!isOwnMessage) {
-      onReply(message);
-    }
-  };
 
   const containerStyle = [
     styles.messageContainer,
     isOwnMessage ? styles.messageRight : styles.messageLeft,
-    isHighlighted && styles.highlighted,
   ];
 
   return (
     <View style={containerStyle}>
-      <SwipeableMessage
-        onSwipeLeft={handleSwipeLeft}
-        onSwipeRight={handleSwipeRight}
+      <MessageBubble
+        content={message.content}
         isOwnMessage={isOwnMessage}
-        enabled={true}
+        timestamp={message.created_at}
+        status={message.status}
+        messageType={message.message_type}
+        reactions={reactions}
+        showStatus={isOwnMessage}
+        imageUrl={message.image_url}
+        postId={message.post_id}
+        reelId={message.reel_id}
+        onMediaPress={() => onMediaPress?.(message)}
+        replyToMessage={message.reply_to_message?.id ? message.reply_to_message : undefined}
+        currentUserId={currentUserId}
+        messageId={message.id}
+        onReaction={(emoji) => onReaction?.(message.id, emoji)}
+        // onReply={() => onReply?.(message)} // TODO: Implement reply functionality later
+        onDelete={() => onDelete?.(message.id)}
+        onScrollToMessage={onScrollToMessage}
       >
-        <LongPressableMessage
-          messageId={message.id}
-          enabled={true}
-        >
-          <MessageBubble
-            content={message.content}
-            isOwnMessage={isOwnMessage}
-            timestamp={message.created_at}
-            status={message.status}
-            messageType={message.message_type}
-            reactions={reactions}
-            showStatus={isOwnMessage}
-            imageUrl={message.image_url}
-            postId={message.post_id}
-            reelId={message.reel_id}
-            onMediaPress={() => onMediaPress?.(message)}
-          >
-            {children}
-          </MessageBubble>
-        </LongPressableMessage>
-      </SwipeableMessage>
+        {children}
+      </MessageBubble>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   messageContainer: {
-    marginBottom: 3, // Reduced for tighter WhatsApp-style grouping
-    marginHorizontal: 8, // Reduced horizontal margin
-    maxWidth: '95%', // Increased to allow bubbles to reach closer to edges
+    marginBottom: 4,
+    marginHorizontal: 12,
+    maxWidth: '90%',
   },
   messageLeft: {
     alignItems: 'flex-start',
     alignSelf: 'flex-start',
-    marginRight: 50, // Ensure right margin for left-aligned messages
+    marginRight: 40,
   },
   messageRight: {
     alignItems: 'flex-end',
     alignSelf: 'flex-end',
-    marginLeft: 50, // Ensure left margin for right-aligned messages
-  },
-  highlighted: {
-    backgroundColor: 'rgba(37, 211, 102, 0.2)', // WhatsApp green highlight
-    borderRadius: 8,
-    padding: 4,
-    margin: 2,
+    marginLeft: 40,
   },
 });
 

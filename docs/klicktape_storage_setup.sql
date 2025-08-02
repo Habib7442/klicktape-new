@@ -7,20 +7,23 @@
 -- STORAGE BUCKETS CREATION
 -- =====================================================
 
--- Create storage buckets for different media types
+-- Create storage buckets for different media types with optimized limits
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-VALUES 
-  -- Avatars bucket (5MB limit)
-  ('avatars', 'avatars', true, 5242880, ARRAY['image/jpeg', 'image/png', 'image/webp']),
-  
-  -- Posts bucket (10MB limit)
-  ('posts', 'posts', true, 10485760, ARRAY['image/jpeg', 'image/png', 'image/webp']),
-  
-  -- Stories bucket (10MB limit)
-  ('stories', 'stories', true, 10485760, ARRAY['image/jpeg', 'image/png', 'image/webp']),
-  
-  -- Reels/Tapes bucket (100MB limit)
-  ('reels', 'reels', true, 104857600, ARRAY['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm']),
+VALUES
+  -- Avatars bucket (2MB limit - reduced for egress optimization)
+  ('avatars', 'avatars', true, 2097152, ARRAY['image/jpeg', 'image/png', 'image/webp']),
+
+  -- Posts bucket (5MB limit - reduced from 10MB)
+  ('posts', 'posts', true, 5242880, ARRAY['image/jpeg', 'image/png', 'image/webp']),
+
+  -- Stories bucket (5MB limit - reduced from 10MB)
+  ('stories', 'stories', true, 5242880, ARRAY['image/jpeg', 'image/png', 'image/webp']),
+
+  -- Reels/Tapes bucket (50MB limit - reduced from 100MB)
+  ('reels', 'reels', true, 52428800, ARRAY['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm']),
+
+  -- Thumbnails bucket for optimized previews (1MB limit)
+  ('thumbnails', 'thumbnails', true, 1048576, ARRAY['image/jpeg', 'image/png', 'image/webp']),
   
   -- Thumbnails bucket (2MB limit)
   ('thumbnails', 'thumbnails', true, 2097152, ARRAY['image/jpeg', 'image/png', 'image/webp'])

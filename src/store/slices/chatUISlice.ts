@@ -12,10 +12,17 @@ interface ChatUIState {
   selectedMessageId: string | null;
   selectedMessagePosition: MessagePosition | null;
   isEmojiPickerVisible: boolean;
-  
+
+  // Modal state
+  isActionsModalVisible: boolean;
+  actionsModalMessageId: string | null;
+
   // Optimistic reactions (for instant UI updates)
   optimisticReactions: Record<string, { emoji: string; timestamp: number }>;
-  
+
+  // Optimistic message deletions (for instant UI updates)
+  optimisticDeletedMessages: Set<string>;
+
   // Animation states
   isMessageHighlighted: boolean;
   highlightedMessageId: string | null;
@@ -25,7 +32,10 @@ const initialState: ChatUIState = {
   selectedMessageId: null,
   selectedMessagePosition: null,
   isEmojiPickerVisible: false,
+  isActionsModalVisible: false,
+  actionsModalMessageId: null,
   optimisticReactions: {},
+  optimisticDeletedMessages: new Set(),
   isMessageHighlighted: false,
   highlightedMessageId: null,
 };
@@ -59,6 +69,17 @@ const chatUISlice = createSlice({
       state.isMessageHighlighted = false;
       state.highlightedMessageId = null;
     },
+
+    // Modal actions
+    showActionsModal: (state, action: PayloadAction<string>) => {
+      state.isActionsModalVisible = true;
+      state.actionsModalMessageId = action.payload;
+    },
+
+    hideActionsModal: (state) => {
+      state.isActionsModalVisible = false;
+      state.actionsModalMessageId = null;
+    },
     
     // Optimistic reaction actions
     addOptimisticReaction: (
@@ -79,6 +100,19 @@ const chatUISlice = createSlice({
     clearOptimisticReactions: (state) => {
       state.optimisticReactions = {};
     },
+
+    // Optimistic message deletion actions
+    addOptimisticDeletedMessage: (state, action: PayloadAction<string>) => {
+      state.optimisticDeletedMessages.add(action.payload);
+    },
+
+    removeOptimisticDeletedMessage: (state, action: PayloadAction<string>) => {
+      state.optimisticDeletedMessages.delete(action.payload);
+    },
+
+    clearOptimisticDeletedMessages: (state) => {
+      state.optimisticDeletedMessages.clear();
+    },
     
     // Highlight actions
     highlightMessage: (state, action: PayloadAction<string>) => {
@@ -97,9 +131,14 @@ export const {
   selectMessageForReaction,
   clearMessageSelection,
   hideEmojiPicker,
+  showActionsModal,
+  hideActionsModal,
   addOptimisticReaction,
   removeOptimisticReaction,
   clearOptimisticReactions,
+  addOptimisticDeletedMessage,
+  removeOptimisticDeletedMessage,
+  clearOptimisticDeletedMessages,
   highlightMessage,
   clearHighlight,
 } = chatUISlice.actions;
@@ -129,6 +168,25 @@ export const selectOptimisticReaction = (messageId: string) =>
   createSelector(
     [selectChatUI],
     (chatUI) => chatUI.optimisticReactions[messageId]
+  );
+
+export const selectActionsModal = createSelector(
+  [selectChatUI],
+  (chatUI) => ({
+    isVisible: chatUI.isActionsModalVisible,
+    messageId: chatUI.actionsModalMessageId,
+  })
+);
+
+export const selectOptimisticDeletedMessages = createSelector(
+  [selectChatUI],
+  (chatUI) => chatUI.optimisticDeletedMessages
+);
+
+export const selectIsMessageDeleted = (messageId: string) =>
+  createSelector(
+    [selectChatUI],
+    (chatUI) => chatUI.optimisticDeletedMessages.has(messageId)
   );
 
 export default chatUISlice.reducer;

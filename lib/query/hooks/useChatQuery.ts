@@ -27,6 +27,9 @@ interface Message {
     content: string;
     sender_id: string;
     message_type?: string;
+    sender?: {
+      username: string;
+    };
   };
 }
 
@@ -149,22 +152,40 @@ const chatQueryFunctions = {
   },
 
   /**
-   * Get messages with pagination
+   * Get messages with pagination (Instagram/WhatsApp style)
+   * First page: Most recent messages
+   * Next pages: Older messages when scrolling up
+   * Respects cleared chat status - only shows messages after clear time
    */
-  getMessages: async ({ 
-    pageParam = 0, 
-    currentUserId, 
-    recipientId 
-  }: { 
-    pageParam?: number; 
-    currentUserId: string; 
-    recipientId: string; 
+  getMessages: async ({
+    pageParam = 0,
+    currentUserId,
+    recipientId
+  }: {
+    pageParam?: number;
+    currentUserId: string;
+    recipientId: string;
   }) => {
-    const MESSAGES_PER_PAGE = 25;
+    const MESSAGES_PER_PAGE = 30; // Increased for better UX
     const offset = pageParam * MESSAGES_PER_PAGE;
 
+    console.log(`📱 Fetching messages page ${pageParam}, offset: ${offset}`);
+
     try {
-      const { data: messages, error } = await supabase
+      // First check if the user has cleared this chat
+      const { data: clearedChat, error: clearedError } = await supabase
+        .from("cleared_chats")
+        .select("cleared_at")
+        .eq("user_id", currentUserId)
+        .eq("other_user_id", recipientId)
+        .single();
+
+      if (clearedError && clearedError.code !== 'PGRST116') { // PGRST116 = no rows found
+        console.error("❌ Error checking cleared chat status:", clearedError);
+        // Continue with normal query if there's an error
+      }
+
+      let query = supabase
         .from("messages")
         .select(`
           id,
@@ -176,18 +197,44 @@ const chatQueryFunctions = {
           status,
           delivered_at,
           read_at,
-          message_type
+          message_type,
+          reply_to_message_id,
+          reply_to_message:messages!reply_to_message_id(
+            id,
+            content,
+            sender_id,
+            message_type,
+            sender:profiles!sender_id(username)
+          )
         `)
-        .or(`and(sender_id.eq.${currentUserId},receiver_id.eq.${recipientId}),and(sender_id.eq.${recipientId},receiver_id.eq.${currentUserId})`)
-        .order("created_at", { ascending: false })
+        .or(`and(sender_id.eq.${currentUserId},receiver_id.eq.${recipientId}),and(sender_id.eq.${recipientId},receiver_id.eq.${currentUserId})`);
+
+      // If chat was cleared, only show messages sent after the clear time
+      if (clearedChat?.cleared_at) {
+        console.log(`📅 Chat was cleared at: ${clearedChat.cleared_at}, filtering messages`);
+        query = query.gt("created_at", clearedChat.cleared_at);
+      }
+
+      const { data: messages, error } = await query
+        .order("created_at", { ascending: false }) // Newest first from DB
         .range(offset, offset + MESSAGES_PER_PAGE - 1);
 
       if (error) throw error;
 
+      const messageCount = messages?.length || 0;
+      const hasMore = messageCount === MESSAGES_PER_PAGE;
+
+      const statusMessage = clearedChat?.cleared_at
+        ? `📱 Fetched ${messageCount} messages (after clear), hasMore: ${hasMore}`
+        : `📱 Fetched ${messageCount} messages, hasMore: ${hasMore}`;
+
+      console.log(statusMessage);
+
       return {
-        messages: (messages || []).reverse(), // Reverse to show oldest first
-        nextCursor: messages && messages.length === MESSAGES_PER_PAGE ? pageParam + 1 : undefined,
-        hasMore: messages && messages.length === MESSAGES_PER_PAGE,
+        messages: messages || [], // Keep DB order (newest first)
+        nextCursor: hasMore ? pageParam + 1 : undefined,
+        hasMore,
+        pageParam,
       };
     } catch (error) {
       console.error("Error fetching messages:", error);
@@ -225,7 +272,7 @@ export const useConversations = (currentUserId: string) => {
 };
 
 /**
- * Get messages with infinite pagination
+ * Get messages with infinite pagination (Instagram/WhatsApp style)
  */
 export const useChatMessages = (currentUserId: string, recipientId: string) => {
   return useInfiniteQuery({
@@ -236,10 +283,19 @@ export const useChatMessages = (currentUserId: string, recipientId: string) => {
       recipientId
     }),
     enabled: !!currentUserId && !!recipientId,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
-    staleTime: 1 * 60 * 1000, // 1 minute
-    gcTime: 5 * 60 * 1000, // 5 minutes (renamed from cacheTime)
+    getNextPageParam: (lastPage) => {
+      console.log('📱 getNextPageParam:', { hasMore: lastPage.hasMore, nextCursor: lastPage.nextCursor });
+      return lastPage.nextCursor;
+    },
+    staleTime: 10 * 60 * 1000, // 10 minutes - Longer for infinite scroll stability
+    gcTime: 60 * 60 * 1000, // 1 hour - Keep pages in memory longer
     initialPageParam: 0,
+    refetchOnWindowFocus: false, // Don't refetch when returning to app
+    refetchOnMount: false, // Use cached data when reopening chat
+    refetchOnReconnect: true, // Only refetch on network reconnect
+    // Infinite scroll optimizations
+    maxPages: 20, // Limit to prevent memory issues
+    getPreviousPageParam: () => undefined, // Only forward pagination
   });
 };
 
@@ -264,30 +320,11 @@ export const useSendMessage = () => {
       return await messagesAPI.sendMessage(senderId, receiverId, content, messageType);
     },
     onSuccess: (data, variables) => {
-      // Invalidate conversations list
+      // Only invalidate conversations list - don't add message to cache
+      // The optimistic update and real-time subscription handle cache updates
       queryClient.invalidateQueries({ queryKey: chatQueryKeys.conversations() });
 
-      // Add new message to the messages cache
-      queryClient.setQueryData(
-        chatQueryKeys.messages(variables.receiverId),
-        (oldData: any) => {
-          if (!oldData) return oldData;
-
-          const newMessage = data;
-          const firstPage = oldData.pages[0];
-
-          return {
-            ...oldData,
-            pages: [
-              {
-                ...firstPage,
-                messages: [...firstPage.messages, newMessage],
-              },
-              ...oldData.pages.slice(1),
-            ],
-          };
-        }
-      );
+      console.log('✅ Message sent successfully via API:', data.id);
     },
     onError: (error) => {
       console.error('Failed to send message:', error);
@@ -338,11 +375,11 @@ export const useSendReply = () => {
       return await messagesAPI.sendReply(senderId, receiverId, content, replyToMessageId, messageType);
     },
     onSuccess: (data, variables) => {
-      // Invalidate messages queries to show new reply
-      queryClient.invalidateQueries({ queryKey: chatQueryKeys.messages(variables.receiverId) });
-
-      // Also invalidate conversations to update last message
+      // Only invalidate conversations list - don't invalidate messages cache
+      // The optimistic update and real-time subscription handle cache updates
       queryClient.invalidateQueries({ queryKey: chatQueryKeys.conversations() });
+
+      console.log('✅ Reply sent successfully via API:', data.id);
     },
     onError: (error) => {
       console.error('Reply mutation error:', error);
@@ -390,5 +427,145 @@ export const useMessageReactions = (messageId: string) => {
     enabled: !!messageId,
     staleTime: 30 * 1000, // 30 seconds
     gcTime: 5 * 60 * 1000, // 5 minutes
+  });
+};
+
+/**
+ * Delete message mutation
+ */
+export const useDeleteMessage = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (messageId: string) => {
+      console.log('🗑️ Delete mutation called for message:', messageId);
+      // Get current user ID from Supabase auth
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      console.log('🗑️ Calling messagesAPI.deleteMessage with:', { messageId, userId: user.id });
+      return await messagesAPI.deleteMessage(messageId, user.id);
+    },
+    onSuccess: (data, messageId) => {
+      // Remove message from all cached queries
+      queryClient.setQueriesData(
+        { queryKey: chatQueryKeys.all },
+        (oldData: any) => {
+          if (!oldData) return oldData;
+
+          // Handle infinite query data structure
+          if (oldData.pages) {
+            return {
+              ...oldData,
+              pages: oldData.pages.map((page: any) => ({
+                ...page,
+                messages: page.messages?.filter((msg: any) => msg.id !== messageId) || []
+              }))
+            };
+          }
+
+          // Handle regular array data
+          if (Array.isArray(oldData)) {
+            return oldData.filter((msg: any) => msg.id !== messageId);
+          }
+
+          return oldData;
+        }
+      );
+
+      // Invalidate all message-related queries
+      queryClient.invalidateQueries({
+        queryKey: chatQueryKeys.all
+      });
+
+      // Also invalidate conversations list
+      queryClient.invalidateQueries({ queryKey: chatQueryKeys.conversations() });
+
+      console.log('✅ Message deleted successfully:', messageId);
+    },
+    onError: (error, messageId) => {
+      console.error('❌ Delete message mutation error:', error);
+      console.error('❌ Failed to delete message ID:', messageId);
+      console.error('❌ Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+    },
+  });
+};
+
+/**
+ * Clear entire chat mutation (delete all messages sent by current user)
+ */
+export const useClearChat = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ recipientId }: { recipientId: string }) => {
+      // Get current user ID from Supabase auth
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      return await messagesAPI.clearChat(user.id, recipientId);
+    },
+    onSuccess: (data, variables) => {
+      // Get current user ID to filter messages
+      const getCurrentUserId = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        return user?.id;
+      };
+
+      // Remove user's messages from all cached queries
+      getCurrentUserId().then(currentUserId => {
+        if (currentUserId) {
+          queryClient.setQueriesData(
+            { queryKey: chatQueryKeys.all },
+            (oldData: any) => {
+              if (!oldData) return oldData;
+
+              // Handle infinite query data structure
+              if (oldData.pages) {
+                return {
+                  ...oldData,
+                  pages: oldData.pages.map((page: any) => ({
+                    ...page,
+                    messages: page.messages?.filter((msg: any) =>
+                      !(msg.sender_id === currentUserId && msg.receiver_id === variables.recipientId)
+                    ) || []
+                  }))
+                };
+              }
+
+              // Handle regular array data
+              if (Array.isArray(oldData)) {
+                return oldData.filter((msg: any) =>
+                  !(msg.sender_id === currentUserId && msg.receiver_id === variables.recipientId)
+                );
+              }
+
+              return oldData;
+            }
+          );
+        }
+      });
+
+      // Invalidate all message-related queries
+      queryClient.invalidateQueries({
+        queryKey: chatQueryKeys.all
+      });
+
+      // Also invalidate conversations list
+      queryClient.invalidateQueries({ queryKey: chatQueryKeys.conversations() });
+
+      console.log('✅ Chat cleared successfully for recipient:', variables.recipientId);
+    },
+    onError: (error) => {
+      console.error('❌ Clear chat mutation error:', error);
+    },
   });
 };

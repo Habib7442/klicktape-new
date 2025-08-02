@@ -334,11 +334,19 @@ const reelsQueryFunctions = {
       }
       
       // Fallback to database - get reels with high engagement
+      // Optimized query to reduce egress - only fetch essential fields
       console.log('🔄 Fetching trending reels from database');
       const { data: reels, error } = await supabase
         .from('reels')
         .select(`
-          *,
+          id,
+          user_id,
+          video_url,
+          thumbnail_url,
+          caption,
+          likes_count,
+          views_count,
+          created_at,
           user:profiles!reels_user_id_fkey (username, avatar_url)
         `)
         .order('likes_count', { ascending: false })

@@ -1,12 +1,16 @@
 import { SafeAreaView } from 'react-native-safe-area-context';
 import React, { useState, useEffect } from 'react';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { useTheme } from '@/src/context/ThemeContext';
 import { supabase } from '@/lib/supabase';
-import { useChatUserProfile } from '@/lib/query/hooks/useChatQuery';
+import { useChatUserProfile, useClearChat } from '@/lib/query/hooks/useChatQuery';
+import { useQueryClient } from '@tanstack/react-query';
 import CustomChatContainer from '@/components/chat/CustomChatContainer';
 import ChatHeader from './ChatHeader';
-import { ActivityIndicator, Text, View, TouchableOpacity, StyleSheet } from 'react-native';
+import { useDispatch } from 'react-redux';
+import { messagesAPI } from '@/lib/messagesApi';
+import { setUnreadMessageCount } from '@/src/store/slices/messageSlice';
+import { ActivityIndicator, Text, View, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, Keyboard, Alert } from 'react-native';
 
 interface AppUser {
   id: string;
@@ -19,6 +23,9 @@ const ChatScreenContent = () => {
   const recipientIdString = Array.isArray(recipientId) ? recipientId[0] : recipientId;
   const [userId, setUserId] = useState<string | null>(null);
   const { colors } = useTheme();
+  const dispatch = useDispatch();
+  const clearChatMutation = useClearChat();
+  const queryClient = useQueryClient();
 
   // Get current user ID
   useEffect(() => {
@@ -36,12 +43,77 @@ const ChatScreenContent = () => {
     getCurrentUser();
   }, []);
 
+  // Mark messages as read when chat screen is focused
+  useFocusEffect(
+    React.useCallback(() => {
+      const markMessagesAsReadAndUpdateCount = async () => {
+        if (!userId || !recipientIdString) return;
+
+        try {
+          console.log('🔍 Chat screen focused, marking messages as read...');
+
+          // Mark all unread messages from this sender as read
+          await messagesAPI.markMessagesAsRead(recipientIdString, userId);
+
+          // Update the global unread count
+          const newUnreadCount = await messagesAPI.getUnreadMessagesCount(userId);
+          console.log(`📊 Updated global unread count: ${newUnreadCount}`);
+          dispatch(setUnreadMessageCount(newUnreadCount));
+
+        } catch (error) {
+          console.error('❌ Error marking messages as read:', error);
+        }
+      };
+
+      markMessagesAsReadAndUpdateCount();
+
+      // Dismiss keyboard when entering chat
+      Keyboard.dismiss();
+    }, [userId, recipientIdString, dispatch])
+  );
+
   // Get recipient profile data
   const { data: recipientData, isLoading: profileLoading, error: profileError } = useChatUserProfile(recipientIdString || '');
 
   // Handle back navigation
   const handleBackPress = () => {
     router.back();
+  };
+
+  // Handle clear chat
+  const handleClearChat = async () => {
+    if (!recipientIdString || !userId) return;
+
+    try {
+      // Immediately clear user's messages from cache for instant UI update
+      queryClient.setQueriesData(
+        { queryKey: ['messages'] },
+        (oldData: any) => {
+          if (!oldData) return oldData;
+
+          // Handle infinite query data structure
+          if (oldData.pages) {
+            return {
+              ...oldData,
+              pages: oldData.pages.map((page: any) => ({
+                ...page,
+                messages: page.messages?.filter((msg: any) =>
+                  !(msg.sender_id === userId && msg.receiver_id === recipientIdString)
+                ) || []
+              }))
+            };
+          }
+
+          return oldData;
+        }
+      );
+
+      await clearChatMutation.mutateAsync({ recipientId: recipientIdString });
+      Alert.alert('Success', 'Chat cleared successfully!\n• Your sent messages have been deleted\n• This chat interface has been cleared');
+    } catch (error) {
+      console.error('Failed to clear chat:', error);
+      Alert.alert('Error', 'Failed to clear chat. Please try again.');
+    }
   };
 
   // Create user profiles object for CustomChat
@@ -115,21 +187,31 @@ const ChatScreenContent = () => {
         } : undefined}
         isLoading={false}
         onBackPress={handleBackPress}
+        onClearChat={handleClearChat}
       />
 
-      {userId && recipientIdString && (
-        <CustomChatContainer
-          userId={userId}
-          recipientId={recipientIdString}
-          userProfiles={userProfiles}
-        />
-      )}
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoid}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 20}
+      >
+        {userId && recipientIdString && (
+          <CustomChatContainer
+            userId={userId}
+            recipientId={recipientIdString}
+            userProfiles={userProfiles}
+          />
+        )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  keyboardAvoid: {
     flex: 1,
   },
   loadingContainer: {

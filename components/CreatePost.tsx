@@ -1,3 +1,4 @@
+
 import * as ImageManipulator from "expo-image-manipulator";
 import * as Location from "expo-location";
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -29,6 +30,7 @@ import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { postsAPI } from "@/lib/postsApi";
 import { notificationsAPI } from "@/lib/notificationsApi";
+import { SupabaseNotificationBroadcaster } from "@/lib/supabaseNotificationManager";
 import * as Haptics from 'expo-haptics';
 import ThemedGradient from "@/components/ThemedGradient";
 import { useTheme } from "@/src/context/ThemeContext";
@@ -62,106 +64,20 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<Array<{ id: string; username: string; avatar: string }>>([]);
-  const [isTagging, setIsTagging] = useState(false);
+
   const [step, setStep] = useState<"select" | "edit" | "details">("select");
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   const [showGenreSelector, setShowGenreSelector] = useState(false);
-  const [selectedFilter, setSelectedFilter] = useState<any>(null);
-  const [filteredPreviews, setFilteredPreviews] = useState<Record<string, string>>({});
-  const [loadingPreviews, setLoadingPreviews] = useState(false);
-  const [originalImageUris, setOriginalImageUris] = useState<Record<number, string>>({});
+
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [selectedTone, setSelectedTone] = useState<'casual' | 'professional' | 'funny' | 'inspirational' | 'trendy'>('casual');
   const [showToneSelector, setShowToneSelector] = useState(false);
 
   const scaleValue = new Animated.Value(1);
 
-  const filters = [
-    { name: "Original", filter: null },
-    { name: "Clarendon", filter: { brightness: 1.1, contrast: 1.2, saturation: 1.1 } },
-    { name: "Juno", filter: { contrast: 1.1, saturation: 1.2 } },
-    { name: "Ludwig", filter: { brightness: 1.05, contrast: 1.05 } },
-    { name: "Valencia", filter: { brightness: 1.08, contrast: 0.98, saturation: 1.1 } },
-    { name: "Sepia", filter: { sepia: 1 } },
-    { name: "Negative", filter: { contrast: -1, brightness: -1 } },
-  ];
 
-  const imageFilters = [
-    {
-      name: 'Original',
-      icon: 'image',
-      transform: [],
-    },
-    {
-      name: 'Square',
-      icon: 'square',
-      transform: 'square', // Special handling for square crop
-    },
-    {
-      name: 'Rotate',
-      icon: 'rotate-cw',
-      transform: [
-        {
-          rotate: 90,
-        },
-      ],
-    },
-    {
-      name: 'Flip H',
-      icon: 'move-horizontal',
-      transform: [
-        {
-          flip: ImageManipulator.FlipType.Horizontal,
-        },
-      ],
-    },
-    {
-      name: 'Flip V',
-      icon: 'move-vertical',
-      transform: [
-        {
-          flip: ImageManipulator.FlipType.Vertical,
-        },
-      ],
-    },
-    {
-      name: 'Small',
-      icon: 'minimize-2',
-      transform: [
-        {
-          resize: {
-            width: 400,
-          },
-        },
-      ],
-    },
-    {
-      name: 'Medium',
-      icon: 'circle',
-      transform: [
-        {
-          resize: {
-            width: 800,
-          },
-        },
-      ],
-    },
-    {
-      name: 'Large',
-      icon: 'maximize-2',
-      transform: [
-        {
-          resize: {
-            width: 1200,
-          },
-        },
-      ],
-    },
-  ];
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -204,30 +120,26 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
     fetchUser();
   }, []);
 
-  useEffect(() => {
-    if (media.length > 0 && media[activeMediaIndex]) {
-      // Reset to Original filter when changing images
-      setSelectedFilter(imageFilters.find(f => f.name === 'Original') || imageFilters[0]);
-      generateFilterPreviews(media[activeMediaIndex].uri);
-    }
-  }, [media, activeMediaIndex]);
+
 
   const compressImage = async (uri: string) => {
     try {
+      // More aggressive compression to reduce egress
       const manipResult = await ImageManipulator.manipulateAsync(
         uri,
-        [{ resize: { width: 1080 } }],
-        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+        [{ resize: { width: 720 } }], // Reduced from 1080 to 720
+        { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG } // Reduced from 0.7 to 0.5
       );
 
       const fileInfo = await fetch(manipResult.uri);
       const blob = await fileInfo.blob();
 
-      if (blob.size > 1048576) {
+      // Target max 500KB instead of 1MB to reduce bandwidth
+      if (blob.size > 512000) {
         return await ImageManipulator.manipulateAsync(
           manipResult.uri,
-          [{ resize: { width: 720 } }],
-          { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG }
+          [{ resize: { width: 480 } }], // Further reduction
+          { compress: 0.3, format: ImageManipulator.SaveFormat.JPEG }
         );
       }
 
@@ -238,30 +150,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
     }
   };
 
-  const applyFilter = async (filter: any) => {
-    if (media.length === 0 || activeMediaIndex >= media.length) return;
 
-    try {
-      let manipResult;
-      if (filter) {
-        manipResult = await ImageManipulator.manipulateAsync(
-          media[activeMediaIndex].uri,
-          [],
-          filter
-        );
-      } else {
-        const originalUri = media[activeMediaIndex].uri;
-        manipResult = await ImageManipulator.manipulateAsync(originalUri, [], {});
-      }
-
-      const newMedia = [...media];
-      newMedia[activeMediaIndex] = { ...newMedia[activeMediaIndex], uri: manipResult.uri };
-      setMedia(newMedia);
-    } catch (error) {
-      console.error("Error applying filter:", error);
-      alert("Failed to apply filter. Please try again.");
-    }
-  };
 
   const pickMedia = useCallback(async () => {
     try {
@@ -295,20 +184,15 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
         // Process and compress images with progress updates
         const totalImages = result.assets.length;
         const processedMedia = [];
-        const newOriginalUris: Record<number, string> = {};
-
         for (let i = 0; i < result.assets.length; i++) {
           const asset = result.assets[i];
           setUploadProgress((i / totalImages) * 100);
           const compressed = await compressImage(asset.uri);
-          const newIndex = media.length + i;
           processedMedia.push({ uri: compressed.uri, type: 'image' as const });
-          // Store original URI for each image
-          newOriginalUris[newIndex] = compressed.uri;
         }
 
         setMedia((prev) => [...prev, ...processedMedia]);
-        setOriginalImageUris(prev => ({ ...prev, ...newOriginalUris }));
+
         setStep("edit");
 
         // Success feedback
@@ -386,27 +270,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
     }
   }, []);
 
-  const searchUsers = async (query: string) => {
-    if (query.length < 2) {
-      setSearchResults([]);
-      return;
-    }
 
-    try {
-      const results = await postsAPI.searchUsers(query);
-      setSearchResults(results);
-    } catch (error) {
-      console.error("Error searching users:", error);
-      alert("Failed to search users. Please try again.");
-    }
-  };
-
-  const handleTagUser = (user: { id: string; username: string }) => {
-    if (!taggedUsers.some(u => u.id === user.id)) {
-      setTaggedUsers([...taggedUsers, user]);
-    }
-    setSearchQuery("");
-  };
 
   const removeTaggedUser = (userId: string) => {
     setTaggedUsers(taggedUsers.filter(user => user.id !== userId));
@@ -510,14 +374,15 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
         await Promise.all(
           taggedUsers.map(async (user) => {
             try {
-              await notificationsAPI.createNotification(
+              // Use SupabaseNotificationBroadcaster which handles both creation and real-time broadcasting
+              await SupabaseNotificationBroadcaster.broadcastMention(
                 user.id,
-                "mention",
                 userId!,
-                postData.id
+                postData.id,
+                undefined // reelId
               );
             } catch (error) {
-              console.error(`Failed to create notification for user ${user.id}:`, error);
+              console.error(`Failed to create mention notification for user ${user.id}:`, error);
             }
           })
         );
@@ -738,132 +603,9 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
     }
   };
 
-  const generateFilterPreviews = async (imageUri: string) => {
-    setLoadingPreviews(true);
-    const previews: Record<string, string> = {};
 
-    try {
-      for (const filter of imageFilters) {
-        if (filter.name === 'Original') {
-          previews[filter.name] = imageUri;
-        } else {
-          try {
-            let actions = [];
 
-            // Handle special cases
-            if (filter.transform === 'square') {
-              // For square crop, first resize to a square preview
-              actions = [
-                { resize: { width: 80, height: 80 } },
-              ];
-            } else if (Array.isArray(filter.transform)) {
-              // For regular transformations, resize first then apply transform
-              actions = [
-                { resize: { width: 80, height: 80 } },
-                ...filter.transform,
-              ];
-            }
 
-            const result = await ImageManipulator.manipulateAsync(
-              imageUri,
-              actions,
-              {
-                compress: 0.7,
-                format: ImageManipulator.SaveFormat.JPEG,
-              }
-            );
-            previews[filter.name] = result.uri;
-          } catch (filterError) {
-            console.warn(`Error applying filter ${filter.name}:`, filterError);
-            // Fallback to original for failed filters
-            previews[filter.name] = imageUri;
-          }
-        }
-      }
-      setFilteredPreviews(previews);
-    } catch (error) {
-      console.error('Error generating filter previews:', error);
-    } finally {
-      setLoadingPreviews(false);
-    }
-  };
-
-  const getImageDimensions = async (uri: string): Promise<{ width: number; height: number }> => {
-    return new Promise((resolve, reject) => {
-      Image.getSize(
-        uri,
-        (width, height) => resolve({ width, height }),
-        (error) => reject(error)
-      );
-    });
-  };
-
-  const applyInlineFilter = async (filter: any) => {
-    if (!media[activeMediaIndex]) return;
-
-    try {
-      if (filter.name === 'Original') {
-        // Reset to original image
-        const originalUri = originalImageUris[activeMediaIndex];
-        if (originalUri) {
-          setMedia(prev => prev.map((item, index) =>
-            index === activeMediaIndex
-              ? { ...item, uri: originalUri }
-              : item
-          ));
-        }
-        setSelectedFilter(filter);
-        return;
-      }
-
-      // Get the original image URI to apply filter to
-      const sourceUri = originalImageUris[activeMediaIndex] || media[activeMediaIndex].uri;
-
-      let actions = [];
-
-      // Handle special cases
-      if (filter.transform === 'square') {
-        // Get image dimensions for proper square crop
-        const { width, height } = await getImageDimensions(sourceUri);
-        const size = Math.min(width, height);
-        const originX = (width - size) / 2;
-        const originY = (height - size) / 2;
-
-        actions = [
-          {
-            crop: {
-              originX,
-              originY,
-              width: size,
-              height: size,
-            },
-          },
-        ];
-      } else if (Array.isArray(filter.transform)) {
-        actions = filter.transform;
-      }
-
-      const result = await ImageManipulator.manipulateAsync(
-        sourceUri,
-        actions,
-        {
-          compress: 0.8,
-          format: ImageManipulator.SaveFormat.JPEG,
-        }
-      );
-
-      setMedia(prev => prev.map((item, index) =>
-        index === activeMediaIndex
-          ? { ...item, uri: result.uri }
-          : item
-      ));
-      setSelectedFilter(filter);
-    } catch (error) {
-      console.error('Error applying filter:', error);
-      // Show user-friendly error message
-      Alert.alert('Filter Error', 'Failed to apply filter. Please try again.');
-    }
-  };
 
   const renderCarouselItem = ({
     item,
@@ -917,72 +659,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
           </TouchableOpacity>
         </View>
 
-        {/* Inline Filter Selection */}
-        <View style={styles.inlineFiltersContainer}>
-          <Text style={[styles.filtersTitle, { color: colors.text }]}>
-            Filters ({imageFilters.length} available)
-          </Text>
-          {loadingPreviews ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-                Generating previews...
-              </Text>
-            </View>
-          ) : (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filtersScrollContainer}
-            >
-              {imageFilters.map((filter, index) => {
-                const isSelected = selectedFilter?.name === filter.name;
-                const previewUri = filteredPreviews[filter.name] || (media[activeMediaIndex]?.uri);
 
-                return (
-                  <TouchableOpacity
-                    key={`${filter.name}-${index}`}
-                    style={[
-                      styles.filterItem,
-                      {
-                        borderColor: isSelected ? colors.primary : 'rgba(128, 128, 128, 0.3)',
-                        backgroundColor: isSelected
-                          ? `${colors.primary}20`
-                          : 'rgba(128, 128, 128, 0.1)',
-                      },
-                    ]}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      applyInlineFilter(filter);
-                    }}
-                  >
-                    <View style={styles.filterPreviewContainer}>
-                      {previewUri ? (
-                        <Image
-                          source={{ uri: previewUri }}
-                          style={styles.filterPreview}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View style={[styles.filterPreview, { backgroundColor: colors.backgroundTertiary, justifyContent: 'center', alignItems: 'center' }]}>
-                          <Feather name={filter.icon as any} size={20} color={colors.textSecondary} />
-                        </View>
-                      )}
-                      {isSelected && (
-                        <View style={[styles.selectedOverlay, { backgroundColor: `${colors.primary}40` }]}>
-                          <Feather name="check" size={12} color={colors.primary} />
-                        </View>
-                      )}
-                    </View>
-                    <Text style={[styles.filterName, { color: colors.text }]} numberOfLines={1}>
-                      {filter.name}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          )}
-        </View>
 
         {/* Add padding at the bottom to ensure content isn't hidden behind the next button */}
         <View style={styles.bottomSpacer} />
@@ -1243,19 +920,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
       <View style={styles.optionsSection}>
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Options</Text>
         <View style={styles.optionsContainer}>
-          <TouchableOpacity
-            style={[styles.optionButton, {
-              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
-              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
-            }]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setIsTagging(!isTagging);
-            }}
-          >
-            <Feather name="user-plus" size={20} color={isDarkMode ? '#808080' : '#606060'} />
-            <Text style={[styles.optionText, { color: colors.text }]}>Tag People</Text>
-          </TouchableOpacity>
+
 
           <TouchableOpacity
             style={[styles.optionButton, {
@@ -1273,56 +938,17 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
         </View>
       </View>
 
-      {/* Tagging Section */}
-      {isTagging && (
-        <View style={[styles.taggingSection, {
-          backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.05)' : 'rgba(128, 128, 128, 0.05)',
-          borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.2)'
-        }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Tag People</Text>
-          <View style={styles.taggingContainer}>
-            <View style={[styles.searchInputContainer, {
-              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
-              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
-            }]}>
-              <Feather name="search" size={16} color={isDarkMode ? '#808080' : '#606060'} style={styles.searchIcon} />
-              <TextInput
-                style={[styles.searchInput, { color: colors.text }]}
-                placeholder="Search users..."
-                placeholderTextColor={colors.textTertiary}
-                value={searchQuery}
-                onChangeText={(text) => {
-                  setSearchQuery(text);
-                  searchUsers(text);
-                }}
-              />
-            </View>
-            {searchResults.length > 0 && (
-              <ScrollView style={styles.searchResults}>
-                {searchResults.map((user) => (
-                  <TouchableOpacity
-                    key={user.id}
-                    style={styles.userResult}
-                    onPress={() => handleTagUser(user)}
-                  >
-                    <Text style={styles.username}>@{user.username}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      )}
+
 
       {/* Location Tag */}
       {location && (
         <View style={styles.locationSection}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Location</Text>
           <View style={[styles.locationTag, {
-            backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
-            borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
+            backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.15)',
+            borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.5)' : 'rgba(128, 128, 128, 0.4)'
           }]}>
-            <Feather name="map-pin" size={16} color={isDarkMode ? '#808080' : '#606060'} />
+            <Feather name="map-pin" size={16} color={isDarkMode ? '#A0A0A0' : '#505050'} />
             <Text style={[styles.locationText, { color: colors.text }]}>{location}</Text>
             <TouchableOpacity
               onPress={() => {
@@ -1331,7 +957,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
               }}
               style={styles.removeLocationButton}
             >
-              <Feather name="x" size={16} color={isDarkMode ? '#808080' : '#606060'} />
+              <Feather name="x" size={16} color={isDarkMode ? '#A0A0A0' : '#505050'} />
             </TouchableOpacity>
           </View>
         </View>
@@ -1348,7 +974,7 @@ const CreatePost = ({ onPostCreated }: { onPostCreated: () => void }) => {
           >
             {taggedUsers.map(user => (
               <View key={user.id} style={styles.taggedUser}>
-                <Text style={styles.taggedUsername}>@{user.username}</Text>
+                <Text style={[styles.taggedUsername, { color: '#14B8A6' }]}>@{user.username}</Text>
                 <TouchableOpacity
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1670,44 +1296,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
-  // Tagging Section
-  taggingSection: {
-    marginBottom: 20,
-    borderRadius: 12,
-    padding: 15,
-    borderWidth: 1,
-  },
-  taggingContainer: {
-    position: "relative",
-  },
-  searchInputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 25,
-    paddingHorizontal: 15,
-    borderWidth: 1,
-  },
-  searchIcon: {
-    marginRight: 10,
-  },
-  searchInput: {
-    flex: 1,
-    height: 40,
-    fontFamily: "Rubik-Regular",
-  },
-  searchResults: {
-    marginTop: 10,
-    maxHeight: 150,
-    backgroundColor: "#1a1a1a",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(128, 128, 128, 0.2)",
-  },
-  userResult: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(128, 128, 128, 0.1)",
-  },
+
   username: {
     color: "white",
     fontFamily: "Rubik-Regular",
@@ -1756,6 +1345,7 @@ const styles = StyleSheet.create({
   taggedUsername: {
     marginRight: 8,
     fontFamily: "Rubik-Regular",
+    color: "white",
   },
   removeTagButton: {
     padding: 4,
@@ -1971,12 +1561,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(128, 128, 128, 0.3)",
   },
-  filterName: {
-    fontFamily: "Rubik-Regular",
-    fontSize: 12,
-    textAlign: "center",
-    fontWeight: "500",
-  },
+
 
   genreButton: {
     flexDirection: 'row',
@@ -2095,59 +1680,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(128, 128, 128, 0.3)',
   },
-  inlineFiltersContainer: {
-    marginTop: 15,
-    marginBottom: 20,
-    paddingHorizontal: 15,
-    backgroundColor: 'rgba(128, 128, 128, 0.05)',
-    borderRadius: 12,
-    marginHorizontal: 10,
-    paddingVertical: 15,
-    borderWidth: 1,
-    borderColor: 'rgba(128, 128, 128, 0.2)',
-  },
-  filtersTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-    fontFamily: 'Rubik-Medium',
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    paddingVertical: 20,
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  filtersScrollContainer: {
-    paddingVertical: 8,
-  },
-  filterItem: {
-    alignItems: 'center',
-    marginRight: 12,
-    borderWidth: 2,
-    borderRadius: 12,
-    padding: 8,
-    minWidth: 70,
-  },
-  filterPreviewContainer: {
-    position: 'relative',
-    marginBottom: 8,
-  },
-  filterPreview: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
-  },
-  selectedOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+
   // AI Generation Styles
   aiSection: {
     flexDirection: 'row',

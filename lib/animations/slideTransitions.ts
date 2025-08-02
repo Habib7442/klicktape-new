@@ -1,9 +1,9 @@
 import { Platform } from 'react-native';
 import {
-  TransitionSpec,
   StackCardInterpolationProps,
   StackCardInterpolatedStyle
 } from '@react-navigation/stack';
+import type { NativeStackNavigationOptions } from '@react-navigation/native-stack';
 
 // Theme-aware slide animation configuration
 export const createSlideFromRightConfig = (isDarkMode: boolean = true) => ({
@@ -31,7 +31,7 @@ export const createSlideFromRightConfig = (isDarkMode: boolean = true) => ({
           android: 'fastOutSlowIn' as const,
         }),
       },
-    } as TransitionSpec,
+    },
     close: {
       animation: 'timing' as const,
       config: {
@@ -45,7 +45,7 @@ export const createSlideFromRightConfig = (isDarkMode: boolean = true) => ({
           android: 'fastOutSlowIn' as const,
         }),
       },
-    } as TransitionSpec,
+    },
   },
 
   // Custom interpolator for smooth slide animation with theme-aware background
@@ -118,8 +118,23 @@ export const createSlideFromRightConfig = (isDarkMode: boolean = true) => ({
   },
 });
 
+// Native Stack compatible configuration for Expo Router
+export const createNativeStackSlideConfig = (isDarkMode: boolean = true): NativeStackNavigationOptions => ({
+  headerShown: false,
+  animation: 'slide_from_right',
+  animationDuration: Platform.select({
+    ios: 300,
+    android: 280,
+  }),
+  gestureEnabled: true,
+  gestureDirection: 'horizontal',
+  contentStyle: {
+    backgroundColor: isDarkMode ? '#000000' : '#FFFFFF',
+  },
+});
+
 // Create theme-aware configurations
-export const createThemeAwareSlideConfig = (isDarkMode: boolean) => createSlideFromRightConfig(isDarkMode);
+export const createThemeAwareSlideConfig = (isDarkMode: boolean) => createNativeStackSlideConfig(isDarkMode);
 
 // Default configurations (will be updated by layout)
 export const slideFromRightConfig = createSlideFromRightConfig(true); // Default to dark

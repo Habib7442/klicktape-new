@@ -36,7 +36,7 @@ export const messagesAPI = {
           is_read: false,
           status: "sent",
           created_at: new Date().toISOString(),
-        })
+        } as any)
         .select(`
           *,
           sender:profiles!messages_sender_id_fkey(id, username, avatar_url),
@@ -46,7 +46,7 @@ export const messagesAPI = {
 
       if (error) throw error;
 
-      console.log("✅ Message sent successfully:", data.id);
+      console.log("✅ Message sent successfully:", (data as any).id);
       return data;
     } catch (error) {
       console.error("❌ Error sending message:", error);
@@ -62,7 +62,14 @@ export const messagesAPI = {
         .select(`
           *,
           sender:profiles!messages_sender_id_fkey(id, username, avatar_url),
-          receiver:profiles!messages_receiver_id_fkey(id, username, avatar_url)
+          receiver:profiles!messages_receiver_id_fkey(id, username, avatar_url),
+          reply_to_message:messages!reply_to_message_id(
+            id,
+            content,
+            sender_id,
+            message_type,
+            sender:profiles!sender_id(username)
+          )
         `)
         .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
         .order("created_at", { ascending: false })
@@ -81,18 +88,18 @@ export const messagesAPI = {
       const { data: message, error: checkError } = await supabase
         .from("messages")
         .select("is_read, receiver_id, sender_id")
-        .eq("id", messageId)
+        .eq("id", messageId as any)
         .single();
 
       if (checkError) throw checkError;
 
       // Only mark as read if current user is the receiver
-      if (message.receiver_id !== userId) {
+      if ((message as any).receiver_id !== userId) {
         console.log("User is not the receiver of this message");
         return;
       }
 
-      if (message.is_read) {
+      if ((message as any).is_read) {
         console.log("Message already read:", messageId);
         return;
       }
@@ -103,8 +110,8 @@ export const messagesAPI = {
           is_read: true,
           status: "read",
           read_at: new Date().toISOString()
-        })
-        .eq("id", messageId)
+        } as any)
+        .eq("id", messageId as any)
         .select()
         .single();
 
@@ -159,10 +166,10 @@ export const messagesAPI = {
           is_read: true,
           status: "read",
           read_at: new Date().toISOString()
-        })
-        .eq("receiver_id", userId)
-        .eq("sender_id", otherUserId)
-        .eq("is_read", false)
+        } as any)
+        .eq("receiver_id", userId as any)
+        .eq("sender_id", otherUserId as any)
+        .eq("is_read", false as any)
         .select();
 
       if (error) throw error;
@@ -230,7 +237,14 @@ export const messagesAPI = {
         .select(`
           *,
           sender:profiles!messages_sender_id_fkey(id, username, avatar_url),
-          receiver:profiles!messages_receiver_id_fkey(id, username, avatar_url)
+          receiver:profiles!messages_receiver_id_fkey(id, username, avatar_url),
+          reply_to_message:messages!reply_to_message_id(
+            id,
+            content,
+            sender_id,
+            message_type,
+            sender:profiles!sender_id(username)
+          )
         `)
         .or(
           `and(sender_id.eq.${userId},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${userId})`
@@ -259,8 +273,8 @@ export const messagesAPI = {
             chat_id: chatId,
             is_typing: isTyping,
             updated_at: new Date().toISOString(),
-          },
-          { onConflict: ["user_id", "chat_id"] }
+          } as any,
+          { onConflict: "user_id,chat_id" }
         )
         .select()
         .single();
@@ -433,7 +447,13 @@ export const messagesAPI = {
           *,
           sender:profiles!messages_sender_id_fkey(id, username, avatar_url),
           receiver:profiles!messages_receiver_id_fkey(id, username, avatar_url),
-          reply_to_message:messages!reply_to_message_id(id, content, sender_id, message_type)
+          reply_to_message:messages!reply_to_message_id(
+            id,
+            content,
+            sender_id,
+            message_type,
+            sender:profiles!sender_id(username)
+          )
         `)
         .single();
 
@@ -567,6 +587,104 @@ export const messagesAPI = {
     } catch (error) {
       console.error("❌ Error fetching messages reactions:", error);
       throw new Error(`Failed to fetch reactions: ${(error as Error).message}`);
+    }
+  },
+
+  // Delete message with proper authorization
+  deleteMessage: async (messageId: string, userId: string) => {
+    try {
+      console.log("🗑️ API deleteMessage called:", { messageId, userId });
+
+      // Check if this is a temporary message (not in database)
+      if (messageId.startsWith('temp_')) {
+        console.log("⚠️ Attempted to delete temporary message from database:", messageId);
+        throw new Error("Cannot delete temporary message - it doesn't exist in database yet");
+      }
+
+      // First verify the user owns this message
+      const { data: message, error: fetchError } = await supabase
+        .from("messages")
+        .select("id, sender_id")
+        .eq("id", messageId)
+        .single();
+
+      if (fetchError) {
+        console.error("❌ Error fetching message for deletion:", fetchError);
+        throw new Error(`Failed to fetch message: ${fetchError.message}`);
+      }
+
+      if (!message) {
+        throw new Error("Message not found");
+      }
+
+      if (message.sender_id !== userId) {
+        throw new Error("You can only delete your own messages");
+      }
+
+      console.log("✅ Message found and authorized, proceeding with deletion:", message);
+
+      // Delete the message (this will cascade delete reactions and replies due to foreign key constraints)
+      const { error: deleteError } = await supabase
+        .from("messages")
+        .delete()
+        .eq("id", messageId)
+        .eq("sender_id", userId); // Extra safety check
+
+      if (deleteError) {
+        console.error("❌ Error deleting message:", deleteError);
+        throw new Error(`Failed to delete message: ${deleteError.message}`);
+      }
+
+      console.log("✅ Message deleted successfully from database:", messageId);
+      return { success: true, messageId };
+    } catch (error) {
+      console.error("❌ Error in deleteMessage:", error);
+      throw error;
+    }
+  },
+
+  // Clear entire chat with new behavior:
+  // - Delete messages from database that the current user sent
+  // - Mark chat as cleared for the current user (hides all messages from their interface)
+  clearChat: async (userId: string, recipientId: string) => {
+    try {
+      // Step 1: Delete all messages sent by the current user to the specific recipient
+      const { error: deleteError } = await supabase
+        .from("messages")
+        .delete()
+        .eq("sender_id", userId)
+        .eq("receiver_id", recipientId);
+
+      if (deleteError) {
+        console.error("❌ Error deleting user's messages:", deleteError);
+        throw new Error(`Failed to delete your messages: ${deleteError.message}`);
+      }
+
+      // Step 2: Mark this chat as cleared for the current user
+      // This will hide all messages (including received ones) from their interface
+      const { error: clearError } = await supabase
+        .from("cleared_chats")
+        .upsert({
+          user_id: userId,
+          other_user_id: recipientId,
+          cleared_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id,other_user_id'
+        });
+
+      if (clearError) {
+        console.error("❌ Error marking chat as cleared:", clearError);
+        throw new Error(`Failed to clear chat interface: ${clearError.message}`);
+      }
+
+      console.log("✅ Chat cleared successfully for user:", userId);
+      console.log("  - Deleted user's sent messages from database");
+      console.log("  - Marked chat as cleared to hide all messages from interface");
+
+      return { success: true, userId, recipientId };
+    } catch (error) {
+      console.error("❌ Error in clearChat:", error);
+      throw error;
     }
   },
 };

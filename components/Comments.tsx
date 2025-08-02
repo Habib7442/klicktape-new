@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -17,6 +17,11 @@ import { supabase } from "@/lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "@/src/context/ThemeContext";
 import CachedImage from "@/components/CachedImage";
+import { SupabaseNotificationBroadcaster } from "@/lib/supabaseNotificationManager";
+import { useRouter } from "expo-router";
+import CommentEditModal from "@/components/CommentEditModal";
+import CommentPinButton from "@/components/CommentPinButton";
+import PinnedCommentIndicator from "@/components/PinnedCommentIndicator";
 
 interface Comment {
   id: string;
@@ -32,6 +37,12 @@ interface Comment {
   };
   replies?: Comment[];
   mentions?: Array<{ user_id: string; username: string }>;
+  // New fields for editing and pinning
+  edited_at?: string;
+  is_edited?: boolean;
+  is_pinned?: boolean;
+  pinned_at?: string;
+  pinned_by?: string;
 }
 
 interface CommentsModalProps {
@@ -39,12 +50,17 @@ interface CommentsModalProps {
   entityId: string;
   onClose: () => void;
   entityOwnerUsername?: string;
+  entityOwnerId?: string;
   visible: boolean;
 }
 
 const CommentsModal: React.FC<CommentsModalProps> = React.memo(
-  ({ entityType, entityId, onClose, entityOwnerUsername, visible }) => {
+  ({ entityType, entityId, onClose, entityOwnerUsername, entityOwnerId, visible }) => {
     const { colors, isDarkMode } = useTheme();
+    const router = useRouter();
+
+    // Memoize colors to prevent unnecessary re-renders
+    const memoizedColors = useMemo(() => colors, [colors.text, colors.background, colors.primary]);
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState("");
     const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
@@ -63,10 +79,16 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
     const [deletingComments, setDeletingComments] = useState<Set<string>>(new Set());
     // Add expanded replies tracking
     const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
+    // Add edit modal state
+    const [editingComment, setEditingComment] = useState<Comment | null>(null);
+    const [showEditModal, setShowEditModal] = useState(false);
+    // Add entity owner ID state
+    const [resolvedEntityOwnerId, setResolvedEntityOwnerId] = useState<string>("");
     const mentionInputRef = useRef<TextInput>(null);
     const mentionStartIndex = useRef<number>(-1);
     const subscriptionRef = useRef<any>(null);
     const cacheTimestamp = useRef<number>(0);
+    const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const cacheKey = `${entityType}_comments_${entityId}`;
     const table = entityType === "reel" ? "reel_comments" : "comments";
@@ -155,6 +177,23 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
       getUserFromStorage();
     }, [visible]);
 
+    // Fetch like status when both user and comments are available
+    useEffect(() => {
+      if (user?.id && comments.length > 0 && visible) {
+        console.log(`💖 User loaded, fetching like status for ${comments.length} comments`);
+        fetchLikeStatus(comments);
+      }
+    }, [user?.id, comments.length, visible]);
+
+    // Cleanup timeout on unmount
+    useEffect(() => {
+      return () => {
+        if (searchTimeoutRef.current) {
+          clearTimeout(searchTimeoutRef.current);
+        }
+      };
+    }, []);
+
     useEffect(() => {
       if (entityId && visible) {
         const loadComments = async () => {
@@ -176,8 +215,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                 const comments = parsed.comments || parsed;
                 console.log(`📦 Loaded ${comments.length} comments from cache`);
                 setComments(comments);
-                // Load like status for cached comments
-                await fetchLikeStatus(comments);
+                // Note: Like status will be fetched separately when user is loaded
               } catch (error) {
                 console.error("Error parsing cached comments:", error);
                 // Clear corrupted cache
@@ -214,8 +252,46 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
       };
     }, [entityId, entityType, visible]);
 
+    // Fetch entity owner ID if not provided
+    useEffect(() => {
+      const fetchEntityOwnerId = async () => {
+        if (entityOwnerId) {
+          setResolvedEntityOwnerId(entityOwnerId);
+          return;
+        }
+
+        try {
+          const tableName = entityType === "post" ? "posts" : "reels";
+          const { data, error } = await supabase
+            .from(tableName as any)
+            .select("user_id")
+            .eq("id", entityId)
+            .single();
+
+          if (error) throw error;
+          const entityData = data as any;
+          setResolvedEntityOwnerId(entityData?.user_id || "");
+          console.log(`🔑 Fetched entity owner ID: ${entityData?.user_id} for ${entityType} ${entityId}`);
+          console.log(`👤 Current user ID: ${user?.id}, Entity owner ID: ${entityData?.user_id}`);
+        } catch (error) {
+          console.error("Error fetching entity owner ID:", error);
+          setResolvedEntityOwnerId("");
+        }
+      };
+
+      if (visible) {
+        fetchEntityOwnerId();
+      }
+    }, [visible, entityId, entityType, entityOwnerId]);
+
     // Add function to fetch like status for comments
     const fetchLikeStatus = async (commentsToCheck: Comment[]) => {
+      console.log("🔍 fetchLikeStatus called with:", {
+        commentsCount: commentsToCheck.length,
+        userId: user?.id,
+        hasUser: !!user
+      });
+
       if (!user?.id) {
         console.log("No user ID available for fetching like status");
         return;
@@ -268,10 +344,14 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
 
           const likedSet = new Set(likes?.map(like => like.comment_id) || []);
           console.log("Setting liked comments (fallback):", Array.from(likedSet));
+          console.log("All comment IDs:", allCommentIds);
+          console.log("User ID:", user.id);
           setLikedComments(likedSet);
         } else {
           const likedSet = new Set(optimizedLikes?.map((like: any) => like.comment_id as string) || []);
           console.log("Setting liked comments (optimized):", Array.from(likedSet));
+          console.log("All comment IDs:", allCommentIds);
+          console.log("User ID:", user.id);
           setLikedComments(likedSet);
         }
       } catch (error) {
@@ -289,7 +369,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
               const parsed = JSON.parse(cachedComments);
               const comments = parsed.comments || parsed;
               setComments(comments);
-              await fetchLikeStatus(comments);
+              // Note: Like status will be fetched separately when user is loaded
               return;
             } catch (parseError) {
               console.error("Error parsing cached comments:", parseError);
@@ -344,7 +424,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
           // Fallback to original query if function fails
           console.log(`🔄 Using fallback query for ${entityType} comments`);
           const { data: fallbackData, error: fallbackError } = await supabase
-            .from(table)
+            .from(table as any)
             .select(
               `
               *,
@@ -356,13 +436,14 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
             `
             )
             .eq(`${entityType}_id`, entityId)
+            .order("is_pinned", { ascending: false })
             .order("created_at", { ascending: true });
 
           console.log(`📊 Fallback query result:`, { data: fallbackData?.length || 0, error: fallbackError });
 
           if (fallbackError) throw fallbackError;
 
-          const commentsWithDefaultAvatar = (fallbackData || []).map((comment) => ({
+          const commentsWithDefaultAvatar = (fallbackData || []).map((comment: any) => ({
             ...comment,
             user: {
               username: comment.user?.username || "Unknown",
@@ -374,7 +455,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
           const nestedComments = nestComments(commentsWithDefaultAvatar);
           setComments(nestedComments);
           await syncCommentCount(nestedComments);
-          await fetchLikeStatus(nestedComments);
+          // Note: Like status will be fetched separately when user is loaded
           return;
         }
 
@@ -405,8 +486,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
         await AsyncStorage.setItem(cacheKey, JSON.stringify(cacheData));
         await AsyncStorage.setItem(`${cacheKey}_timestamp`, cacheTimestamp.current.toString());
 
-        // Fetch like status for all comments
-        await fetchLikeStatus(nestedComments);
+        // Note: Like status will be fetched separately when user is loaded
         console.log(`🎉 Successfully loaded and processed ${nestedComments.length} comments`);
       } catch (error) {
         console.error(`❌ Error fetching ${entityType} comments:`, error);
@@ -571,6 +651,46 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
 
         if (insertError) throw insertError;
 
+        // Create notification for the post/reel owner
+        try {
+          const { data: entity, error: entityError } = await supabase
+            .from(entityTable)
+            .select("user_id")
+            .eq("id", entityId)
+            .single();
+
+          if (!entityError && entity && entity.user_id !== user.id) {
+            await supabase.from("notifications").insert({
+              recipient_id: entity.user_id,
+              sender_id: user.id,
+              type: "comment",
+              [`${entityType}_id`]: entityId,
+              comment_id: newCommentData.id,
+              created_at: new Date().toISOString(),
+              is_read: false,
+            });
+          }
+
+          // Broadcast real-time notification via Supabase
+          if (!entityError && entity && entity.user_id !== user.id) {
+            try {
+              await SupabaseNotificationBroadcaster.broadcastComment(
+                entity.user_id,
+                user.id,
+                newCommentData.id,
+                entityType === 'post' ? entityId : undefined,
+                entityType === 'reel' ? entityId : undefined
+              );
+            } catch (broadcastError) {
+              console.error("Error broadcasting comment notification:", broadcastError);
+              // Don't throw - comment was created successfully
+            }
+          }
+        } catch (notificationError) {
+          console.error("Error creating comment notification:", notificationError);
+          // Don't throw - comment was created successfully
+        }
+
         // Note: Comment count is now automatically updated by database triggers
         // No need to manually update comments_count
 
@@ -588,6 +708,24 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
             .from(table)
             .update({ replies_count: (parentComment.replies_count || 0) + 1 })
             .eq("id", replyingTo.id);
+
+          // Create notification for the parent comment owner
+          if (parentComment.user_id !== user.id) {
+            try {
+              await supabase.from("notifications").insert({
+                recipient_id: parentComment.user_id,
+                sender_id: user.id,
+                type: "comment",
+                [`${entityType}_id`]: entityId,
+                comment_id: newCommentData.id,
+                created_at: new Date().toISOString(),
+                is_read: false,
+              });
+            } catch (notificationError) {
+              console.error("Error creating reply notification:", notificationError);
+              // Don't throw - comment was created successfully
+            }
+          }
         }
 
         const newCommentWithUser: Comment = {
@@ -779,8 +917,9 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
         return;
       }
 
+      const isCurrentlyLiked = likedComments.has(commentId);
+
       try {
-        const isCurrentlyLiked = likedComments.has(commentId);
         console.log(`Toggling like for comment ${commentId}, currently liked: ${isCurrentlyLiked}`);
 
         // Optimistic UI update
@@ -850,6 +989,9 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
 
         console.log(`Successfully updated like status for comment ${commentId}`);
 
+        // Ensure the like status is properly reflected in the UI
+        console.log("Current liked comments after update:", Array.from(newLikedComments));
+
         // Note: Like count is now automatically updated by database triggers
         // No need to refresh comments since we already updated optimistically
       } catch (error) {
@@ -901,7 +1043,8 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
 
     const parseCommentText = (
       text: string,
-      mentions: Array<{ user_id: string; username: string }> = []
+      mentions: Array<{ user_id: string; username: string }> = [],
+      colorsToUse: any = memoizedColors
     ) => {
       const parts: React.ReactElement[] = [];
       const mentionRegex = /@(\w+)/g;
@@ -917,7 +1060,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
           parts.push(
             <Text
               key={`text-${lastIndex}`}
-              style={[styles.commentText, { color: colors.text }]}
+              style={[styles.commentText, { color: colorsToUse.text }]}
             >
               {text.slice(lastIndex, mentionStart)}
             </Text>
@@ -931,7 +1074,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
               key={`mention-${mentionStart}`}
               onPress={() => handleMentionClick(mentionedUser.user_id)}
             >
-              <Text style={[styles.commentText, { color: colors.primary }]}>
+              <Text style={[styles.commentText, { color: colorsToUse.primary }]}>
                 {match[0]}
               </Text>
             </TouchableOpacity>
@@ -940,7 +1083,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
           parts.push(
             <Text
               key={`text-${mentionStart}`}
-              style={[styles.commentText, { color: colors.text }]}
+              style={[styles.commentText, { color: colorsToUse.text }]}
             >
               {match[0]}
             </Text>
@@ -954,7 +1097,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
         parts.push(
           <Text
             key={`text-${lastIndex}`}
-            style={[styles.commentText, { color: colors.text }]}
+            style={[styles.commentText, { color: colorsToUse.text }]}
           >
             {text.slice(lastIndex)}
           </Text>
@@ -970,9 +1113,119 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
           console.warn("Invalid user ID for mention click");
           return;
         }
+
+        console.log("🔗 Navigating to user profile:", userId);
+
+        // Navigate to user profile using Expo Router
+        router.push(`/userProfile/${userId}`);
       } catch (error) {
         console.error("Error navigating to user profile:", error);
       }
+    };
+
+    // Handle edit comment
+    const handleEditComment = (comment: Comment) => {
+      setEditingComment(comment);
+      setShowEditModal(true);
+    };
+
+    // Handle comment updated from edit modal
+    const handleCommentUpdated = (updatedComment: {
+      id: string;
+      content: string;
+      edited_at: string;
+      is_edited: boolean;
+      mentions: Array<{ user_id: string; username: string }>;
+    }) => {
+      setComments(prevComments => {
+        const updateComment = (comments: Comment[]): Comment[] => {
+          return comments.map(comment => {
+            if (comment.id === updatedComment.id) {
+              return {
+                ...comment,
+                content: updatedComment.content,
+                edited_at: updatedComment.edited_at,
+                is_edited: updatedComment.is_edited,
+                mentions: updatedComment.mentions,
+              };
+            }
+            if (comment.replies) {
+              return {
+                ...comment,
+                replies: updateComment(comment.replies),
+              };
+            }
+            return comment;
+          });
+        };
+        return updateComment(prevComments);
+      });
+    };
+
+    // Handle pin toggle
+    const handlePinToggled = (commentId: string, isPinned: boolean, pinnedAt?: string, pinnedBy?: string) => {
+      setComments(prevComments => {
+        const updateComment = (comments: Comment[]): Comment[] => {
+          return comments.map(comment => {
+            if (comment.id === commentId) {
+              return {
+                ...comment,
+                is_pinned: isPinned,
+                pinned_at: pinnedAt,
+                pinned_by: pinnedBy,
+              };
+            }
+            if (comment.replies) {
+              return {
+                ...comment,
+                replies: updateComment(comment.replies),
+              };
+            }
+            return comment;
+          });
+        };
+
+        const updatedComments = updateComment(prevComments);
+
+        // Sort comments so pinned ones appear first
+        const sortedComments = updatedComments.sort((a, b) => {
+          // First, sort by pinned status (pinned comments first)
+          if (a.is_pinned && !b.is_pinned) return -1;
+          if (!a.is_pinned && b.is_pinned) return 1;
+
+          // If both are pinned, sort by pinned_at (most recently pinned first)
+          if (a.is_pinned && b.is_pinned) {
+            const aTime = new Date(a.pinned_at || 0).getTime();
+            const bTime = new Date(b.pinned_at || 0).getTime();
+            return bTime - aTime;
+          }
+
+          // If neither is pinned, sort by created_at (oldest first)
+          const aTime = new Date(a.created_at).getTime();
+          const bTime = new Date(b.created_at).getTime();
+          return aTime - bTime;
+        });
+
+        console.log(`📌 Pin toggled for comment ${commentId}, isPinned: ${isPinned}, sorted ${sortedComments.length} comments`);
+
+        // Update cache with new sorted comments
+        const updateCache = async () => {
+          try {
+            const cacheData = {
+              comments: sortedComments,
+              timestamp: Date.now(),
+              version: 1
+            };
+            await AsyncStorage.setItem(cacheKey, JSON.stringify(cacheData));
+            console.log(`💾 Updated cache after pin toggle`);
+          } catch (error) {
+            console.error("Error updating cache after pin toggle:", error);
+          }
+        };
+        updateCache();
+
+        return sortedComments;
+      });
     };
 
     const renderComment = useCallback(
@@ -983,13 +1236,15 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
         const isLikedByUser = likedComments.has(comment.id);
         const isDeleting = deletingComments.has(comment.id);
 
+
+
         return (
           <View
             style={[
               styles.commentContainer,
               comment.parent_comment_id && {
                 ...styles.replyContainer,
-                borderLeftColor: colors.border,
+                borderLeftColor: memoizedColors.border,
               },
               isDeleting && { opacity: 0.5 },
             ]}
@@ -1009,17 +1264,44 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                   <TouchableOpacity
                     onPress={() => handleMentionClick(comment.user_id)}
                   >
-                    <Text style={[styles.username, { color: colors.text }]}>
+                    <Text style={[styles.username, { color: memoizedColors.text }]}>
                       {comment.user.username}
                     </Text>
                   </TouchableOpacity>
-                  <Text style={[styles.time, { color: colors.textSecondary }]}>
+                  <Text style={[styles.time, { color: memoizedColors.textSecondary }]}>
                     {timeAgo}
                   </Text>
+                  {comment.is_edited && (
+                    <Text style={[styles.editedIndicator, { color: memoizedColors.textSecondary }]}>
+                      • edited
+                    </Text>
+                  )}
                 </View>
-                <Text style={[styles.commentText, { color: colors.text }]}>
-                  {parseCommentText(comment.content, comment.mentions)}
-                </Text>
+                {/* Pinned indicator */}
+                <PinnedCommentIndicator
+                  isPinned={comment.is_pinned || false}
+                  pinnedAt={comment.pinned_at}
+                  size="small"
+                  style={styles.pinnedIndicator}
+                />
+                <View style={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  flex: 1,
+                  minHeight: 20, // Ensure minimum height for text
+                  alignItems: 'flex-start' // Align text to top
+                }}>
+                  <Text style={[
+                    styles.commentText,
+                    {
+                      color: memoizedColors.text,
+                      flex: 1,
+                      minHeight: 20 // Ensure text has enough height
+                    }
+                  ]}>
+                    {parseCommentText(comment.content, comment.mentions, memoizedColors)}
+                  </Text>
+                </View>
                 <View style={styles.commentActions}>
                   <TouchableOpacity
                     onPress={() => handleLikeComment(comment.id)}
@@ -1028,13 +1310,13 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                     <AntDesign
                       name={isLikedByUser ? "heart" : "hearto"}
                       size={16}
-                      color={isLikedByUser ? "#FF3040" : colors.textSecondary}
+                      color={isLikedByUser ? "#FF3040" : memoizedColors.textSecondary}
                     />
                     {comment.likes_count > 0 && (
                       <Text
                         style={[
                           styles.likeCount,
-                          { color: colors.textSecondary },
+                          { color: memoizedColors.textSecondary },
                         ]}
                       >
                         {comment.likes_count}
@@ -1048,29 +1330,52 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                     <Text
                       style={[
                         styles.actionText,
-                        { color: colors.textSecondary },
+                        { color: memoizedColors.textSecondary },
                       ]}
                     >
                       Reply
                     </Text>
                   </TouchableOpacity>
                   {comment.user_id === user?.id && (
-                    <TouchableOpacity
-                      onPress={() =>
-                        handleDeleteComment(
-                          comment.id,
-                          comment.parent_comment_id
-                        )
-                      }
-                      style={styles.actionButton}
-                    >
-                      <Text
-                        style={[styles.actionText, { color: colors.error }]}
+                    <>
+                      <TouchableOpacity
+                        onPress={() => handleEditComment(comment)}
+                        style={styles.actionButton}
                       >
-                        Delete
-                      </Text>
-                    </TouchableOpacity>
+                        <Text
+                          style={[styles.actionText, { color: memoizedColors.textSecondary }]}
+                        >
+                          Edit
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() =>
+                          handleDeleteComment(
+                            comment.id,
+                            comment.parent_comment_id
+                          )
+                        }
+                        style={styles.actionButton}
+                      >
+                        <Text
+                          style={[styles.actionText, { color: memoizedColors.error }]}
+                        >
+                          Delete
+                        </Text>
+                      </TouchableOpacity>
+                    </>
                   )}
+                  {/* Pin button - only show for entity owner */}
+                  <CommentPinButton
+                    commentId={comment.id}
+                    entityId={entityId}
+                    entityType={entityType}
+                    entityOwnerId={resolvedEntityOwnerId}
+                    currentUserId={user?.id || ""}
+                    isPinned={comment.is_pinned || false}
+                    onPinToggled={handlePinToggled}
+                    style={styles.actionButton}
+                  />
                 </View>
               </View>
             </View>
@@ -1081,8 +1386,8 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                     onPress={() => toggleRepliesExpansion(comment.id)}
                     style={styles.viewRepliesButton}
                   >
-                    <View style={[styles.replyLine, { backgroundColor: colors.border }]} />
-                    <Text style={[styles.viewRepliesText, { color: colors.textSecondary }]}>
+                    <View style={[styles.replyLine, { backgroundColor: memoizedColors.border }]} />
+                    <Text style={[styles.viewRepliesText, { color: memoizedColors.textSecondary }]}>
                       View all {comment.replies.length} {comment.replies.length === 1 ? 'reply' : 'replies'}
                     </Text>
                   </TouchableOpacity>
@@ -1092,8 +1397,8 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                       onPress={() => toggleRepliesExpansion(comment.id)}
                       style={styles.hideRepliesButton}
                     >
-                      <View style={[styles.replyLine, { backgroundColor: colors.border }]} />
-                      <Text style={[styles.hideRepliesText, { color: colors.textSecondary }]}>
+                      <View style={[styles.replyLine, { backgroundColor: memoizedColors.border }]} />
+                      <Text style={[styles.hideRepliesText, { color: memoizedColors.textSecondary }]}>
                         Hide replies
                       </Text>
                     </TouchableOpacity>
@@ -1117,13 +1422,13 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
         entityType,
         handleLikeComment,
         handleDeleteComment,
-        colors,
+        memoizedColors,
         likedComments,
         deletingComments,
       ]
     );
 
-    const searchUsers = async (query: string) => {
+    const searchUsers = useCallback(async (query: string) => {
       try {
         if (!supabase) {
           console.error("Supabase client not available for user search");
@@ -1142,10 +1447,15 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
         console.error("Error searching users:", error);
         return [];
       }
-    };
+    }, []);
 
-    const handleTextChange = async (text: string) => {
+    const handleTextChange = useCallback((text: string) => {
       setNewComment(text);
+
+      // Clear previous timeout
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
 
       const cursorPosition = text.length;
       const lastAtSymbolIndex = text.lastIndexOf("@", cursorPosition - 1);
@@ -1155,9 +1465,12 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
         if (!query.includes(" ")) {
           mentionStartIndex.current = lastAtSymbolIndex;
           if (query.length > 0) {
-            const users = await searchUsers(query);
-            setFilteredUsers(users);
-            setShowMentionsList(users.length > 0);
+            // Debounce the search to reduce API calls
+            searchTimeoutRef.current = setTimeout(async () => {
+              const users = await searchUsers(query);
+              setFilteredUsers(users);
+              setShowMentionsList(users.length > 0);
+            }, 300); // 300ms debounce
           } else {
             setShowMentionsList(true);
             setFilteredUsers([]);
@@ -1170,30 +1483,42 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
         setShowMentionsList(false);
         mentionStartIndex.current = -1;
       }
-    };
+    }, [searchUsers]);
 
-    const handleMentionSelect = (selectedUser: {
+    const handleMentionSelect = useCallback((selectedUser: {
       id: string;
       username: string;
     }) => {
-      const beforeMention = newComment.slice(0, mentionStartIndex.current);
-      const afterMention = newComment.slice(
-        mentionStartIndex.current +
-          1 +
-          (newComment.slice(mentionStartIndex.current + 1).indexOf(" ") === -1
-            ? newComment.length - (mentionStartIndex.current + 1)
-            : newComment.slice(mentionStartIndex.current + 1).indexOf(" "))
-      );
+      console.log("🏷️ Selecting mention:", selectedUser.username);
+      console.log("Current comment:", newComment);
+      console.log("Mention start index:", mentionStartIndex.current);
 
-      const updatedComment =
-        `${beforeMention}@${selectedUser.username} ${afterMention}`.trim();
+      // Get text before the @ symbol
+      const beforeMention = newComment.slice(0, mentionStartIndex.current);
+
+      // Find the end of the current mention (space or end of string)
+      const afterAtSymbol = newComment.slice(mentionStartIndex.current + 1);
+      const spaceIndex = afterAtSymbol.indexOf(" ");
+      const mentionEnd = spaceIndex === -1 ? newComment.length : mentionStartIndex.current + 1 + spaceIndex;
+
+      // Get text after the mention
+      const afterMention = newComment.slice(mentionEnd);
+
+      // Build the new comment with the selected mention
+      const updatedComment = `${beforeMention}@${selectedUser.username} ${afterMention}`.trim();
+
+      console.log("Updated comment:", updatedComment);
+
       setNewComment(updatedComment);
       setMentionedUsers([...mentionedUsers, selectedUser]);
       setShowMentionsList(false);
       mentionStartIndex.current = -1;
 
-      mentionInputRef.current?.focus();
-    };
+      // Focus back on input
+      setTimeout(() => {
+        mentionInputRef.current?.focus();
+      }, 100);
+    }, [newComment, mentionedUsers]);
 
     const MentionsList = () => (
       <View
@@ -1204,6 +1529,10 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
             borderColor: isDarkMode
               ? "rgba(255, 255, 255, 0.2)"
               : "rgba(0, 0, 0, 0.2)",
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
           },
         ]}
       >
@@ -1215,7 +1544,11 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
                 styles.mentionItem,
                 { borderBottomColor: `${colors.primary}10` },
               ]}
-              onPress={() => handleMentionSelect(user)}
+              onPress={() => {
+                console.log("🎯 Mention item tapped:", user.username);
+                handleMentionSelect(user);
+              }}
+              activeOpacity={0.7}
             >
               <Text style={[styles.mentionText, { color: colors.primary }]}>
                 @{user.username}
@@ -1246,16 +1579,17 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
       return "just now";
     };
 
-    // Debug logging for render
-    console.log(`🎨 Comments modal rendering:`, {
-      visible,
-      entityType,
-      entityId,
-      loading,
-      commentsCount: comments.length,
-      userLoaded: !!user,
-      userAvatar: user?.avatar
-    });
+    // Debug logging for render (only when visible changes)
+    useEffect(() => {
+      if (visible) {
+        console.log(`🎨 Comments modal opened:`, {
+          entityType,
+          entityId,
+          commentsCount: comments.length,
+          userLoaded: !!user,
+        });
+      }
+    }, [visible, entityType, entityId]);
 
     return (
       <SafeAreaView style={styles.modalContainer}>
@@ -1422,6 +1756,18 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
           </View>
           </View>
         </Modal>
+
+        {/* Edit Comment Modal */}
+        <CommentEditModal
+          visible={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setEditingComment(null);
+          }}
+          comment={editingComment || { id: "", content: "", mentions: [] }}
+          entityType={entityType}
+          onCommentUpdated={handleCommentUpdated}
+        />
       </SafeAreaView>
     );
   }
@@ -1535,8 +1881,12 @@ const styles = StyleSheet.create({
   commentText: {
     fontSize: 14,
     color: "#fff",
-    lineHeight: 18,
+    lineHeight: 20, // Increased from 18 to prevent clipping
     marginBottom: 5,
+    flexWrap: 'wrap',
+    flexShrink: 1,
+    includeFontPadding: false, // Android: prevents extra padding
+    textAlignVertical: 'center', // Android: better vertical alignment
   },
   commentActions: {
     flexDirection: "row",
@@ -1639,6 +1989,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#333",
     backgroundColor: "#222",
+    zIndex: 9999,
+    elevation: 10, // For Android
   },
   mentionItem: {
     padding: 10,
@@ -1654,6 +2006,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#999",
     textAlign: "center",
+  },
+  editedIndicator: {
+    fontSize: 11,
+    fontStyle: 'italic',
+    marginLeft: 4,
+  },
+  pinnedIndicator: {
+    marginTop: 4,
+    marginBottom: 2,
   },
 });
 

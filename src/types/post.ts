@@ -18,6 +18,10 @@ export interface Post {
   user: User;
   hashtags?: string[];
   genre?: string;
+  tagged_users?: string[];
+  collaborators?: string[];
+  tagged_users_details?: User[];
+  collaborators_details?: User[];
   // Add any other properties that might be needed
   likes?: Array<{ user_id: string }>;
   bookmarks?: Array<{ user_id: string }>;

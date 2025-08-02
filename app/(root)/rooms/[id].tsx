@@ -2,837 +2,482 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
   ActivityIndicator,
   StyleSheet,
-  Keyboard,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useLocalSearchParams, router } from "expo-router";
-import { supabase } from "@/lib/supabase";
 import { Feather } from "@expo/vector-icons";
-import { RealtimeChannel } from "@supabase/supabase-js";
 import { useTheme } from "@/src/context/ThemeContext";
+import { communitiesAPI, communityPostsAPI } from "@/lib/communitiesApi";
+import { Community, CommunityPost } from "@/lib/communitiesApi";
+import CreatePostModal from "@/components/community/CreatePostModal";
+import CommunityCommentsModal from "@/components/community/CommunityCommentsModal";
+import CommunityPostComponent from "@/components/community/CommunityPost";
+import PostManagementModal from "@/components/community/PostManagementModal";
+import { supabase } from "@/lib/supabase";
 
-interface RoomMessage {
-  id: string;
-  room_id: string;
-  sender_id: string;
-  encrypted_content: string;
-  created_at: string;
-  username?: string;
-  profiles?: {
-    username: string;
-    anonymous_room_name?: string;
-  };
-}
-
-
-
-interface Room {
-  id: string;
-  name: string;
-  created_at: string;
-  created_by: string;
-  description?: string;
-}
-
-export default function RoomChat() {
+export default function CommunityDetail() {
   const { id } = useLocalSearchParams();
-
-  const [messages, setMessages] = useState<RoomMessage[]>([]);
-  const [newMessage, setNewMessage] = useState("");
-  const [room, setRoom] = useState<Room | null>(null);
-  const [isLeaving, setIsLeaving] = useState(false);
-  const [isJoined, setIsJoined] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const textInputRef = useRef<TextInput | null>(null);
-  const flatListRef = useRef<FlatList | null>(null);
-  const subscriptionRef = useRef<RealtimeChannel | null>(null);
   const { isDarkMode, colors } = useTheme();
 
+  const [community, setCommunity] = useState<Community | null>(null);
+  const [posts, setPosts] = useState<CommunityPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [userMembership, setUserMembership] = useState<any>(null);
+  const [showCreatePost, setShowCreatePost] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [selectedPostId, setSelectedPostId] = useState<string>('');
+  const [selectedPostAuthor, setSelectedPostAuthor] = useState<string>('');
+  const [showPostManagement, setShowPostManagement] = useState(false);
+  const [selectedPost, setSelectedPost] = useState<CommunityPost | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const flatListRef = useRef<FlatList | null>(null);
 
 
   useEffect(() => {
-    const getUser = async () => {
-      if (!supabase) {
-        console.error("Supabase client not available");
-        router.replace("/sign-in");
-        return;
+    loadCommunityData();
+  }, [id]);
+
+  const loadCommunityData = async () => {
+    if (!id || typeof id !== 'string') return;
+
+    try {
+      setLoading(true);
+
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setCurrentUserId(user.id);
       }
 
+      // Load community details
+      const communityData = await communitiesAPI.getCommunity(id);
+      setCommunity(communityData);
+
+      // Load community posts
+      const postsData = await communityPostsAPI.getCommunityPosts(id);
+      setPosts(postsData);
+
+      // Load user membership status
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (user) {
-          setUserId(user.id);
-          console.log("Authenticated user ID:", user.id);
-        } else {
-          console.warn("No authenticated user found");
-          router.replace("/sign-in");
-        }
+        const members = await communitiesAPI.getCommunityMembers(id);
+        const currentUserMembership = user ? members.find(member => member.user_id === user.id) : null;
+        setUserMembership(currentUserMembership);
       } catch (error) {
-        console.error("Error getting user from Supabase:", error);
-        router.replace("/sign-in");
+        console.log("User not a member or error loading membership:", error);
+        setUserMembership(null);
       }
-    };
-
-    getUser();
-  }, [supabase]); // Add supabase to dependency array to re-run if it becomes available
-
-  useEffect(() => {
-    if (!userId || !supabase || !id) {
-      console.log("Waiting for userId, supabase client, and room id to be available before checking join status");
-      return;
-    }
-
-    const checkJoinStatus = async () => {
-      try {
-        // Ensure supabase is not null before using it
-        if (!supabase) {
-          console.error("Supabase client not available for checking join status");
-          return;
-        }
-
-        const { data, error } = await supabase
-          .from("room_participants")
-          .select("*")
-          .eq("room_id", id)
-          .eq("user_id", userId);
-
-        if (error) {
-          console.error("Error checking join status:", error);
-          return;
-        }
-
-        setIsJoined(data?.length > 0);
-        console.log("Join status checked. User is", data?.length > 0 ? "joined" : "not joined");
-      } catch (err) {
-        console.error("Exception checking join status:", err);
-      }
-    };
-
-    checkJoinStatus();
-  }, [id, userId, supabase]);
-
-  // Function to load initial data
-  const loadInitialData = async () => {
-    if (!userId || !supabase) {
-      console.error("User ID or Supabase client not available");
-      return;
-    }
-
-    try {
-      // Load room data
-      const { data: roomData, error: roomError } = await supabase
-        .from("rooms")
-        .select("*")
-        .eq("id", id)
-        .single();
-
-      if (roomError) throw roomError;
-
-      // Load messages with sender anonymous_room_name using an explicit join
-      const { data: messagesData, error: messagesError } = await supabase
-        .from("room_messages")
-        .select(`
-          id,
-          room_id,
-          sender_id,
-          encrypted_content,
-          created_at,
-          profiles!fk_room_messages_sender_id (
-            username,
-            anonymous_room_name
-          )
-        `)
-        .eq("room_id", id)
-        .order("created_at", { ascending: true })
-        .limit(50);
-
-      if (messagesError) throw messagesError;
-
-      setRoom(roomData);
-
-      // Properly type the messages data
-      const formattedMessages: RoomMessage[] = messagesData?.map((msg: any) => ({
-        id: msg.id,
-        room_id: msg.room_id,
-        sender_id: msg.sender_id,
-        encrypted_content: msg.encrypted_content,
-        created_at: msg.created_at,
-        username: msg.profiles?.anonymous_room_name || msg.profiles?.username || "Anonymous User",
-        profiles: msg.profiles
-      })) || [];
-
-      setMessages(formattedMessages);
-
-      // Scroll to the bottom after loading messages
-      setTimeout(() => {
-        if (flatListRef.current) {
-          flatListRef.current.scrollToEnd({ animated: false });
-        }
-      }, 200);
-    } catch (error) {
-      console.error("Error loading initial data:", error);
-    }
-  };
-
-  // Function to establish real-time subscription
-  const setupRealtimeSubscription = () => {
-    if (!userId || !id || subscriptionRef.current || !supabase) {
-      console.error("Cannot setup subscription: missing userId, id, or supabase client, or subscription already exists");
-      return;
-    }
-
-    try {
-      console.log("Setting up real-time subscription for room:", id);
-
-      // Create subscription for new messages
-      const subscription = supabase
-        .channel(`room_messages:room_id=${id}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "room_messages",
-            filter: `room_id=eq.${id}`,
-          },
-          async (payload) => {
-            console.log("Received new message:", payload);
-            const newMessage = payload.new;
-
-            if (!supabase) {
-              console.error("Supabase client not available for fetching sender");
-              return;
-            }
-
-            // Fetch sender profile with anonymous_room_name
-            const { data: sender, error } = await supabase
-              .from("profiles")
-              .select("username, anonymous_room_name")
-              .eq("id", newMessage.sender_id)
-              .single();
-
-            if (error) {
-              console.error("Error fetching sender:", error);
-              return;
-            }
-
-            // Update messages state with new message
-            const formattedMessage: RoomMessage = {
-              id: newMessage.id,
-              room_id: newMessage.room_id,
-              sender_id: newMessage.sender_id,
-              encrypted_content: newMessage.encrypted_content,
-              created_at: newMessage.created_at,
-              username: sender?.anonymous_room_name || sender?.username || "Anonymous User",
-              profiles: sender
-            };
-
-            setMessages((prev) => [...prev, formattedMessage]);
-
-            // Scroll to the bottom after receiving a new message
-            setTimeout(() => {
-              if (flatListRef.current) {
-                flatListRef.current.scrollToEnd({ animated: true });
-              }
-            }, 100);
-          }
-        )
-        // Also listen for message deletions
-        .on(
-          "postgres_changes",
-          {
-            event: "DELETE",
-            schema: "public",
-            table: "room_messages",
-            filter: `room_id=eq.${id}`,
-          },
-          (payload) => {
-            console.log("Message deleted:", payload);
-            // Remove the deleted message from state
-            setMessages((prev) =>
-              prev.filter((msg) => msg.id !== payload.old.id)
-            );
-          }
-        )
-        // Also listen for message updates
-        .on(
-          "postgres_changes",
-          {
-            event: "UPDATE",
-            schema: "public",
-            table: "room_messages",
-            filter: `room_id=eq.${id}`,
-          },
-          async (payload) => {
-            console.log("Message updated:", payload);
-            const updatedMessage = payload.new;
-
-            if (!supabase) {
-              console.error("Supabase client not available for fetching sender of updated message");
-              return;
-            }
-
-            // Fetch sender profile with anonymous_room_name
-            const { data: sender, error } = await supabase
-              .from("profiles")
-              .select("username, anonymous_room_name")
-              .eq("id", updatedMessage.sender_id)
-              .single();
-
-            if (error) {
-              console.error("Error fetching sender for updated message:", error);
-              return;
-            }
-
-            // Create a properly typed updated message
-            const formattedUpdatedMessage: RoomMessage = {
-              id: updatedMessage.id,
-              room_id: updatedMessage.room_id,
-              sender_id: updatedMessage.sender_id,
-              encrypted_content: updatedMessage.encrypted_content,
-              created_at: updatedMessage.created_at,
-              username: sender?.anonymous_room_name || sender?.username || "Anonymous User",
-              profiles: sender
-            };
-
-            // Update the specific message in state
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === updatedMessage.id ? formattedUpdatedMessage : msg
-              )
-            );
-          }
-        )
-        .subscribe((status) => {
-          console.log("Subscription status:", status);
-          if (status === 'SUBSCRIBED') {
-            console.log("Successfully subscribed to real-time updates for room:", id);
-          }
-        });
-
-      // Store subscription reference for cleanup
-      subscriptionRef.current = subscription;
 
     } catch (error) {
-      console.error("Error setting up real-time subscription:", error);
-    }
-  };
-
-  // Load initial data when component mounts or userId/id changes
-  useEffect(() => {
-    // Only load data when both userId and supabase are available
-    if (userId && supabase && id) {
-      loadInitialData();
-    } else {
-      console.log("Waiting for userId, supabase client, and room id to be available before loading data");
-    }
-  }, [id, userId, supabase]); // Add supabase to dependency array
-
-  // Setup real-time subscription once when component mounts
-  useEffect(() => {
-    // Only set up subscription when both userId and supabase are available
-    if (userId && supabase && id) {
-      setupRealtimeSubscription();
-    } else {
-      console.log("Waiting for userId, supabase client, and room id to be available before setting up subscription");
-    }
-
-    // Cleanup function to unsubscribe when component unmounts
-    return () => {
-      if (subscriptionRef.current) {
-        console.log("Cleaning up subscription for room:", id);
-        subscriptionRef.current.unsubscribe();
-        subscriptionRef.current = null;
-      }
-    };
-  }, [id, userId, supabase]); // Add supabase to dependency array
-
-  const sendMessage = async () => {
-    if (!newMessage.trim()) return;
-    if (!supabase) {
-      console.error("Supabase client not available for sending message");
-      return;
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from("room_messages")
-        .insert({
-          room_id: id,
-          sender_id: userId,
-          encrypted_content: newMessage.trim(),
-        })
-        .select("*, profiles!fk_room_messages_sender_id (username, anonymous_room_name)")
-        .single();
-
-      if (error) throw error;
-
-      // Create a properly typed message
-      const formattedMessage: RoomMessage = {
-        id: data.id,
-        room_id: data.room_id,
-        sender_id: data.sender_id,
-        encrypted_content: data.encrypted_content,
-        created_at: data.created_at,
-        username: data.profiles?.anonymous_room_name || data.profiles?.username || "Anonymous User",
-        profiles: data.profiles
-      };
-
-      // Update local state immediately with proper typing
-      setMessages((prev: RoomMessage[]) => [...prev, formattedMessage]);
-
-      setNewMessage("");
-      // Scroll to the bottom after sending a message
-      setTimeout(() => {
-        if (flatListRef.current) {
-          flatListRef.current.scrollToEnd({ animated: true });
-        }
-      }, 100);
-    } catch (error) {
-      console.error("Error sending message:", error);
-    }
-  };
-
-  const handleDeleteMessage = async (messageId: string) => {
-    if (!supabase) {
-      console.error("Supabase client not available for deleting message");
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from("room_messages")
-        .delete()
-        .eq("id", messageId)
-        .eq("sender_id", userId);
-
-      if (error) throw error;
-      setMessages(messages.filter((msg) => msg.id !== messageId));
-    } catch (error) {
-      console.error("Error deleting message:", error);
-    }
-  };
-
-  const handleLeaveRoom = async () => {
-    if (!supabase) {
-      console.error("Supabase client not available for leaving room");
-      return;
-    }
-
-    setIsLeaving(true);
-    try {
-      const { error } = await supabase
-        .from("room_participants")
-        .delete()
-        .eq("room_id", id)
-        .eq("user_id", userId);
-
-      if (error) throw error;
-      setIsJoined(false);
-      router.back();
-    } catch (error) {
-      console.error("Error leaving room:", error);
+      console.error("Error loading community data:", error);
+      Alert.alert("Error", "Failed to load room details");
     } finally {
-      setIsLeaving(false);
+      setLoading(false);
     }
   };
 
-  const renderMessage = ({ item }: { item: RoomMessage }) => {
-    const bubbleStyle = {
-      ...styles.messageBubble,
-      backgroundColor:
-        item.sender_id === userId
-          ? isDarkMode
-            ? "rgba(128, 128, 128, 0.2)"
-            : "rgba(128, 128, 128, 0.1)"
-          : isDarkMode
-            ? "rgba(255, 255, 255, 0.1)"
-            : "rgba(0, 0, 0, 0.05)",
-      borderColor:
-        item.sender_id === userId
-          ? isDarkMode
-            ? "rgba(128, 128, 128, 0.3)"
-            : "rgba(128, 128, 128, 0.2)"
-          : isDarkMode
-            ? "rgba(255, 255, 255, 0.2)"
-            : "rgba(0, 0, 0, 0.1)",
-      borderWidth: 1,
-    };
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadCommunityData();
+    setRefreshing(false);
+  };
 
+  const handlePostCreated = () => {
+    // Refresh the posts list to show the new post
+    loadCommunityData();
+  };
+
+  const handleCommentPress = (postId: string, postAuthor: string) => {
+    setSelectedPostId(postId);
+    setSelectedPostAuthor(postAuthor);
+    setShowComments(true);
+  };
+
+  const handlePostDeleted = () => {
+    // Refresh the posts list after deletion
+    loadCommunityData();
+  };
+
+  const handlePostManagement = (post: CommunityPost) => {
+    setSelectedPost(post);
+    setShowPostManagement(true);
+  };
+
+  const handlePostUpdate = () => {
+    // Refresh the posts list after management actions
+    loadCommunityData();
+  };
+
+
+
+  const handleJoinCommunity = async () => {
+    if (!id || typeof id !== 'string') return;
+
+    try {
+      await communitiesAPI.joinCommunity(id);
+      await loadCommunityData(); // Refresh data
+      Alert.alert("Success", "Joined room successfully!");
+    } catch (error: any) {
+      console.error("Error joining community:", error);
+      Alert.alert("Error", error.message || "Failed to join room");
+    }
+  };
+
+  const handleLeaveCommunity = async () => {
+    if (!id || typeof id !== 'string') return;
+
+    Alert.alert(
+      "Leave Room",
+      "Are you sure you want to leave this room?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Leave",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await communitiesAPI.leaveCommunity(id);
+              router.back();
+              Alert.alert("Success", "Left room successfully!");
+            } catch (error: any) {
+              console.error("Error leaving community:", error);
+              Alert.alert("Error", error.message || "Failed to leave room");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const renderPost = ({ item }: { item: CommunityPost }) => (
+    <CommunityPostComponent
+      post={item}
+      onLikeChange={loadCommunityData}
+      onDelete={handlePostDeleted}
+      onCommentPress={() => handleCommentPress(item.id, item.author?.username || 'Unknown')}
+      showCommunityInfo={false}
+      userRole={userMembership?.role || null}
+      onPostManagement={() => handlePostManagement(item)}
+      currentUserId={currentUserId}
+    />
+  );
+  if (loading) {
     return (
-      <View
-        style={[
-          styles.messageContainer,
-          item.sender_id === userId ? styles.messageRight : styles.messageLeft,
-        ]}
-      >
-        <View style={bubbleStyle}>
-          <View style={styles.messageHeader}>
-            <Text
-              style={[
-                styles.username,
-                item.sender_id === userId
-                  ? { color: isDarkMode ? '#808080' : '#606060' }
-                  : { color: colors.textSecondary },
-              ]}
-            >
-              {item.sender_id === userId ? "You" : item.username}
-            </Text>
-            {item.sender_id === userId && (
-              <TouchableOpacity
-                onPress={() => handleDeleteMessage(item.id)}
-                style={styles.deleteButton}
-              >
-                <Feather name="trash-2" size={14} color={colors.error} />
-              </TouchableOpacity>
-            )}
-          </View>
-          <Text
-            style={[
-              item.sender_id === userId
-                ? styles.userMessageText
-                : styles.otherMessageText,
-              { color: colors.text }
-            ]}
-          >
-            {item.encrypted_content}
-          </Text>
-          <Text
-            style={[
-              item.sender_id === userId
-                ? styles.userTimestamp
-                : styles.otherTimestamp,
-              { color: colors.textTertiary }
-            ]}
-          >
-            {new Date(item.created_at).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.text }]}>
+            Loading room...
           </Text>
         </View>
-      </View>
+      </SafeAreaView>
     );
-  };
+  }
 
-  // Handle keyboard behavior and ensure input is visible
-  useEffect(() => {
-    const keyboardDidShowListener = Keyboard.addListener(
-      "keyboardDidShow",
-      (event) => {
-        // Scroll to the bottom to ensure the input is visible
-        if (flatListRef.current) {
-          setTimeout(() => {
-            flatListRef.current?.scrollToEnd({ animated: true });
-          }, 150);
-        }
-      }
+  if (!community) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.errorContainer}>
+          <Feather name="alert-circle" size={48} color={colors.textSecondary} />
+          <Text style={[styles.errorText, { color: colors.text }]}>
+            Room not found
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={[styles.backButton, {
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.2)'
+            }]}
+          >
+            <Text style={[styles.backButtonText, { color: colors.text }]}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
-
-    const keyboardWillShowListener = Platform.OS === 'ios'
-      ? Keyboard.addListener("keyboardWillShow", (event) => {
-          // Ensure input stays focused and visible
-          if (textInputRef.current) {
-            setTimeout(() => {
-              textInputRef.current?.focus();
-            }, 100);
-          }
-          // Scroll to bottom with keyboard height consideration
-          if (flatListRef.current) {
-            setTimeout(() => {
-              flatListRef.current?.scrollToEnd({ animated: true });
-            }, 150);
-          }
-        })
-      : { remove: () => {} };
-
-    // Handle keyboard hiding
-    const keyboardDidHideListener = Keyboard.addListener(
-      "keyboardDidHide",
-      () => {
-        // Keep input focused but ensure proper layout
-        if (flatListRef.current) {
-          setTimeout(() => {
-            flatListRef.current?.scrollToEnd({ animated: true });
-          }, 100);
-        }
-      }
-    );
-
-    return () => {
-      keyboardDidShowListener.remove();
-      keyboardWillShowListener.remove();
-      keyboardDidHideListener.remove();
-    };
-  }, []);
+  }
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: isDarkMode ? '#000000' : '#FFFFFF' }]}>
-      <View style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
-        style={styles.keyboardAvoidingView}
-        enabled
-      >
-        <View style={[styles.content, { justifyContent: "space-between" }]}>
-          <View style={[styles.header, {
-            borderBottomColor: `rgba(${isDarkMode ? '255, 229, 92' : '184, 134, 11'}, 0.2)`,
-            backgroundColor: isDarkMode ? "rgba(40, 50, 50, 0.5)" : "rgba(248, 249, 250, 0.8)"
-          }]}>
-            <TouchableOpacity onPress={() => router.back()}>
-              <Feather name="arrow-left" size={24} color={colors.primary} />
-            </TouchableOpacity>
-            <Text style={[styles.headerTitle, { color: colors.text }]}>
-              {room?.name || "Anonymous Room"}
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Header */}
+      <View style={[styles.header, {
+        borderBottomColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+        backgroundColor: colors.background
+      }]}>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Feather name="arrow-left" size={24} color={colors.text} />
+        </TouchableOpacity>
+
+        <View style={styles.headerInfo}>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>
+            {community.name}
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.push(`/rooms/members/${id}`)}
+            style={styles.membersButton}
+          >
+            <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
+              {community.members_count} members • {(community as any).is_private ? 'Private' : 'Public'}
             </Text>
-            {isJoined && (
-              <TouchableOpacity
-                onPress={handleLeaveRoom}
-                style={[styles.leaveButton, {
-                  backgroundColor: isDarkMode ? "rgba(128, 128, 128, 0.2)" : "rgba(128, 128, 128, 0.1)",
-                  borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
-                }]}
-                disabled={isLeaving}
-              >
-                {isLeaving ? (
-                  <ActivityIndicator size="small" color={colors.primary} />
-                ) : (
-                  <Text style={[styles.leaveButtonText, { color: colors.text }]}>Leave</Text>
-                )}
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <FlatList
-            ref={flatListRef}
-            data={messages}
-            renderItem={renderMessage}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={[styles.messageList, { justifyContent: 'flex-end' }]}
-            style={[styles.flatList, { flexGrow: 1 }]}
-            keyboardShouldPersistTaps="handled"
-            inverted={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={async () => {
-                  setRefreshing(true);
-                  await loadInitialData();
-                  setRefreshing(false);
-                }}
-                tintColor={colors.primary}
-                colors={[colors.primary]}
-                progressBackgroundColor={isDarkMode ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"}
-              />
-            }
-          />
-
-          <View style={[styles.inputContainer, {
-            borderTopColor: `rgba(${isDarkMode ? '255, 229, 92' : '184, 134, 11'}, 0.2)`,
-            backgroundColor: isDarkMode ? "rgba(40, 50, 50, 0.5)" : "rgba(248, 249, 250, 0.8)",
-            justifyContent: 'flex-end'
-          }]}>
-            {isJoined ? (
-              <View style={styles.inputWrapper}>
-                <TextInput
-                  ref={textInputRef}
-                  style={[styles.textInput, {
-                    backgroundColor: colors.input,
-                    borderColor: colors.inputBorder,
-                    color: colors.text
-                  }]}
-                  placeholder="Type a message..."
-                  placeholderTextColor={colors.textTertiary}
-                  value={newMessage}
-                  onChangeText={setNewMessage}
-                  multiline
-                />
-                <TouchableOpacity
-                  onPress={sendMessage}
-                  style={[styles.sendButton, {
-                    backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
-                    borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.4)' : 'rgba(128, 128, 128, 0.3)'
-                  }]}
-                >
-                  <Feather name="send" size={20} color={isDarkMode ? '#808080' : '#606060'} />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={[styles.notJoinedMessage, {
-                backgroundColor: isDarkMode ? "rgba(255, 229, 92, 0.1)" : "rgba(184, 134, 11, 0.05)",
-                borderColor: `rgba(${isDarkMode ? '255, 229, 92' : '184, 134, 11'}, 0.3)`
-              }]}>
-                <Text style={[styles.notJoinedText, { color: colors.textSecondary }]}>
-                  Join room to participate in chat
-                </Text>
-              </View>
-            )}
-          </View>
+            <Feather name="chevron-right" size={16} color={colors.textSecondary} />
+          </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+
+        <View style={styles.headerActions}>
+          {/* Create Post Button - Only show for members */}
+          {userMembership && (
+            <TouchableOpacity
+              onPress={() => setShowCreatePost(true)}
+              style={[styles.createPostButton, {
+                backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+                borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.2)',
+              }]}
+            >
+              <Feather name="plus" size={20} color={colors.text} />
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            onPress={userMembership ? handleLeaveCommunity : handleJoinCommunity}
+            style={[styles.joinButton, {
+              backgroundColor: userMembership
+                ? (isDarkMode ? 'rgba(220, 53, 69, 0.2)' : 'rgba(220, 53, 69, 0.1)')
+                : (isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)'),
+              borderColor: userMembership
+                ? 'rgba(220, 53, 69, 0.3)'
+                : (isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.2)')
+            }]}
+          >
+            <Text style={[styles.joinButtonText, {
+              color: userMembership ? '#dc3545' : colors.text
+            }]}>
+              {userMembership ? 'Leave' : 'Join'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {/* Community Description */}
+      {community.description && (
+        <View style={[styles.descriptionContainer, {
+          backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)',
+          borderBottomColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'
+        }]}>
+          <Text style={[styles.description, { color: colors.textSecondary }]}>
+            {community.description}
+          </Text>
+        </View>
+      )}
+
+      {/* Posts List */}
+      <FlatList
+        ref={flatListRef}
+        data={posts}
+        renderItem={renderPost}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.postsList}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Feather name="message-square" size={48} color={colors.textSecondary} />
+            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+              No posts yet
+            </Text>
+            <Text style={[styles.emptySubtext, { color: colors.textTertiary }]}>
+              Be the first to share something in this room!
+            </Text>
+          </View>
+        }
+      />
+
+      {/* Floating Create Post Button */}
+      {userMembership && (
+        <TouchableOpacity
+          onPress={() => setShowCreatePost(true)}
+          style={[styles.floatingCreateButton, {
+            backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+            borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.2)'
+          }]}
+        >
+          <Feather name="plus" size={24} color={colors.text} />
+        </TouchableOpacity>
+      )}
+
+      {/* Create Post Modal */}
+      <CreatePostModal
+        visible={showCreatePost}
+        onClose={() => setShowCreatePost(false)}
+        communityId={id as string}
+        communityName={community?.name || ''}
+        onPostCreated={handlePostCreated}
+      />
+
+      {/* Comments Modal */}
+      <CommunityCommentsModal
+        visible={showComments}
+        onClose={() => setShowComments(false)}
+        postId={selectedPostId}
+        postAuthor={selectedPostAuthor}
+      />
+
+      {/* Post Management Modal */}
+      {selectedPost && (
+        <PostManagementModal
+          visible={showPostManagement}
+          onClose={() => setShowPostManagement(false)}
+          post={selectedPost}
+          userRole={userMembership?.role || null}
+          onPostUpdate={handlePostUpdate}
+        />
+      )}
     </SafeAreaView>
   );
+
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-  },
   container: {
     flex: 1,
   },
-  keyboardAvoidingView: {
+  loadingContainer: {
     flex: 1,
-    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  content: {
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontFamily: 'Rubik-Medium',
+  },
+  errorContainer: {
     flex: 1,
-    flexDirection: "column",
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 18,
+    fontFamily: 'Rubik-Bold',
+    marginTop: 16,
+    marginBottom: 20,
+  },
+  backButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 25,
+    borderWidth: 1,
+  },
+  backButtonText: {
+    fontSize: 16,
+    fontFamily: 'Rubik-Medium',
   },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     padding: 16,
     borderBottomWidth: 1,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontFamily: "Rubik-Bold",
+  headerInfo: {
     flex: 1,
     marginLeft: 16,
   },
-  leaveButton: {
+  headerTitle: {
+    fontSize: 20,
+    fontFamily: 'Rubik-Bold',
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    fontFamily: 'Rubik-Medium',
+    marginTop: 2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  createPostButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
+  },
+  membersButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  joinButton: {
     paddingVertical: 8,
     paddingHorizontal: 16,
-    borderRadius: 25,
+    borderRadius: 20,
+    borderWidth: 1,
   },
-  leaveButtonText: {
+  joinButtonText: {
     fontSize: 14,
-    fontFamily: "Rubik-Medium",
+    fontFamily: 'Rubik-Medium',
   },
-  flatList: {
-    flex: 1,
-  },
-  messageList: {
-    paddingTop: 20,
-    paddingBottom: 10,
-    paddingHorizontal: 4,
-    flexGrow: 1,
-    justifyContent: 'flex-end',
-  },
-  messageContainer: {
-    marginBottom: 8, // Reduced bottom margin
-    marginHorizontal: 4, // Reduced horizontal margin
-    maxWidth: "100%", // Increased max width to use more screen space
-    borderRadius: 16,
-  },
-  messageLeft: {
-    alignItems: "flex-start",
-  },
-  messageRight: {
-    alignItems: "flex-end",
-  },
-  messageBubble: {
-    padding: 12,
-    borderRadius: 16,
-  },
-  messageHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  username: {
-    fontSize: 12,
-    fontFamily: "Rubik-Medium",
-  },
-  userUsername: {
-    // Color will be set dynamically
-  },
-  otherUsername: {
-    // Color will be set dynamically
-  },
-  userMessageText: {
-    fontSize: 16,
-    fontFamily: "Rubik-Medium",
-  },
-  otherMessageText: {
-    fontSize: 16,
-    fontFamily: "Rubik-Medium",
-  },
-  userTimestamp: {
-    fontSize: 12,
-    fontFamily: "Rubik-Regular",
-    marginTop: 4,
-  },
-  otherTimestamp: {
-    fontSize: 12,
-    fontFamily: "Rubik-Regular",
-    marginTop: 4,
-  },
-  deleteButton: {
-    marginLeft: 8,
-  },
-  inputContainer: {
+  descriptionContainer: {
     padding: 16,
-    paddingHorizontal: 12,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 24,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    minHeight: 80,
-    justifyContent: 'center',
-    alignItems: 'stretch',
+    borderBottomWidth: 1,
   },
-  inputWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "transparent",
-  },
-  textInput: {
-    flex: 1,
-    borderRadius: 25,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    fontFamily: "Rubik-Medium",
-    marginRight: 12,
-    maxHeight: 120,
-    minHeight: 44,
-    borderWidth: 1,
-    textAlignVertical: 'center',
-  },
-  sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-  },
-  notJoinedMessage: {
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    alignItems: "center",
-  },
-  notJoinedText: {
+  description: {
     fontSize: 14,
-    fontFamily: "Rubik-Medium",
+    fontFamily: 'Rubik-Medium',
+    lineHeight: 20,
+  },
+  postsList: {
+    paddingBottom: 100,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontFamily: 'Rubik-Bold',
+    marginTop: 16,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    fontFamily: 'Rubik-Medium',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  floatingCreateButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
   },
 });
+

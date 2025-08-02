@@ -198,7 +198,170 @@ CREATE TABLE public_key_audit (
     change_type TEXT
 );
 
--- Rooms table (anonymous chat rooms)
+-- Enhanced Communities table (X/Twitter-like communities)
+CREATE TABLE communities (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    creator_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    cover_image_url TEXT,
+    avatar_url TEXT,
+    category_id UUID REFERENCES community_categories(id) ON DELETE SET NULL,
+    members_count INTEGER DEFAULT 0,
+    posts_count INTEGER DEFAULT 0,
+    privacy_type TEXT DEFAULT 'public' CHECK (privacy_type IN ('public', 'private', 'invite_only')),
+    post_permissions TEXT DEFAULT 'all_members' CHECK (post_permissions IN ('all_members', 'admins_only', 'admins_and_moderators')),
+    approval_required BOOLEAN DEFAULT FALSE,
+    is_verified BOOLEAN DEFAULT FALSE,
+    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'archived')),
+    rules TEXT[],
+    tags TEXT[],
+    location TEXT,
+    website_url TEXT,
+    last_activity_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Community categories table
+CREATE TABLE community_categories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    icon_name TEXT,
+    color_hex TEXT,
+    is_featured BOOLEAN DEFAULT FALSE,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Community members table with roles
+CREATE TABLE community_members (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    community_id UUID REFERENCES communities(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    role TEXT DEFAULT 'member' CHECK (role IN ('admin', 'moderator', 'member')),
+    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'pending', 'banned', 'left')),
+    joined_at TIMESTAMPTZ DEFAULT NOW(),
+    invited_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    ban_reason TEXT,
+    banned_until TIMESTAMPTZ,
+    UNIQUE(community_id, user_id)
+);
+
+-- Community posts table
+CREATE TABLE community_posts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    community_id UUID REFERENCES communities(id) ON DELETE CASCADE,
+    author_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    content TEXT,
+    image_urls TEXT[],
+    video_url TEXT,
+    link_url TEXT,
+    link_title TEXT,
+    link_description TEXT,
+    link_image_url TEXT,
+    post_type TEXT DEFAULT 'text' CHECK (post_type IN ('text', 'image', 'video', 'link', 'poll')),
+    hashtags TEXT[],
+    tagged_users UUID[],
+    likes_count INTEGER DEFAULT 0,
+    comments_count INTEGER DEFAULT 0,
+    shares_count INTEGER DEFAULT 0,
+    is_pinned BOOLEAN DEFAULT FALSE,
+    is_announcement BOOLEAN DEFAULT FALSE,
+    visibility TEXT DEFAULT 'public' CHECK (visibility IN ('public', 'members_only')),
+    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'hidden', 'deleted', 'reported')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Community post likes table
+CREATE TABLE community_post_likes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    post_id UUID REFERENCES community_posts(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(post_id, user_id)
+);
+
+-- Community post comments table
+CREATE TABLE community_post_comments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    post_id UUID REFERENCES community_posts(id) ON DELETE CASCADE,
+    author_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    parent_comment_id UUID REFERENCES community_post_comments(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    likes_count INTEGER DEFAULT 0,
+    replies_count INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'hidden', 'deleted', 'reported')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Community post comment likes table
+CREATE TABLE community_post_comment_likes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    comment_id UUID REFERENCES community_post_comments(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(comment_id, user_id)
+);
+
+-- Community post shares table
+CREATE TABLE community_post_shares (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    post_id UUID REFERENCES community_posts(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    shared_to_community_id UUID REFERENCES communities(id) ON DELETE CASCADE,
+    share_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Community rules table
+CREATE TABLE community_rules (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    community_id UUID REFERENCES communities(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    rule_order INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Community moderation actions table
+CREATE TABLE community_moderation_actions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    community_id UUID REFERENCES communities(id) ON DELETE CASCADE,
+    moderator_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    target_user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    target_post_id UUID REFERENCES community_posts(id) ON DELETE CASCADE,
+    target_comment_id UUID REFERENCES community_post_comments(id) ON DELETE CASCADE,
+    action_type TEXT NOT NULL CHECK (action_type IN ('ban', 'unban', 'mute', 'unmute', 'remove_post', 'remove_comment', 'pin_post', 'unpin_post', 'warn')),
+    reason TEXT,
+    duration_hours INTEGER,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Community reports table
+CREATE TABLE community_reports (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    community_id UUID REFERENCES communities(id) ON DELETE CASCADE,
+    reporter_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    reported_user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    reported_post_id UUID REFERENCES community_posts(id) ON DELETE CASCADE,
+    reported_comment_id UUID REFERENCES community_post_comments(id) ON DELETE CASCADE,
+    report_type TEXT NOT NULL CHECK (report_type IN ('spam', 'harassment', 'inappropriate_content', 'misinformation', 'copyright', 'other')),
+    description TEXT,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'reviewed', 'resolved', 'dismissed')),
+    reviewed_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMPTZ,
+    resolution_notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Legacy rooms table (keeping for backward compatibility)
 CREATE TABLE rooms (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
@@ -363,6 +526,89 @@ CREATE INDEX idx_public_keys_user_id ON public_keys(user_id);
 CREATE INDEX idx_public_keys_algorithm ON public_keys(algorithm);
 CREATE INDEX idx_public_keys_created_at ON public_keys(created_at);
 
+-- Community indexes
+CREATE INDEX idx_communities_creator_id ON communities(creator_id);
+CREATE INDEX idx_communities_category_id ON communities(category_id);
+CREATE INDEX idx_communities_privacy_type ON communities(privacy_type);
+CREATE INDEX idx_communities_status ON communities(status);
+CREATE INDEX idx_communities_members_count_desc ON communities(members_count DESC);
+CREATE INDEX idx_communities_last_activity_desc ON communities(last_activity_at DESC);
+CREATE INDEX idx_communities_created_desc ON communities(created_at DESC);
+CREATE INDEX idx_communities_name_search ON communities USING gin(to_tsvector('english', name));
+CREATE INDEX idx_communities_description_search ON communities USING gin(to_tsvector('english', description));
+CREATE INDEX idx_communities_tags ON communities USING gin(tags);
+
+-- Community categories indexes
+CREATE INDEX idx_community_categories_name ON community_categories(name);
+CREATE INDEX idx_community_categories_featured ON community_categories(is_featured, sort_order);
+
+-- Community members indexes
+CREATE INDEX idx_community_members_community_id ON community_members(community_id);
+CREATE INDEX idx_community_members_user_id ON community_members(user_id);
+CREATE INDEX idx_community_members_role ON community_members(role);
+CREATE INDEX idx_community_members_status ON community_members(status);
+CREATE INDEX idx_community_members_joined_desc ON community_members(joined_at DESC);
+CREATE INDEX idx_community_members_community_role ON community_members(community_id, role);
+CREATE INDEX idx_community_members_user_communities ON community_members(user_id, status, joined_at DESC);
+
+-- Community posts indexes
+CREATE INDEX idx_community_posts_community_id ON community_posts(community_id);
+CREATE INDEX idx_community_posts_author_id ON community_posts(author_id);
+CREATE INDEX idx_community_posts_created_desc ON community_posts(created_at DESC);
+CREATE INDEX idx_community_posts_community_created ON community_posts(community_id, created_at DESC);
+CREATE INDEX idx_community_posts_author_created ON community_posts(author_id, created_at DESC);
+CREATE INDEX idx_community_posts_likes_desc ON community_posts(likes_count DESC);
+CREATE INDEX idx_community_posts_comments_desc ON community_posts(comments_count DESC);
+CREATE INDEX idx_community_posts_post_type ON community_posts(post_type);
+CREATE INDEX idx_community_posts_status ON community_posts(status);
+CREATE INDEX idx_community_posts_pinned ON community_posts(is_pinned, created_at DESC);
+CREATE INDEX idx_community_posts_hashtags ON community_posts USING gin(hashtags);
+CREATE INDEX idx_community_posts_tagged_users ON community_posts USING gin(tagged_users);
+CREATE INDEX idx_community_posts_content_search ON community_posts USING gin(to_tsvector('english', content));
+
+-- Community post likes indexes
+CREATE INDEX idx_community_post_likes_post_id ON community_post_likes(post_id);
+CREATE INDEX idx_community_post_likes_user_id ON community_post_likes(user_id);
+CREATE INDEX idx_community_post_likes_user_post ON community_post_likes(user_id, post_id);
+CREATE INDEX idx_community_post_likes_created_desc ON community_post_likes(created_at DESC);
+
+-- Community post comments indexes
+CREATE INDEX idx_community_post_comments_post_id ON community_post_comments(post_id);
+CREATE INDEX idx_community_post_comments_author_id ON community_post_comments(author_id);
+CREATE INDEX idx_community_post_comments_parent_id ON community_post_comments(parent_comment_id);
+CREATE INDEX idx_community_post_comments_post_created ON community_post_comments(post_id, created_at DESC);
+CREATE INDEX idx_community_post_comments_status ON community_post_comments(status);
+
+-- Community post comment likes indexes
+CREATE INDEX idx_community_post_comment_likes_comment_id ON community_post_comment_likes(comment_id);
+CREATE INDEX idx_community_post_comment_likes_user_id ON community_post_comment_likes(user_id);
+CREATE INDEX idx_community_post_comment_likes_user_comment ON community_post_comment_likes(user_id, comment_id);
+
+-- Community post shares indexes
+CREATE INDEX idx_community_post_shares_post_id ON community_post_shares(post_id);
+CREATE INDEX idx_community_post_shares_user_id ON community_post_shares(user_id);
+CREATE INDEX idx_community_post_shares_shared_to ON community_post_shares(shared_to_community_id);
+CREATE INDEX idx_community_post_shares_created_desc ON community_post_shares(created_at DESC);
+
+-- Community rules indexes
+CREATE INDEX idx_community_rules_community_id ON community_rules(community_id);
+CREATE INDEX idx_community_rules_active_order ON community_rules(is_active, rule_order);
+
+-- Community moderation actions indexes
+CREATE INDEX idx_community_moderation_community_id ON community_moderation_actions(community_id);
+CREATE INDEX idx_community_moderation_moderator_id ON community_moderation_actions(moderator_id);
+CREATE INDEX idx_community_moderation_target_user ON community_moderation_actions(target_user_id);
+CREATE INDEX idx_community_moderation_action_type ON community_moderation_actions(action_type);
+CREATE INDEX idx_community_moderation_created_desc ON community_moderation_actions(created_at DESC);
+
+-- Community reports indexes
+CREATE INDEX idx_community_reports_community_id ON community_reports(community_id);
+CREATE INDEX idx_community_reports_reporter_id ON community_reports(reporter_id);
+CREATE INDEX idx_community_reports_reported_user ON community_reports(reported_user_id);
+CREATE INDEX idx_community_reports_status ON community_reports(status);
+CREATE INDEX idx_community_reports_type ON community_reports(report_type);
+CREATE INDEX idx_community_reports_created_desc ON community_reports(created_at DESC);
+
 -- Note: Views cannot have indexes directly.
 -- The underlying posts and profiles tables already have the necessary indexes:
 -- - idx_posts_created_at_desc for chronological ordering
@@ -522,7 +768,14 @@ CREATE OR REPLACE FUNCTION toggle_reel_like(p_reel_id UUID, p_user_id UUID, p_is
 RETURNS TABLE(is_liked BOOLEAN, likes_count INTEGER)
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    reel_owner_id UUID;
 BEGIN
+    -- Get the reel owner ID
+    SELECT user_id INTO reel_owner_id
+    FROM reels
+    WHERE id = p_reel_id;
+
     IF p_is_liked THEN
         -- Unlike: Remove like from reel_likes
         DELETE FROM reel_likes
@@ -532,6 +785,13 @@ BEGIN
         UPDATE reels
         SET likes_count = reels.likes_count - 1
         WHERE id = p_reel_id;
+
+        -- Remove notification if it exists
+        DELETE FROM notifications
+        WHERE recipient_id = reel_owner_id
+        AND sender_id = p_user_id
+        AND type = 'like'
+        AND reel_id = p_reel_id;
     ELSE
         -- Like: Add like to reel_likes
         INSERT INTO reel_likes (reel_id, user_id)
@@ -541,6 +801,13 @@ BEGIN
         UPDATE reels
         SET likes_count = reels.likes_count + 1
         WHERE id = p_reel_id;
+
+        -- Create notification if not liking own reel
+        IF reel_owner_id != p_user_id THEN
+            INSERT INTO notifications (recipient_id, sender_id, type, reel_id, created_at, is_read)
+            VALUES (reel_owner_id, p_user_id, 'like', p_reel_id, NOW(), FALSE)
+            ON CONFLICT DO NOTHING;
+        END IF;
     END IF;
 
     -- Return the updated state
@@ -733,6 +1000,201 @@ CREATE TRIGGER trigger_update_comments_count_delete
 CREATE TRIGGER update_public_keys_updated_at
     BEFORE UPDATE ON public_keys
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Community updated at triggers
+CREATE TRIGGER update_communities_updated_at
+    BEFORE UPDATE ON communities
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_community_posts_updated_at
+    BEFORE UPDATE ON community_posts
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_community_post_comments_updated_at
+    BEFORE UPDATE ON community_post_comments
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_community_rules_updated_at
+    BEFORE UPDATE ON community_rules
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Community count triggers
+CREATE OR REPLACE FUNCTION update_community_members_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        UPDATE communities
+        SET members_count = members_count + 1,
+            last_activity_at = NOW()
+        WHERE id = NEW.community_id;
+        RETURN NEW;
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE communities
+        SET members_count = GREATEST(members_count - 1, 0),
+            last_activity_at = NOW()
+        WHERE id = OLD.community_id;
+        RETURN OLD;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION update_community_posts_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        UPDATE communities
+        SET posts_count = posts_count + 1,
+            last_activity_at = NOW()
+        WHERE id = NEW.community_id;
+        RETURN NEW;
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE communities
+        SET posts_count = GREATEST(posts_count - 1, 0),
+            last_activity_at = NOW()
+        WHERE id = OLD.community_id;
+        RETURN OLD;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION update_community_post_likes_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        UPDATE community_posts
+        SET likes_count = likes_count + 1
+        WHERE id = NEW.post_id;
+        RETURN NEW;
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE community_posts
+        SET likes_count = GREATEST(likes_count - 1, 0)
+        WHERE id = OLD.post_id;
+        RETURN OLD;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION update_community_post_comments_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        UPDATE community_posts
+        SET comments_count = comments_count + 1
+        WHERE id = NEW.post_id;
+
+        -- Update parent comment replies count if this is a reply
+        IF NEW.parent_comment_id IS NOT NULL THEN
+            UPDATE community_post_comments
+            SET replies_count = replies_count + 1
+            WHERE id = NEW.parent_comment_id;
+        END IF;
+
+        RETURN NEW;
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE community_posts
+        SET comments_count = GREATEST(comments_count - 1, 0)
+        WHERE id = OLD.post_id;
+
+        -- Update parent comment replies count if this was a reply
+        IF OLD.parent_comment_id IS NOT NULL THEN
+            UPDATE community_post_comments
+            SET replies_count = GREATEST(replies_count - 1, 0)
+            WHERE id = OLD.parent_comment_id;
+        END IF;
+
+        RETURN OLD;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION update_community_post_comment_likes_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        UPDATE community_post_comments
+        SET likes_count = likes_count + 1
+        WHERE id = NEW.comment_id;
+        RETURN NEW;
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE community_post_comments
+        SET likes_count = GREATEST(likes_count - 1, 0)
+        WHERE id = OLD.comment_id;
+        RETURN OLD;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION update_community_post_shares_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        UPDATE community_posts
+        SET shares_count = shares_count + 1
+        WHERE id = NEW.post_id;
+        RETURN NEW;
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE community_posts
+        SET shares_count = GREATEST(shares_count - 1, 0)
+        WHERE id = OLD.post_id;
+        RETURN OLD;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create triggers for community counts
+CREATE TRIGGER trigger_update_community_members_count_insert
+    AFTER INSERT ON community_members
+    FOR EACH ROW EXECUTE FUNCTION update_community_members_count();
+
+CREATE TRIGGER trigger_update_community_members_count_delete
+    AFTER DELETE ON community_members
+    FOR EACH ROW EXECUTE FUNCTION update_community_members_count();
+
+CREATE TRIGGER trigger_update_community_posts_count_insert
+    AFTER INSERT ON community_posts
+    FOR EACH ROW EXECUTE FUNCTION update_community_posts_count();
+
+CREATE TRIGGER trigger_update_community_posts_count_delete
+    AFTER DELETE ON community_posts
+    FOR EACH ROW EXECUTE FUNCTION update_community_posts_count();
+
+CREATE TRIGGER trigger_update_community_post_likes_count_insert
+    AFTER INSERT ON community_post_likes
+    FOR EACH ROW EXECUTE FUNCTION update_community_post_likes_count();
+
+CREATE TRIGGER trigger_update_community_post_likes_count_delete
+    AFTER DELETE ON community_post_likes
+    FOR EACH ROW EXECUTE FUNCTION update_community_post_likes_count();
+
+CREATE TRIGGER trigger_update_community_post_comments_count_insert
+    AFTER INSERT ON community_post_comments
+    FOR EACH ROW EXECUTE FUNCTION update_community_post_comments_count();
+
+CREATE TRIGGER trigger_update_community_post_comments_count_delete
+    AFTER DELETE ON community_post_comments
+    FOR EACH ROW EXECUTE FUNCTION update_community_post_comments_count();
+
+CREATE TRIGGER trigger_update_community_post_comment_likes_count_insert
+    AFTER INSERT ON community_post_comment_likes
+    FOR EACH ROW EXECUTE FUNCTION update_community_post_comment_likes_count();
+
+CREATE TRIGGER trigger_update_community_post_comment_likes_count_delete
+    AFTER DELETE ON community_post_comment_likes
+    FOR EACH ROW EXECUTE FUNCTION update_community_post_comment_likes_count();
+
+CREATE TRIGGER trigger_update_community_post_shares_count_insert
+    AFTER INSERT ON community_post_shares
+    FOR EACH ROW EXECUTE FUNCTION update_community_post_shares_count();
+
+CREATE TRIGGER trigger_update_community_post_shares_count_delete
+    AFTER DELETE ON community_post_shares
+    FOR EACH ROW EXECUTE FUNCTION update_community_post_shares_count();
 
 -- =====================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES

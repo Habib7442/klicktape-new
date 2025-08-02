@@ -9,6 +9,7 @@ interface Notification {
     avatar: string;
   };
   post_id?: string;
+  reel_id?: string;
   comment_id?: string;
   created_at: string;
   is_read: boolean;
@@ -20,16 +21,18 @@ export const notificationsAPI = {
     type: "like" | "comment" | "follow" | "mention",
     sender_id: string,
     post_id?: string,
+    reel_id?: string,
     comment_id?: string
   ) => {
     try {
       const { data, error } = await supabase
         .from("notifications")
         .insert({
-          recipient_id, // Use receiver_id if you didn't rename
+          recipient_id,
           type,
           sender_id,
           post_id,
+          reel_id,
           comment_id,
           is_read: false,
           created_at: new Date().toISOString(),
@@ -58,6 +61,7 @@ export const notificationsAPI = {
           type,
           sender_id,
           post_id,
+          reel_id,
           comment_id,
           created_at,
           is_read,

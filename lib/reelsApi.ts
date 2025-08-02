@@ -176,13 +176,32 @@ export const reelsAPI = {
 
       if (insertError) throw new Error(`Failed to insert ${entityType} comment: ${insertError.message}`);
 
+      // Create notification for the post/reel owner
       const { data: entity, error: entityError } = await supabase
         .from(entityTable)
-        .select("comments_count")
+        .select("user_id, comments_count")
         .eq("id", entityId)
         .single();
 
       if (entityError || !entity) throw new Error(`${entityType} not found`);
+
+      // Create notification if not commenting on own post/reel
+      if (entity.user_id !== userId) {
+        try {
+          await supabase.from("notifications").insert({
+            recipient_id: entity.user_id,
+            sender_id: userId,
+            type: "comment",
+            [`${entityType}_id`]: entityId,
+            comment_id: newCommentData.id,
+            created_at: new Date().toISOString(),
+            is_read: false,
+          });
+        } catch (notificationError) {
+          console.error("Error creating comment notification:", notificationError);
+          // Don't throw - comment was created successfully
+        }
+      }
 
       await supabase
         .from(entityTable)
@@ -423,6 +442,21 @@ export const reelsAPI = {
     } catch (error: any) {
       console.error("createReel error:", error);
       throw new Error(`Failed to create reel: ${error.message}`);
+    }
+  },
+
+  getReelLikes: async (reelId: string, limit: number = 50) => {
+    try {
+      const { data, error } = await supabase.rpc("get_reel_likes", {
+        reel_id_param: reelId,
+        limit_param: limit,
+      });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      console.error("Error fetching reel likes:", error);
+      throw new Error(`Failed to fetch reel likes: ${error.message}`);
     }
   },
 };

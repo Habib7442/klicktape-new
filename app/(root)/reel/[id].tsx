@@ -26,6 +26,7 @@ import { AppDispatch } from '@/src/store/store';
 import { toggleLike } from '@/src/store/slices/reelsSlice';
 import ShareToChatModal from '@/components/ShareToChatModal';
 import InstagramStyleShareModal from '@/components/InstagramStyleShareModal';
+import { generateShareContent } from '@/utils/deepLinkHelper';
 
 const { width, height } = Dimensions.get('window');
 
@@ -297,9 +298,15 @@ const ReelDetail = () => {
     if (!reel) return;
 
     try {
-      await Share.share({
-        message: `Check out this reel: ${reel.caption}\n${reel.videoUrl}`,
+      const shareContent = generateShareContent({
+        type: 'reel',
+        username: reel.user.username,
+        caption: reel.caption,
+        id: reel.id,
+        mediaUrl: reel.videoUrl,
       });
+
+      await Share.share(shareContent);
     } catch (error) {
       console.error('Error sharing reel:', error);
     }
@@ -467,9 +474,14 @@ const ReelDetail = () => {
                 size={24}
                 color={isLiked ? 'red' : 'white'}
               />
-              <Text className="font-rubik-regular" style={styles.actionText}>
-                {reel.likesCount}
-              </Text>
+              <TouchableOpacity
+                onPress={() => router.push(`/(root)/reel-likes/${reel.id}` as any)}
+                activeOpacity={0.7}
+              >
+                <Text className="font-rubik-regular" style={styles.actionText}>
+                  {reel.likesCount}
+                </Text>
+              </TouchableOpacity>
             </Animated.View>
           </TouchableOpacity>
 

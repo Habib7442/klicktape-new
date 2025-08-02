@@ -43,36 +43,18 @@ const ReplyPreview: React.FC<ReplyPreviewProps> = ({
 
   return (
     <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
-      {/* Reply indicator line */}
-      <View style={[styles.replyLine, { backgroundColor: colors.primary }]} />
-      
       <View style={styles.content}>
-        <View style={styles.header}>
-          <Ionicons 
-            name="return-up-forward" 
-            size={16} 
-            color={colors.primary} 
-            style={styles.replyIcon}
-          />
-          <Text style={[styles.senderText, { color: colors.textSecondary }]}>
-            Replying to {senderLabel}
-          </Text>
-        </View>
-        
-        <Text 
-          style={[styles.messageText, { color: colors.text }]}
-          numberOfLines={2}
-        >
-          {getPreviewContent()}
+        <Text style={[styles.replyText, { color: colors.textSecondary }]}>
+          Replying to {senderLabel}: {getPreviewContent()}
         </Text>
       </View>
-      
-      <TouchableOpacity 
+
+      <TouchableOpacity
         onPress={onCancel}
         style={styles.cancelButton}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       >
-        <Ionicons name="close" size={20} color={colors.textSecondary} />
+        <Ionicons name="close" size={18} color={colors.textSecondary} />
       </TouchableOpacity>
     </View>
   );
@@ -82,34 +64,17 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 8,
     borderTopWidth: 1,
     borderTopColor: 'rgba(128, 128, 128, 0.2)',
-  },
-  replyLine: {
-    width: 3,
-    borderRadius: 2,
-    marginRight: 12,
   },
   content: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  replyIcon: {
-    marginRight: 6,
-  },
-  senderText: {
-    fontSize: 12,
-    fontFamily: 'Rubik-Medium',
-  },
-  messageText: {
-    fontSize: 14,
+  replyText: {
+    fontSize: 13,
     fontFamily: 'Rubik-Regular',
-    lineHeight: 18,
+    fontStyle: 'italic',
   },
   cancelButton: {
     padding: 4,

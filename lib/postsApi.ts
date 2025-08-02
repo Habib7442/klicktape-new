@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { SupabaseNotificationBroadcaster } from "./supabaseNotificationManager";
 import { Platform } from "react-native";
 
 export const postsAPI = {
@@ -229,16 +230,8 @@ export const postsAPI = {
           created_at: new Date().toISOString(),
         });
 
-        if (post.user_id !== user.id) {
-          await supabase.from("notifications").insert({
-            receiver_id: post.user_id,
-            sender_id: user.id,
-            type: "like",
-            post_id: postId,
-            created_at: new Date().toISOString(),
-            is_read: false,
-          });
-        }
+        // Note: Notification creation is now handled by the component using SupabaseNotificationBroadcaster
+        // This prevents duplicate notifications
 
         return true;
       }
@@ -314,7 +307,7 @@ export const postsAPI = {
         if (parentComment.user_id !== user.id) {
           operations.push(
             supabase.from("notifications").insert({
-              receiver_id: parentComment.user_id,
+              recipient_id: parentComment.user_id,
               sender_id: user.id,
               type: "comment",
               post_id: postId,
@@ -329,7 +322,7 @@ export const postsAPI = {
       if (post.user_id !== user.id) {
         operations.push(
           supabase.from("notifications").insert({
-            receiver_id: post.user_id,
+            recipient_id: post.user_id, // Fixed: was receiver_id, should be recipient_id
             sender_id: user.id,
             type: "comment",
             post_id: postId,
@@ -606,36 +599,83 @@ export const postsAPI = {
 
       console.log(`📸 Found post with ${post.image_urls?.length || 0} images`);
 
-      // Step 1: Delete associated images from storage
+      // Step 1: Delete associated images from storage (enhanced batch approach)
       const storageDeleteResults = [];
       if (post.image_urls && Array.isArray(post.image_urls) && post.image_urls.length > 0) {
-        console.log("🗂️ Deleting images from storage...");
+        console.log(`🗂️ Deleting ${post.image_urls.length} images from storage...`);
 
-        for (const imageUrl of post.image_urls) {
+        // Helper function to extract file path from Supabase URL (same as stories)
+        const extractFilePath = (url: string): string | null => {
+          if (!url) return null;
           try {
-            // Extract file path from URL using the same method as stories
-            // URL format: https://[project].supabase.co/storage/v1/object/public/posts/user_id/filename.jpg
-            const urlParts = imageUrl.split("/");
-            const filePath = urlParts.slice(-2).join("/"); // Get last two parts: user_id/filename.ext
-
-            console.log(`🗑️ Attempting to delete storage file: ${filePath}`);
-
-            const { error: storageError } = await supabase.storage
-              .from("posts")
-              .remove([filePath]);
-
-            if (storageError) {
-              console.warn(`⚠️ Storage deletion warning for ${filePath}:`, storageError.message);
-              storageDeleteResults.push({ filePath, success: false, error: storageError.message });
+            // Handle different URL formats
+            if (url.includes('/storage/v1/object/public/posts/')) {
+              // Standard Supabase public URL format
+              const parts = url.split('/storage/v1/object/public/posts/');
+              return parts[1] || null;
+            } else if (url.includes('/posts/')) {
+              // Alternative format
+              const parts = url.split('/posts/');
+              return parts[1] || null;
             } else {
-              console.log(`✅ Successfully deleted storage file: ${filePath}`);
-              storageDeleteResults.push({ filePath, success: true });
+              // Fallback: try to get last two parts (user_id/filename.ext)
+              const urlParts = url.split("/");
+              if (urlParts.length >= 2) {
+                return urlParts.slice(-2).join("/");
+              }
             }
-          } catch (fileError: any) {
-            console.warn(`⚠️ Error deleting file ${imageUrl}:`, fileError);
-            storageDeleteResults.push({ filePath: imageUrl, success: false, error: fileError?.message || "Unknown error" });
+            return null;
+          } catch (error) {
+            console.warn(`Failed to extract file path from URL: ${url}`, error);
+            return null;
+          }
+        };
+
+        // Collect all valid file paths
+        const filesToDelete: string[] = [];
+        for (const imageUrl of post.image_urls) {
+          const filePath = extractFilePath(imageUrl);
+          if (filePath) {
+            filesToDelete.push(filePath);
+            console.log(`📸 Found image file to delete: ${filePath}`);
+          } else {
+            console.warn(`⚠️ Could not extract file path from URL: ${imageUrl}`);
+            storageDeleteResults.push({ filePath: imageUrl, success: false, error: "Invalid URL format" });
           }
         }
+
+        // Batch delete all files at once (more efficient than individual deletions)
+        if (filesToDelete.length > 0) {
+          try {
+            console.log(`🗑️ Batch deleting ${filesToDelete.length} storage files:`, filesToDelete);
+
+            const { data: deletedFiles, error: storageError } = await supabase.storage
+              .from("posts")
+              .remove(filesToDelete);
+
+            if (storageError) {
+              console.warn("⚠️ Storage batch deletion warning:", storageError.message);
+              // Mark all files as failed
+              filesToDelete.forEach(filePath => {
+                storageDeleteResults.push({ filePath, success: false, error: storageError.message });
+              });
+            } else {
+              console.log(`✅ Successfully batch deleted ${deletedFiles?.length || 0} storage files`);
+              // Mark all files as successful
+              filesToDelete.forEach(filePath => {
+                storageDeleteResults.push({ filePath, success: true });
+              });
+            }
+          } catch (fileError: any) {
+            console.warn("⚠️ Error during batch storage deletion:", fileError);
+            // Mark all files as failed
+            filesToDelete.forEach(filePath => {
+              storageDeleteResults.push({ filePath, success: false, error: fileError?.message || "Unknown error" });
+            });
+          }
+        }
+      } else {
+        console.log("ℹ️ No images found to delete from storage");
       }
 
       // Step 2: Delete related database records (using CASCADE DELETE for efficiency)
@@ -728,13 +768,11 @@ export const postsAPI = {
           created_at: new Date().toISOString(),
         });
 
-        await supabase.from("notifications").insert({
-          receiver_id: targetUser.id,
-          sender_id: currentUser.id,
-          type: "follow",
-          created_at: new Date().toISOString(),
-          is_read: false,
-        });
+        // Create and broadcast follow notification
+        await SupabaseNotificationBroadcaster.broadcastFollow(
+          targetUser.id, // recipient (user being followed)
+          currentUser.id // sender (current user doing the following)
+        );
 
         return true;
       }

@@ -250,29 +250,20 @@ const storiesMutationFunctions = {
   },
 
   /**
-   * Delete a story
+   * Delete a story (complete deletion with storage cleanup)
    */
   deleteStory: async (storyId: string) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        return false;
-      }
+      // Import storiesAPI for proper deletion with storage cleanup
+      const { storiesAPI } = await import('../../storiesApi');
 
-      const { error } = await supabase
-        .from('stories')
-        .update({ is_active: false })
-        .eq('id', storyId)
-        .eq('user_id', user.id);
+      // Use the enhanced deleteStory function that handles storage cleanup
+      const result = await storiesAPI.deleteStory(storyId);
 
-      if (error) {
-        throw new Error(`Failed to delete story: ${error.message}`);
-      }
-
-      return true;
+      return result;
     } catch (error) {
       console.error('Error deleting story:', error);
-      return false;
+      throw error; // Re-throw to let the mutation handle the error
     }
   },
 };

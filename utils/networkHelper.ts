@@ -17,13 +17,14 @@ export const getSocketUrls = (customIP?: string) => {
 
   // Add custom IP if provided
   if (customIP) {
-    urls.push(`http://${customIP}:3000`);
+    urls.push(`http://${customIP}:3001`);
   }
 
   // Platform-specific URLs
   if (Platform.OS === 'android') {
     urls.push('http://10.0.2.2:3000'); // Android emulator
     urls.push('http://192.168.31.241:3000'); // Current network IP
+    urls.push('http://192.168.31.241:3001'); // Current network IP
     urls.push('http://192.168.38.201:3000'); // Previous IP
     urls.push('http://192.168.52.201:3000'); // Older IP
     urls.push('http://localhost:3000');

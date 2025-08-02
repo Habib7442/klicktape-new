@@ -14,7 +14,6 @@ import { supabase } from "@/lib/supabase";
 import { useFocusEffect, Link } from "expo-router";
 import { useDispatch, useSelector } from "react-redux";
 import {
-  resetUnreadMessageCount,
   setUnreadMessageCount,
 } from "@/src/store/slices/messageSlice";
 import Sidebar from "@/components/Sidebar";
@@ -22,6 +21,7 @@ import { setActiveStatus } from "@/src/store/slices/userStatusSlice";
 import { RootState } from "@/src/store/store";
 import { notificationsAPI } from "@/lib/notificationsApi";
 import { messagesAPI } from "@/lib/messagesApi";
+import { productionRealtimeOptimizer } from "@/lib/utils/productionRealtimeOptimizer";
 import {
   incrementUnreadCount,
   resetUnreadCount,
@@ -31,18 +31,19 @@ import Posts from "@/components/Posts";
 import { openSidebar } from "@/src/store/slices/sidebarSlice";
 import ThemedGradient from "@/components/ThemedGradient";
 import { useTheme } from "@/src/context/ThemeContext";
-import Stories from "@/components/Stories";
+
 import { useOptimizedDataFetching } from "@/lib/hooks/useOptimizedDataFetching";
 import { authManager } from "@/lib/authManager";
+import { useSupabaseNotificationManager } from "@/lib/supabaseNotificationManager";
+
 
 const Home = () => {
   const dispatch = useDispatch();
-  const [lastFetchTime, setLastFetchTime] = useState(0);
   const [userId, setUserId] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<{
-    username: string;
-    name: string;
-    avatar_url: string;
+    username: string | null;
+    name: string | null;
+    avatar_url: string | null;
   } | null>(null);
 
   const unreadCount = useSelector(
@@ -52,6 +53,41 @@ const Home = () => {
     (state: RootState) => state.messages.unreadCount
   );
 
+  // Initialize Supabase real-time notification management
+  const {
+    isConnected,
+    subscriptionStatus,
+    lastSyncTime,
+    syncNotifications,
+    forceReconnect,
+    unreadCount: realtimeUnreadCount,
+  } = useSupabaseNotificationManager({
+    userId: userId || '', // Ensure we have a valid userId
+    enableRealtime: !!userId, // Only enable real-time when userId is available
+    fallbackPollingInterval: 120000, // 2 minutes (reduced API calls)
+    maxRetries: 2, // Reduced retries
+  });
+
+  // Debug notification system status
+  useEffect(() => {
+    if (userId) {
+      if (__DEV__) {
+        console.log('🔔 Supabase Notification System Status:', {
+          connected: isConnected,
+          subscriptionStatus: subscriptionStatus,
+          lastSync: lastSyncTime,
+          userId: userId,
+          realtimeUnreadCount: realtimeUnreadCount
+        });
+
+        // Force reconnect if not connected
+        if (!isConnected && subscriptionStatus === 'error') {
+          console.log('🔄 Notification system not connected, attempting reconnect...');
+          forceReconnect();
+        }
+      }
+    }
+  }, [isConnected, subscriptionStatus, lastSyncTime, userId, realtimeUnreadCount, forceReconnect]);
   useEffect(() => {
     const getUser = async () => {
       try {
@@ -105,7 +141,7 @@ const Home = () => {
   // Fetch user profile data
   const fetchUserProfile = async (userId: string) => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('profiles')
         .select('username, name, avatar_url')
         .eq('id', userId)
@@ -116,8 +152,18 @@ const Home = () => {
         return;
       }
 
-      if (data) {
-        setUserProfile(data);
+      if (data && typeof data === 'object' && 'username' in data) {
+        // Type assertion to ensure data matches our expected type
+        const profileData: {
+          username: string | null;
+          name: string | null;
+          avatar_url: string | null;
+        } = {
+          username: (data as any).username || null,
+          name: (data as any).name || null,
+          avatar_url: (data as any).avatar_url || null,
+        };
+        setUserProfile(profileData);
       }
     } catch (error) {
       console.error('Error fetching user profile:', error);
@@ -137,84 +183,84 @@ const Home = () => {
   }, [homeData, dispatch]);
 
   useEffect(() => {
-    if (!userId || !supabase) return;
+    if (!userId || !supabase) {
+      console.log("❌ Cannot setup subscriptions: missing userId or supabase");
+      return;
+    }
 
-    // Data is now handled by useOptimizedDataFetching hook
-    // fetchInitialData(); // Removed - handled by hook
+    console.log("🔄 Setting up real-time subscriptions for user:", userId);
 
-    // Create a notification channel with detailed logging
-    const notificationsSubscription = supabase
-      .channel("notifications")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "notifications",
-          filter: `recipient_id=eq.${userId}`,
-        },
-        (payload) => {
-          console.log("New notification received:", payload.new);
-          if (!payload.new.is_read) {
-            // Immediately increment the unread count in the UI
-            dispatch(incrementUnreadCount());
+    // Note: Notification real-time subscription is handled by useSupabaseNotificationManager
+    // to prevent duplicate subscriptions and ensure proper state management
 
-            // Play a notification sound if needed
-            // You can add sound playback here
-          }
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "notifications",
-          filter: `recipient_id=eq.${userId}`,
-        },
-        async (payload) => {
-          console.log("Notification updated:", payload.new);
-          if (payload.new.is_read && !payload.old.is_read) {
-            // Fetch the actual unread count from the database
+    // Create PRODUCTION-OPTIMIZED messages subscription
+    const messagesCleanupInsert = productionRealtimeOptimizer.createOptimizedSubscription(
+      `messages_${userId}:insert`,
+      {
+        table: "messages",
+        filter: `receiver_id=eq.${userId}`,
+        event: "INSERT",
+        priority: "medium", // Home screen notifications are medium priority
+      },
+      async (payload) => {
+        const handleMessage = async (messagePayload: any) => {
+          console.log("📨 Production Real-time: New message received:", messagePayload.new);
+          if (!messagePayload.new.is_read) {
+            // Fetch actual unread count instead of incrementing
             try {
-              const notifications = await notificationsAPI.getNotifications(
-                userId
-              );
-              const unreadCount = notifications.filter(
-                (n) => !n.is_read
-              ).length;
-              dispatch(setUnreadCount(unreadCount));
+              const unreadCount = await messagesAPI.getUnreadMessagesCount(userId);
+              console.log(`📊 Updated unread messages count: ${unreadCount}`);
+              dispatch(setUnreadMessageCount(unreadCount));
             } catch (error) {
-              console.error("Error updating unread count:", error);
+              console.error("Error fetching unread count:", error);
             }
           }
-        }
-      )
-      .subscribe((status) => {
-        console.log("Notification subscription status:", status);
-      });
+        };
 
-    // Create a messages channel with detailed logging
-    const messagesSubscription = supabase
-      .channel("messages")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `receiver_id=eq.${userId}`,
-        },
-        (payload) => {
-          console.log("New message received:", payload.new);
-          if (!payload.new.is_read) {
-            dispatch(setUnreadMessageCount(unreadMessageCount + 1));
+        if (payload.type === 'batch') {
+          // Handle batched messages
+          for (const msg of payload.messages) {
+            await handleMessage(msg);
           }
+        } else {
+          await handleMessage(payload);
         }
-      )
-      .subscribe((status) => {
-        console.log("Messages subscription status:", status);
-      });
+      }
+    );
+
+    const messagesCleanupUpdate = productionRealtimeOptimizer.createOptimizedSubscription(
+      `messages_${userId}:update`,
+      {
+        table: "messages",
+        filter: `receiver_id=eq.${userId}`,
+        event: "UPDATE",
+        priority: "low", // Message updates are low priority
+      },
+      async (payload) => {
+        const handleUpdate = async (updatePayload: any) => {
+          console.log("📝 Production Real-time: Message updated:", updatePayload.new);
+          // If message was marked as read, update the count
+          if (updatePayload.new.is_read && !updatePayload.old.is_read) {
+            try {
+              const unreadCount = await messagesAPI.getUnreadMessagesCount(userId);
+              console.log(`📊 Updated unread messages count after read: ${unreadCount}`);
+              dispatch(setUnreadMessageCount(unreadCount));
+            } catch (error) {
+              console.error("Error fetching unread count after update:", error);
+            }
+          }
+        };
+
+        if (payload.type === 'batch') {
+          // Handle batched updates
+          for (const msg of payload.messages) {
+            await handleUpdate(msg);
+          }
+        } else {
+          await handleUpdate(payload);
+        }
+      }
+    );
 
     // Set up periodic refresh
     const interval = setInterval(() => {
@@ -223,18 +269,19 @@ const Home = () => {
 
     // Cleanup function
     return () => {
-      if (supabase) {
-        supabase.removeChannel(notificationsSubscription);
-        supabase.removeChannel(messagesSubscription);
-      }
+      // Clean up production realtime subscriptions
+      messagesCleanupInsert();
+      messagesCleanupUpdate();
       clearInterval(interval);
 
       if (userId && supabase) {
         (async () => {
           try {
-            await supabase
+            await (supabase as any)
               .from("profiles")
-              .update({ updated_at: new Date().toISOString() })
+              .update({
+                updated_at: new Date().toISOString()
+              })
               .eq("id", userId);
             console.log("User status updated on cleanup");
           } catch (error: any) {
@@ -250,7 +297,7 @@ const Home = () => {
       dispatch(setActiveStatus(true));
       (async () => {
         try {
-          await supabase
+          await (supabase as any)
             .from("profiles")
             .update({ updated_at: new Date().toISOString() })
             .eq("id", userId);
@@ -306,7 +353,7 @@ const Home = () => {
                 onPress={() => {
                   // Add haptic feedback for better UX
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  dispatch(resetUnreadMessageCount());
+                  // Don't reset count here - let individual chat screens handle it
                 }}
                 style={[styles.iconButton, {
                   backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',
@@ -357,7 +404,6 @@ const Home = () => {
           </View>
 
           <View style={styles.content}>
-            <Stories />
             <Posts />
           </View>
         </SafeAreaView>

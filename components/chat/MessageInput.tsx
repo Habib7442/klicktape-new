@@ -106,19 +106,19 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
   const inputContainerStyle = {
     ...styles.inputContainer,
-    backgroundColor: isDarkMode ? '#1F2937' : '#F3F4F6',
-    borderColor: 'transparent', // Remove border for cleaner look
+    backgroundColor: colors.backgroundSecondary,
+    borderColor: colors.border,
   };
 
   const inputStyle = {
     ...styles.textInput,
-    color: isDarkMode ? '#FFFFFF' : '#000000',
+    color: colors.text,
     fontFamily: 'Rubik-Regular',
   };
 
   const sendButtonStyle = {
     ...styles.sendButton,
-    backgroundColor: message.trim() ? '#25D366' : (isDarkMode ? '#374151' : '#9CA3AF'),
+    backgroundColor: message.trim() ? '#25D366' : colors.backgroundSecondary,
   };
 
   return (
@@ -146,6 +146,11 @@ const MessageInput: React.FC<MessageInputProps> = ({
             maxLength={1000}
             editable={!disabled}
             className="font-rubik-regular"
+            blurOnSubmit={false}
+            returnKeyType="send"
+            onSubmitEditing={handleSend}
+            enablesReturnKeyAutomatically={true}
+            autoFocus={false}
           />
         </View>
 
@@ -157,8 +162,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
         >
           <Ionicons
             name="send"
-            size={20}
-            color="white"
+            size={22}
+            color={message.trim() ? "white" : colors.textSecondary}
           />
         </TouchableOpacity>
       </View>
@@ -173,38 +178,34 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    paddingHorizontal: 12, // Reduced padding for more space
-    paddingVertical: 8,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 12, // Account for home indicator
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 12,
   },
   inputContainer: {
     flex: 1,
-    borderRadius: 25, // More rounded like WhatsApp
-    borderWidth: 0, // Remove border
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    marginRight: 8,
-    minHeight: 50, // Increased height
-    maxHeight: 120, // Increased max height
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginRight: 12,
+    minHeight: 44,
+    maxHeight: 100,
     justifyContent: 'center',
   },
   textInput: {
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 20,
     textAlignVertical: 'center',
-    maxHeight: 96, // Allow for multiple lines
+    maxHeight: 80,
   },
   sendButton: {
-    width: 50, // Slightly larger
+    width: 50,
     height: 50,
     borderRadius: 25,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
+    marginLeft: 8,
   },
 });
 

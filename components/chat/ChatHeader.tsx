@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@/src/context/ThemeContext';
 import CachedImage from '@/components/CachedImage';
@@ -15,8 +15,27 @@ const ChatHeader: React.FC<{
   recipientProfile?: AppUser;
   isLoading: boolean;
   onBackPress: () => void;
-}> = ({ recipientProfile, isLoading, onBackPress }) => {
-  const { colors } = useTheme();
+  onClearChat?: () => void;
+}> = ({ recipientProfile, isLoading, onBackPress, onClearChat }) => {
+  const { colors, isDarkMode } = useTheme();
+
+  const handleClearChat = () => {
+    Alert.alert(
+      'Clear Chat',
+      'This will:\n• Delete all messages you sent (permanently)\n• Clear this chat from your interface\n\nThe other person will still see their messages. This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: onClearChat,
+        },
+      ]
+    );
+  };
 
   return (
     <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.cardBorder }]}>
@@ -51,7 +70,17 @@ const ChatHeader: React.FC<{
       </View>
 
       <View style={styles.headerActions}>
-        {/* Add more header actions here if needed */}
+        {onClearChat && (
+          <TouchableOpacity
+            onPress={handleClearChat}
+            style={[styles.actionButton, {
+              backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.1)',
+              borderColor: isDarkMode ? 'rgba(128, 128, 128, 0.3)' : 'rgba(128, 128, 128, 0.3)'
+            }]}
+          >
+            <Feather name="trash-2" size={20} color={colors.error} />
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -107,6 +136,12 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  actionButton: {
+    padding: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginLeft: 8,
   },
 });
 

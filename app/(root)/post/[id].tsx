@@ -20,10 +20,11 @@ import moment from "moment";
 
 import { supabase } from "@/lib/supabase";
 import { useDispatch, useSelector } from "react-redux";
-import { toggleLike, toggleBookmark } from "@/src/store/slices/postsSlice";
+import { toggleLike, toggleBookmark, updatePost } from "@/src/store/slices/postsSlice";
 import { RootState } from "@/src/store/store";
 import { useTheme } from "@/src/context/ThemeContext";
 import { authManager } from "@/lib/authManager";
+import { SupabaseNotificationBroadcaster } from "@/lib/supabaseNotificationManager";
 
 const { width } = Dimensions.get("window");
 const IMAGE_HEIGHT = width * 0.9;
@@ -41,6 +42,7 @@ interface Comment {
 
 interface Post {
   id: string;
+  user_id: string;
   caption: string;
   image_urls: string[];
   created_at: string;
@@ -108,6 +110,7 @@ const PostDetailScreen = () => {
         .select(
           `
           id,
+          user_id,
           caption,
           image_urls,
           created_at,
@@ -119,7 +122,7 @@ const PostDetailScreen = () => {
           )
           `
         )
-        .eq("id", id as string)
+        .eq("id", id as any)
         .single();
 
       if (postError || !postData) {
@@ -139,7 +142,7 @@ const PostDetailScreen = () => {
           )
           `
         )
-        .eq("post_id", id as string)
+        .eq("post_id", id as any)
         .order("created_at", { ascending: false });
 
       if (commentsError) throw commentsError;
@@ -157,10 +160,10 @@ const PostDetailScreen = () => {
 
       // Transform post data to match the Post type
       const transformedPost = {
-        ...postData,
+        ...(postData as any),
         user: {
-          username: (postData.user as any)?.username || "Unknown User",
-          avatar_url: (postData.user as any)?.avatar_url || "https://via.placeholder.com/150"
+          username: (postData as any)?.user?.username || "Unknown User",
+          avatar_url: (postData as any)?.user?.avatar_url || "https://via.placeholder.com/150"
         }
       };
 
@@ -175,21 +178,6 @@ const PostDetailScreen = () => {
 
   const handleLike = async () => {
     if (!userId || !post) return;
-
-    // Remove local state management since we're using Redux
-    const newLikeStatus = !isLiked;
-
-    // Update post likes count
-    setPost((prev) =>
-      prev
-        ? {
-            ...prev,
-            likes_count: newLikeStatus
-              ? prev.likes_count + 1
-              : prev.likes_count - 1,
-          }
-        : null
-    );
 
     // Animate the like button
     Animated.sequence([
@@ -209,27 +197,86 @@ const PostDetailScreen = () => {
       // Dispatch Redux action first for immediate UI update
       dispatch(toggleLike(post.id));
 
-      const { error } = await supabase!.rpc("lightning_toggle_like_v3", {
+      const { data: isLiked, error } = await supabase!.rpc("lightning_toggle_like_v4", {
         post_id_param: post.id,
         user_id_param: userId,
       });
 
       if (error) throw error;
+
+      // After successful like toggle, fetch the updated post data to ensure consistency
+      const { data: updatedPost, error: fetchError } = await supabase
+        .from("posts")
+        .select(
+          `
+          *,
+          profiles(username, avatar_url),
+          likes!likes_post_id_fkey(user_id),
+          bookmarks!bookmarks_post_id_fkey(user_id),
+          comments:comments!comments_post_id_fkey(id)
+          `
+        )
+        .eq("id", post.id as any)
+        .single();
+
+      if (fetchError) {
+        console.error("Error fetching updated post:", fetchError);
+        return;
+      }
+
+      if (updatedPost) {
+        // Process the updated post data
+        const isLikedUpdated =
+          Array.isArray((updatedPost as any).likes) &&
+          (updatedPost as any).likes.some((like: any) => like.user_id === userId);
+
+        const isBookmarked =
+          Array.isArray((updatedPost as any).bookmarks) &&
+          (updatedPost as any).bookmarks.some((bookmark: any) => bookmark.user_id === userId);
+
+        const actualCommentsCount = Array.isArray((updatedPost as any).comments)
+          ? (updatedPost as any).comments.length
+          : 0;
+
+        const profileData = (updatedPost as any).profiles || {};
+        const username = profileData.username || "Unknown User";
+        const avatar_url =
+          profileData.avatar_url || "https://via.placeholder.com/150";
+
+        const processedPost = {
+          ...(updatedPost as any),
+          is_liked: isLikedUpdated,
+          is_bookmarked: isBookmarked,
+          comments_count: actualCommentsCount,
+          user: { username, avatar_url },
+        };
+
+        // Update the specific post in Redux with the fresh data from database
+        dispatch(updatePost(processedPost));
+
+        // Also update the local post state for this page
+        setPost(processedPost);
+      }
+
+      // Broadcast real-time notification if this was a like (not unlike)
+      if (isLiked && post.user_id !== userId) {
+        try {
+          await SupabaseNotificationBroadcaster.broadcastLike(
+            post.user_id,
+            userId,
+            post.id,
+            undefined // reelId
+          );
+        } catch (broadcastError) {
+          console.error('Error broadcasting like notification:', broadcastError);
+          // Don't fail the like operation if broadcasting fails
+        }
+      }
+
+      console.log(`✅ Like toggled successfully: ${isLiked ? "liked" : "unliked"}`);
     } catch (error) {
       // Revert the Redux state on error
       dispatch(toggleLike(post.id));
-
-      // Revert the post count
-      setPost((prev) =>
-        prev
-          ? {
-              ...prev,
-              likes_count: newLikeStatus
-                ? prev.likes_count - 1
-                : prev.likes_count + 1,
-            }
-          : null
-      );
       console.error("Error toggling like:", error);
     }
   };
@@ -264,7 +311,7 @@ const PostDetailScreen = () => {
           post_id: post.id,
           user_id: userId,
           content: newComment,
-        })
+        } as any)
         .select(
           `
           id,
@@ -282,17 +329,35 @@ const PostDetailScreen = () => {
 
       await supabase!
         .from("posts")
-        .update({ comments_count: post.comments_count + 1 })
-        .eq("id", post.id);
+        .update({ comments_count: post.comments_count + 1 } as any)
+        .eq("id", post.id as any);
+
+      // Create notification for the post owner
+      if (post.user_id !== userId) {
+        try {
+          await supabase!.from("notifications").insert({
+            recipient_id: post.user_id,
+            sender_id: userId,
+            type: "comment",
+            post_id: post.id,
+            comment_id: (commentData as any).id,
+            created_at: new Date().toISOString(),
+            is_read: false,
+          } as any);
+        } catch (notificationError) {
+          console.error("Error creating comment notification:", notificationError);
+          // Don't throw - comment was created successfully
+        }
+      }
 
       // Transform the comment data to match the Comment type
       const transformedComment = {
-        id: commentData.id,
-        content: commentData.content,
-        created_at: commentData.created_at,
+        id: (commentData as any).id,
+        content: (commentData as any).content,
+        created_at: (commentData as any).created_at,
         user: {
-          username: (commentData.user as any)?.username || "You",
-          avatar_url: (commentData.user as any)?.avatar_url || "https://via.placeholder.com/150"
+          username: (commentData as any)?.user?.username || "You",
+          avatar_url: (commentData as any)?.user?.avatar_url || "https://via.placeholder.com/150"
         }
       };
 

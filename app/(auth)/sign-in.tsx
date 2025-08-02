@@ -22,6 +22,7 @@ const SignIn = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isForgotPasswordLoading, setIsForgotPasswordLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const dispatch = useDispatch();
   const { colors } = useTheme();
@@ -173,33 +174,42 @@ const SignIn = () => {
       return;
     }
 
-    setIsLoading(true);
+    setIsForgotPasswordLoading(true);
     try {
       // Increment attempt counter
       attempts.count += 1;
       attempts.timestamp = now;
       await AsyncStorage.setItem(rateLimitKey, JSON.stringify(attempts));
 
+      // Clear any existing session to ensure clean state for password reset
+      await supabase.auth.signOut();
+
       // Use direct deep link to open app immediately (no web redirect needed)
       const redirectUrl = 'klicktape://reset-password';
 
+      console.log('🔄 Sending password reset email to:', sanitizedEmail);
       const { error } = await supabase.auth.resetPasswordForEmail(sanitizedEmail, {
         redirectTo: redirectUrl,
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Password reset error:', error);
+        throw error;
+      }
 
+      console.log('✅ Password reset email sent successfully');
       Alert.alert(
         "Success",
         "Password reset instructions sent to your email. Please check your inbox and follow the link to reset your password."
       );
     } catch (error) {
+      console.error('❌ Forgot password error:', error);
       Alert.alert(
         "Error",
         (error as Error)?.message || "Failed to process request. Please try again."
       );
     } finally {
-      setIsLoading(false);
+      setIsForgotPasswordLoading(false);
     }
   };
 
@@ -248,15 +258,23 @@ const SignIn = () => {
             </View>
           </View>
           <TouchableOpacity
-            style={styles.forgotLink}
+            style={[styles.forgotLink, isForgotPasswordLoading && styles.forgotLinkDisabled]}
             onPress={handleForgotPassword}
+            disabled={isForgotPasswordLoading}
           >
-            <Text style={[styles.linkText, { color: colors.primary }]}>Forgot Password?</Text>
+            {isForgotPasswordLoading ? (
+              <View style={styles.forgotLinkContent}>
+                <ActivityIndicator size="small" color={colors.primary} style={styles.forgotLinkSpinner} />
+                <Text style={[styles.linkText, { color: colors.primary, opacity: 0.7 }]}>Sending...</Text>
+              </View>
+            ) : (
+              <Text style={[styles.linkText, { color: colors.primary }]}>Forgot Password?</Text>
+            )}
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.button, isLoading && styles.buttonDisabled]}
+            style={[styles.button, (isLoading || isForgotPasswordLoading) && styles.buttonDisabled]}
             onPress={onSubmit}
-            disabled={isLoading}
+            disabled={isLoading || isForgotPasswordLoading}
           >
             {isLoading ? (
               <ActivityIndicator color="#ffffff" />
@@ -322,6 +340,16 @@ const styles = StyleSheet.create({
   forgotLink: {
     alignSelf: "flex-end",
     marginBottom: 16
+  },
+  forgotLinkDisabled: {
+    opacity: 0.7
+  },
+  forgotLinkContent: {
+    flexDirection: "row",
+    alignItems: "center"
+  },
+  forgotLinkSpinner: {
+    marginRight: 6
   },
   linkText: {
     fontSize: 14

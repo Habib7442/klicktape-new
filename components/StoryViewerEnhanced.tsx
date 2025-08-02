@@ -16,6 +16,7 @@ import {
 import { PanGestureHandler, State } from "react-native-gesture-handler";
 import { AntDesign, Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { VideoView, useVideoPlayer } from "expo-video";
 import { storiesAPIEnhanced } from "@/lib/storiesApiEnhanced";
 
 const { width, height } = Dimensions.get("window");
@@ -24,13 +25,15 @@ interface Story {
   id: string;
   user_id: string;
   image_url: string;
+  video_url?: string;
+  thumbnail_url?: string;
   caption?: string;
   created_at: string;
   expires_at: string;
   viewed_by: string[];
   story_order: number;
   duration: number;
-  story_type: string;
+  story_type: 'image' | 'video';
   user: {
     username: string;
     avatar: string;
@@ -80,6 +83,73 @@ const StoryViewerEnhanced = ({
   const currentUser = storiesFeed[currentUserIndex];
   const currentStory = currentUser?.stories[currentStoryIndex];
   const totalUsers = storiesFeed.length;
+
+  // Background Video Component
+  const BackgroundVideoComponent = ({ videoUri, paused, onLoadStart, onLoad }: {
+    videoUri: string;
+    paused: boolean;
+    onLoadStart: () => void;
+    onLoad: () => void;
+  }) => {
+    const player = useVideoPlayer(videoUri, (player) => {
+      player.loop = true;
+      player.muted = false;
+      if (!paused) {
+        player.play();
+      }
+    });
+
+    React.useEffect(() => {
+      if (paused) {
+        player.pause();
+      } else {
+        player.play();
+      }
+    }, [paused]);
+
+    return (
+      <VideoView
+        style={styles.backgroundImage}
+        player={player}
+        contentFit="cover"
+        allowsFullscreen={false}
+        allowsPictureInPicture={false}
+      />
+    );
+  };
+
+  // Story Video Component
+  const StoryVideoComponent = ({ videoUri, paused, onVideoEnd }: {
+    videoUri: string;
+    paused: boolean;
+    onVideoEnd: () => void;
+  }) => {
+    const player = useVideoPlayer(videoUri, (player) => {
+      player.loop = true;
+      player.muted = false;
+      if (!paused) {
+        player.play();
+      }
+    });
+
+    React.useEffect(() => {
+      if (paused) {
+        player.pause();
+      } else {
+        player.play();
+      }
+    }, [paused]);
+
+    return (
+      <VideoView
+        style={styles.storyImage}
+        player={player}
+        contentFit="contain"
+        allowsFullscreen={false}
+        allowsPictureInPicture={false}
+      />
+    );
+  };
 
   // Initialize progress animations for current user's stories
   useEffect(() => {
@@ -211,13 +281,26 @@ const StoryViewerEnhanced = ({
   return (
     <PanGestureHandler onHandlerStateChange={handleSwipeGesture}>
       <View style={styles.container}>
-        {/* Background Image */}
-        <Image
-          source={{ uri: currentStory.image_url }}
-          style={styles.backgroundImage}
-          onLoadStart={() => setLoading(true)}
-          onLoadEnd={() => setLoading(false)}
-        />
+        {/* Background Image/Video */}
+        {currentStory.story_type === 'video' && currentStory.video_url ? (
+          <BackgroundVideoComponent
+            videoUri={currentStory.video_url}
+            paused={paused}
+            onLoadStart={() => setLoading(true)}
+            onLoad={() => setLoading(false)}
+          />
+        ) : (
+          <Image
+            source={{
+              uri: currentStory.story_type === 'video'
+                ? (currentStory.thumbnail_url || currentStory.image_url)
+                : currentStory.image_url
+            }}
+            style={styles.backgroundImage}
+            onLoadStart={() => setLoading(true)}
+            onLoadEnd={() => setLoading(false)}
+          />
+        )}
 
         {/* Dark Overlay */}
         <View style={styles.overlay} />
@@ -290,7 +373,7 @@ const StoryViewerEnhanced = ({
         </LinearGradient>
 
         {/* Story Content */}
-        <Animated.View 
+        <Animated.View
           style={[
             styles.storyContent,
             {
@@ -299,11 +382,30 @@ const StoryViewerEnhanced = ({
             }
           ]}
         >
-          <Image
-            source={{ uri: currentStory.image_url }}
-            style={styles.storyImage}
-            resizeMode="contain"
-          />
+          {currentStory.story_type === 'video' && currentStory.video_url ? (
+            <StoryVideoComponent
+              videoUri={currentStory.video_url}
+              paused={paused}
+              onVideoEnd={handleNext}
+            />
+          ) : (
+            <Image
+              source={{
+                uri: currentStory.story_type === 'video'
+                  ? (currentStory.thumbnail_url || currentStory.image_url)
+                  : currentStory.image_url
+              }}
+              style={styles.storyImage}
+              resizeMode="contain"
+            />
+          )}
+
+          {/* Video indicator for video stories */}
+          {currentStory.story_type === 'video' && (
+            <View style={styles.videoIndicator}>
+              <Feather name={paused ? "play" : "pause"} size={16} color="white" />
+            </View>
+          )}
         </Animated.View>
 
         {/* Caption */}
@@ -529,6 +631,17 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: 'rgba(255,255,255,0.3)',
     borderTopColor: 'white',
+  },
+  videoIndicator: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 16,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

@@ -34,8 +34,12 @@ const ResetPassword = () => {
       console.log('✅ Access token found, setting session...');
       setSession(accessToken, refreshToken);
     } else {
-      console.log('❌ No access token found, checking existing session...');
-      checkSession();
+      console.log('❌ No access token found, redirecting to sign-in...');
+      Alert.alert(
+        "Invalid Reset Link",
+        "This password reset link is invalid or expired. Please request a new password reset from the sign-in screen.",
+        [{ text: "OK", onPress: () => router.replace("/sign-in") }]
+      );
     }
   }, [accessToken, refreshToken]);
 
@@ -46,21 +50,31 @@ const ResetPassword = () => {
         throw new Error("Supabase client not available");
       }
 
+      console.log('🔄 Setting session with tokens...');
       const { data, error } = await supabase.auth.setSession({
         access_token: token,
         refresh_token: refresh_token || "",
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Session error:', error);
+        throw error;
+      }
 
       if (!data.session) {
+        console.error('❌ No session data returned');
         throw new Error("Session not established");
       }
+
+      console.log('✅ Session established successfully for password reset');
+      console.log('👤 User ID:', data.session.user?.id);
+
+      // Session is now ready for password update
     } catch (error) {
-      console.error("Session error:", error);
+      console.error("❌ Failed to establish session:", error);
       Alert.alert(
-        "Error",
-        "Invalid or expired reset link. Please request a new password reset.",
+        "Invalid Reset Link",
+        "This password reset link is invalid or expired. Please request a new password reset from the sign-in screen.",
         [{ text: "OK", onPress: () => router.replace("/sign-in") }]
       );
     } finally {
@@ -68,36 +82,7 @@ const ResetPassword = () => {
     }
   };
 
-  // We can remove the checkSession function entirely as it's no longer needed
-  const checkSession = async () => {
-    setIsLoading(true);
-    try {
-      if (!supabase) {
-        throw new Error("Supabase client not available");
-      }
 
-      const {
-        data: { session },
-        error,
-      } = await supabase.auth.getSession();
-
-      if (error) throw error;
-      if (!session) {
-        Alert.alert(
-          "Password Reset",
-          "To reset your password, please use the 'Forgot Password' option on the sign in screen.",
-          [{ text: "OK", onPress: () => router.replace("/sign-in") }]
-        );
-      }
-    } catch (error) {
-      console.error("Session check error:", error);
-      Alert.alert("Error", "Failed to verify session. Please try again.", [
-        { text: "OK", onPress: () => router.replace("/sign-in") },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const onSubmit = async () => {
     if (!password || !confirmPassword) {
@@ -121,11 +106,33 @@ const ResetPassword = () => {
         throw new Error("Supabase client not available");
       }
 
+      // Check if we have a valid session before attempting password update
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError) {
+        console.error('❌ Session check error:', sessionError);
+        throw new Error("Session expired. Please request a new password reset.");
+      }
+
+      if (!session) {
+        console.error('❌ No active session found');
+        throw new Error("Session expired. Please request a new password reset.");
+      }
+
+      console.log('🔄 Updating password for user:', session.user.id);
       const { error } = await supabase.auth.updateUser({
         password,
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Password update error:', error);
+        throw error;
+      }
+
+      console.log('✅ Password updated successfully');
+
+      // Sign out the user after successful password reset
+      await supabase.auth.signOut();
 
       Alert.alert(
         "Success",
@@ -138,11 +145,21 @@ const ResetPassword = () => {
         ]
       );
     } catch (error: any) {
-      console.error("Reset password error:", error);
-      Alert.alert(
-        "Error",
-        error?.message || "Failed to reset password. Please try again."
-      );
+      console.error("❌ Reset password error:", error);
+
+      // Handle specific error cases
+      if (error?.message?.includes("session") || error?.message?.includes("expired")) {
+        Alert.alert(
+          "Session Expired",
+          "Your password reset session has expired. Please request a new password reset from the sign-in screen.",
+          [{ text: "OK", onPress: () => router.replace("/sign-in") }]
+        );
+      } else {
+        Alert.alert(
+          "Error",
+          error?.message || "Failed to reset password. Please try again."
+        );
+      }
     } finally {
       setIsLoading(false);
     }

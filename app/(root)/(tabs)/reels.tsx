@@ -38,6 +38,7 @@ import {
 } from "@/src/store/slices/reelsSlice";
 import { Reel } from "@/types/type";
 import { AppDispatch } from "@/src/store/store";
+import { generateShareContent } from "@/utils/deepLinkHelper";
 import { useDispatch as useReduxDispatch } from "react-redux";
 import { router } from "expo-router";
 import { useNavigation } from "@react-navigation/native";
@@ -373,9 +374,15 @@ const ReelItem: React.FC<{
 
   const handleExternalShare = async () => {
     try {
-      await Share.share({
-        message: `Check out this reel: ${reel.caption}\n${reel.video_url}`,
+      const shareContent = generateShareContent({
+        type: 'reel',
+        username: reel.user.username,
+        caption: reel.caption,
+        id: reel.id,
+        mediaUrl: reel.video_url,
       });
+
+      await Share.share(shareContent);
     } catch (error) {
       console.error("Error sharing reel:", error);
     }
@@ -575,7 +582,12 @@ const ReelItem: React.FC<{
                   />
                 </TouchableOpacity>
               </Animated.View>
-              <Text style={[styles.actionCount, { color: "white" }]}>{reel.likes_count}</Text>
+              <TouchableOpacity
+                onPress={() => router.push(`/(root)/reel-likes/${reel.id}` as any)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.actionCount, { color: "white" }]}>{reel.likes_count}</Text>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.actionWrapper}>

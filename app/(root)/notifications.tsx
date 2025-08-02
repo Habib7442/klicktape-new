@@ -19,6 +19,9 @@ import { notificationsAPI } from "@/lib/notificationsApi";
 import { useTheme } from "@/src/context/ThemeContext";
 import ThemedGradient from "@/components/ThemedGradient";
 import { animationPerformanceUtils } from "@/lib/utils/animationPerformance";
+import { useSelector, useDispatch } from "react-redux";
+import { RootState } from "@/src/store/store";
+import { removeNotification, markNotificationAsRead } from "@/src/store/slices/notificationSlice";
 
 interface Notification {
   id: string;
@@ -29,6 +32,7 @@ interface Notification {
     avatar_url: string;
   };
   post_id?: string;
+  reel_id?: string; // Add reel_id support
   comment_id?: string;
   created_at: string;
   is_read: boolean;
@@ -69,8 +73,10 @@ const NotificationItem = memo(({ notification, colors, isDarkMode, onPress, onDe
           {notification.sender.username}
         </Text>
         <Text className="font-rubik-medium" style={[styles.notificationText, { color: colors.textSecondary }]}>
-          {notification.type === "like" && "liked your post"}
-          {notification.type === "comment" && "commented on your post"}
+          {notification.type === "like" && notification.reel_id && "liked your reel"}
+          {notification.type === "like" && notification.post_id && "liked your post"}
+          {notification.type === "comment" && notification.reel_id && "commented on your reel"}
+          {notification.type === "comment" && notification.post_id && "commented on your post"}
           {notification.type === "follow" && "started following you"}
           {notification.type === "mention" && "mentioned you in a post"}
         </Text>
@@ -97,12 +103,15 @@ const NotificationItem = memo(({ notification, colors, isDarkMode, onPress, onDe
 });
 
 export default function NotificationsScreen() {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const router = useRouter();
   const { colors, isDarkMode } = useTheme();
+  const dispatch = useDispatch();
+
+  // Get notifications from Redux store (managed by useSupabaseNotificationManager)
+  const notifications = useSelector((state: RootState) => state.notifications.notifications);
 
 
 
@@ -125,7 +134,8 @@ export default function NotificationsScreen() {
       console.log("Fetching notifications for user:", userId);
       const data = await notificationsAPI.getNotifications(userId);
       console.log("Fetched notifications:", data);
-      setNotifications(data);
+      // Note: Notifications are managed by Redux store via useSupabaseNotificationManager
+      // This fetch is mainly for initial load and refresh
     } catch (error) {
       console.error("Error fetching notifications:", error);
     } finally {
@@ -138,53 +148,8 @@ export default function NotificationsScreen() {
     if (userId) {
       fetchNotifications();
 
-      const subscription = supabase
-        .channel("notifications")
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "notifications",
-            filter: `recipient_id=eq.${userId}`,
-          },
-          async (payload) => {
-            console.log("New notification received:", payload);
-            const newNotification = payload.new as any;
-            const { data: senderData, error } = await supabase
-              .from("profiles")
-              .select("username, avatar_url")
-              .eq("id", newNotification.sender_id)
-              .single();
-
-            console.log("Sender data from profiles:", senderData);
-            console.log("Sender data error:", error);
-
-            if (!error && senderData) {
-              setNotifications((prev) => [
-                {
-                  id: newNotification.id,
-                  type: newNotification.type,
-                  sender_id: newNotification.sender_id,
-                  sender: {
-                    username: senderData.username,
-                    avatar: senderData.avatar_url,
-                  },
-                  post_id: newNotification.post_id,
-                  comment_id: newNotification.comment_id,
-                  created_at: newNotification.created_at,
-                  is_read: newNotification.is_read,
-                },
-                ...prev,
-              ]);
-            }
-          }
-        )
-        .subscribe();
-
-      return () => {
-        subscription.unsubscribe();
-      };
+      // Note: Real-time subscription is handled by useSupabaseNotificationManager in home.tsx
+      // to prevent duplicate notifications. This page will get updates via Redux store.
     }
   }, [userId]);
 
@@ -202,6 +167,11 @@ export default function NotificationsScreen() {
             avatar: notification.sender.avatar_url,
           },
         });
+      } else if (notification.reel_id) {
+        router.push({
+          pathname: "/reel/[id]",
+          params: { id: notification.reel_id },
+        });
       } else if (notification.post_id) {
         router.push({
           pathname: "/post/[id]",
@@ -209,11 +179,8 @@ export default function NotificationsScreen() {
         });
       }
 
-      setNotifications((prev) =>
-        prev.map((n) =>
-          n.id === notification.id ? { ...n, is_read: true } : n
-        )
-      );
+      // Update Redux store to mark as read
+      dispatch(markNotificationAsRead(notification.id));
     } catch (error) {
       console.error("Error handling notification:", error);
     }
@@ -222,7 +189,8 @@ export default function NotificationsScreen() {
   const handleDelete = async (notificationId: string) => {
     try {
       await notificationsAPI.deleteNotification(notificationId);
-      setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
+      // Remove from Redux store
+      dispatch(removeNotification(notificationId));
     } catch (error) {
       console.error("Error deleting notification:", error);
     }

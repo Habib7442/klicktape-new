@@ -6,13 +6,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 
-// Cache configuration
+// Enhanced cache configuration for egress reduction
 const IMAGE_CACHE_CONFIG = {
-  MAX_CACHE_SIZE: 100 * 1024 * 1024, // 100MB
-  MAX_CACHE_AGE: 7 * 24 * 60 * 60 * 1000, // 7 days
+  MAX_CACHE_SIZE: 200 * 1024 * 1024, // Increased to 200MB for better caching
+  MAX_CACHE_AGE: 14 * 24 * 60 * 60 * 1000, // Extended to 14 days
   CACHE_KEY_PREFIX: 'image_cache_',
   METADATA_KEY: 'image_cache_metadata',
   CACHE_DIR: `${FileSystem.cacheDirectory}images/`,
+  // Aggressive caching for frequently accessed content
+  PRIORITY_CACHE_AGE: 30 * 24 * 60 * 60 * 1000, // 30 days for avatars/thumbnails
 } as const;
 
 interface ImageCacheMetadata {

@@ -15,12 +15,16 @@ import {
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
 import CachedImage from "@/components/CachedImage";
+import MultipleUserShareModal from "@/components/MultipleUserShareModal";
 import { messagesAPI } from "@/lib/messagesApi";
 import { postsAPI } from "@/lib/postsApi";
+import { storiesAPI } from "@/lib/storiesApi";
 import { supabase } from "@/lib/supabase";
 import socketService from "@/lib/socketService";
 import { Share } from "react-native";
+import * as ImageManipulator from "expo-image-manipulator";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { generateShareContent } from "@/utils/deepLinkHelper";
 
 const { width, height } = Dimensions.get("window");
 
@@ -80,6 +84,7 @@ const InstagramStyleShareModal: React.FC<InstagramStyleShareModalProps> = ({
   >([]);
   const [loading, setLoading] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [multipleUserModalVisible, setMultipleUserModalVisible] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [searchTimeout, setSearchTimeout] = useState<number | null>(null);
 
@@ -306,21 +311,161 @@ const InstagramStyleShareModal: React.FC<InstagramStyleShareModalProps> = ({
     }
   };
 
+  const handleMultipleUserShare = () => {
+    setMultipleUserModalVisible(true);
+  };
+
+  const handleMultipleUserShareSuccess = () => {
+    setMultipleUserModalVisible(false);
+    onClose();
+    onShareSuccess?.();
+  };
+
   const handleExternalShare = async () => {
     try {
       if (post && post.image_urls.length > 0) {
-        await Share.share({
-          message: `Check out this post by ${post.user.username} on Klicktape: ${post.caption}`,
-          url: post.image_urls[0],
+        const shareContent = generateShareContent({
+          type: 'post',
+          username: post.user.username,
+          caption: post.caption,
+          id: post.id,
+          mediaUrl: post.image_urls[0],
         });
+
+        await Share.share(shareContent);
       } else if (reel) {
-        await Share.share({
-          message: `Check out this reel: ${reel.caption}\n${reel.video_url}`,
+        const shareContent = generateShareContent({
+          type: 'reel',
+          username: reel.user.username,
+          caption: reel.caption,
+          id: reel.id,
+          mediaUrl: reel.video_url,
         });
+
+        await Share.share(shareContent);
       }
       onClose();
     } catch (error) {
       console.error("Error sharing externally:", error);
+    }
+  };
+
+  const handleShareToStories = async () => {
+    if (!currentUserId || sharing) return;
+
+    setSharing(true);
+    try {
+      let sourceMediaUrl: string;
+      let thumbnailUrl: string | undefined;
+      let originalPoster: string;
+      let contentType: string;
+      let storyType: 'image' | 'video' = 'image';
+
+      if (post) {
+        sourceMediaUrl = post.image_urls[0];
+        originalPoster = post.user.username;
+        contentType = "Post";
+        storyType = 'image';
+      } else if (reel) {
+        // For reels, use the video URL to maintain video format
+        sourceMediaUrl = reel.video_url;
+        thumbnailUrl = reel.thumbnail_url;
+        originalPoster = reel.user.username;
+        contentType = "Reel";
+        storyType = 'video';
+      } else {
+        return;
+      }
+
+      // Create attribution text for the story
+      const attributionText = `Shared from @${originalPoster}`;
+
+      let uploadResult: { publicUrl: string };
+      let processedThumbnail: string | undefined;
+
+      if (storyType === 'video') {
+        // For video stories, use the existing video URL directly (no re-upload needed)
+        uploadResult = { publicUrl: sourceMediaUrl };
+
+        // For video stories, use existing thumbnail or create a simple one
+        if (thumbnailUrl) {
+          // If thumbnail is already a Supabase URL, use it directly
+          if (thumbnailUrl.includes('supabase.co/storage')) {
+            processedThumbnail = thumbnailUrl;
+          } else {
+            // Only process if it's not already a Supabase URL
+            try {
+              const processedThumbnailImage = await ImageManipulator.manipulateAsync(
+                thumbnailUrl,
+                [{ resize: { width: 1080, height: 1920 } }],
+                {
+                  compress: 0.8,
+                  format: ImageManipulator.SaveFormat.JPEG,
+                }
+              );
+
+              const thumbnailFileName = `shared_video_thumbnail_${Date.now()}.jpg`;
+              const thumbnailUploadResult = await storiesAPI.uploadImage({
+                uri: processedThumbnailImage.uri,
+                name: thumbnailFileName,
+                type: 'image/jpeg',
+              });
+              processedThumbnail = thumbnailUploadResult.publicUrl;
+            } catch (error) {
+              console.log('Thumbnail processing failed, using original:', error);
+              processedThumbnail = thumbnailUrl;
+            }
+          }
+        }
+      } else {
+        // For image stories, process the image to story dimensions
+        const processedImage = await ImageManipulator.manipulateAsync(
+          sourceMediaUrl,
+          [{ resize: { width: 1080, height: 1920 } }],
+          {
+            compress: 0.8,
+            format: ImageManipulator.SaveFormat.JPEG,
+          }
+        );
+
+        const fileName = `shared_image_story_${Date.now()}.jpg`;
+        uploadResult = await storiesAPI.uploadImage({
+          uri: processedImage.uri,
+          name: fileName,
+          type: 'image/jpeg',
+        });
+      }
+
+      // Create the story with attribution and tracking
+      const sharedContent = post ? {
+        originalPostId: post.id,
+      } : {
+        originalReelId: reel!.id,
+      };
+
+      await storiesAPI.createStory(
+        uploadResult.publicUrl,
+        currentUserId,
+        attributionText,
+        sharedContent,
+        storyType,
+        processedThumbnail
+      );
+
+      Alert.alert("Success!", `${contentType} shared to your Stories`, [
+        {
+          text: "OK",
+          onPress: () => {
+            onClose();
+            onShareSuccess?.();
+          },
+        },
+      ]);
+    } catch (error) {
+      console.error("Error sharing to stories:", error);
+      Alert.alert("Error", "Failed to share to Stories. Please try again.");
+    } finally {
+      setSharing(false);
     }
   };
 
@@ -478,7 +623,43 @@ const InstagramStyleShareModal: React.FC<InstagramStyleShareModalProps> = ({
                   styles.actionButton,
                   { backgroundColor: colors.backgroundSecondary },
                 ]}
+                onPress={handleMultipleUserShare}
+                disabled={sharing}
+              >
+                <Feather name="users" size={24} color={colors.text} />
+                <Text style={[styles.actionText, { color: colors.text }]}>
+                  Multiple Users
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.actionButton,
+                  {
+                    backgroundColor: colors.backgroundSecondary,
+                    opacity: sharing ? 0.6 : 1,
+                  },
+                ]}
+                onPress={handleShareToStories}
+                disabled={sharing}
+              >
+                {sharing ? (
+                  <ActivityIndicator size="small" color={colors.text} />
+                ) : (
+                  <Feather name="plus-circle" size={24} color={colors.text} />
+                )}
+                <Text style={[styles.actionText, { color: colors.text }]}>
+                  {sharing ? "Sharing..." : "Stories"}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.actionButton,
+                  { backgroundColor: colors.backgroundSecondary },
+                ]}
                 onPress={handleExternalShare}
+                disabled={sharing}
               >
                 <Feather name="share" size={24} color={colors.text} />
                 <Text style={[styles.actionText, { color: colors.text }]}>
@@ -495,7 +676,16 @@ const InstagramStyleShareModal: React.FC<InstagramStyleShareModalProps> = ({
           </View>
         </View>
       </Modal>
-      
+
+      {/* Multiple User Share Modal */}
+      <MultipleUserShareModal
+        isVisible={multipleUserModalVisible}
+        onClose={() => setMultipleUserModalVisible(false)}
+        post={post}
+        reel={reel}
+        onShareSuccess={handleMultipleUserShareSuccess}
+      />
+
     </SafeAreaView>
   );
 };
@@ -576,17 +766,21 @@ const styles = StyleSheet.create({
   },
   bottomActions: {
     flexDirection: "row" as const,
-    justifyContent: "center" as const,
+    justifyContent: "space-around" as const,
+    alignItems: "center" as const,
     paddingHorizontal: 16,
     paddingVertical: 16,
     borderTopWidth: 0.5,
+    gap: 12,
   },
   actionButton: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
-    paddingHorizontal: 24,
+    justifyContent: "center" as const,
+    paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 20,
+    flex: 1,
   },
   actionText: {
     marginLeft: 8,

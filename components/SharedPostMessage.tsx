@@ -1,14 +1,23 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   Dimensions,
+  Alert,
 } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Feather, AntDesign } from '@expo/vector-icons';
 import { useTheme } from '@/src/context/ThemeContext';
 import { router } from 'expo-router';
+import { supabase } from '@/lib/supabase';
+import { useDispatch } from 'react-redux';
+import { toggleLike } from '@/src/store/slices/postsSlice';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
 import CachedImage from './CachedImage';
 
 interface SharedPostData {
@@ -36,13 +45,116 @@ const SharedPostMessage: React.FC<SharedPostMessageProps> = ({
   isOwnMessage = false,
 }) => {
   const { colors, isDarkMode } = useTheme();
+  const dispatch = useDispatch();
 
   // Use postId if provided directly, otherwise use sharedPostData
   const actualPostId = postId || sharedPostData?.post_id;
 
+
+
+  // State for post data and like status
+  const [postData, setPostData] = useState<any>(null);
+  const [isLiked, setIsLiked] = useState(false);
+  const [likesCount, setLikesCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  // Animation for like button
+  const likeScale = useSharedValue(1);
+  const likeAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: likeScale.value }],
+  }));
+
+  // Fetch post data and like status
+  useEffect(() => {
+    const fetchPostData = async () => {
+      if (!actualPostId) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setLoading(false);
+          return;
+        }
+
+        const { data: post, error } = await supabase
+          .from('posts')
+          .select(`
+            *,
+            profiles(username, avatar_url),
+            likes!likes_post_id_fkey(user_id)
+          `)
+          .eq('id', actualPostId)
+          .single();
+
+        if (error) {
+          // Post was deleted, continue without like functionality but show the shared content
+          setLoading(false);
+          return;
+        }
+        setPostData(post);
+        setLikesCount(post.likes_count || 0);
+        setIsLiked(post.likes?.some((like: any) => like.user_id === user.id) || false);
+      } catch (error) {
+        console.error('❌ Error in fetchPostData:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPostData();
+  }, [actualPostId]);
+
   const handlePostPress = () => {
     if (actualPostId) {
       router.push(`/post/${actualPostId}`);
+    }
+  };
+
+  const handleLike = async () => {
+    if (!actualPostId || !postData) return;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push('/sign-in');
+        return;
+      }
+
+      // Animate the like button
+      likeScale.value = withSpring(1.3, {}, () => {
+        likeScale.value = withSpring(1);
+      });
+
+      // Optimistic update
+      const newIsLiked = !isLiked;
+      const newLikesCount = newIsLiked ? likesCount + 1 : likesCount - 1;
+
+      setIsLiked(newIsLiked);
+      setLikesCount(newLikesCount);
+
+      // Update Redux store
+      dispatch(toggleLike(actualPostId));
+
+      // Make API call
+      const { data: isLikedResult, error } = await supabase.rpc(
+        'lightning_toggle_like_v4',
+        {
+          post_id_param: actualPostId,
+          user_id_param: user.id,
+        }
+      );
+
+      if (error) throw error;
+
+    } catch (error) {
+      console.error('Error toggling like:', error);
+      // Revert optimistic update
+      setIsLiked(!isLiked);
+      setLikesCount(likesCount);
+      Alert.alert('Error', 'Failed to update like. Please try again.');
     }
   };
 
@@ -67,6 +179,9 @@ const SharedPostMessage: React.FC<SharedPostMessageProps> = ({
       </View>
     );
   }
+
+  // Show shared content even if database fetch failed
+  const shouldShowLikeButton = !loading && postData;
 
   // Get post owner name
   const getPostOwner = () => {
@@ -158,6 +273,34 @@ const SharedPostMessage: React.FC<SharedPostMessageProps> = ({
             {truncateCaption(getPostCaption(), 150)}
           </Text>
 
+          {/* Like Section or Unavailable Notice */}
+          {shouldShowLikeButton ? (
+            <View style={styles.likeSection}>
+              <TouchableOpacity
+                style={styles.likeButton}
+                onPress={handleLike}
+                activeOpacity={0.7}
+              >
+                <Animated.View style={likeAnimatedStyle}>
+                  <AntDesign
+                    name={isLiked ? "heart" : "hearto"}
+                    size={18}
+                    color={isLiked ? "#DC3545" : colors.textSecondary}
+                  />
+                </Animated.View>
+              </TouchableOpacity>
+              <Text style={[styles.likesText, { color: colors.textSecondary }]}>
+                {likesCount} {likesCount === 1 ? 'like' : 'likes'}
+              </Text>
+            </View>
+          ) : loading ? null : (
+            <View style={styles.unavailableSection}>
+              <Text style={[styles.unavailableText, { color: colors.textSecondary }]}>
+                Post no longer available
+              </Text>
+            </View>
+          )}
+
           <View style={[
             styles.viewPostContainer,
             {
@@ -229,6 +372,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 12,
+  },
+  likeSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  likeButton: {
+    marginRight: 8,
+    padding: 4,
+  },
+  likesText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  unavailableSection: {
+    marginBottom: 12,
+  },
+  unavailableText: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    opacity: 0.7,
   },
   viewPostContainer: {
     flexDirection: 'row',

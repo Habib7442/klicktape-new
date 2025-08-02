@@ -152,7 +152,7 @@ export default function SettingsScreen() {
                 post.image_urls.map(async (imageUrl: string) => {
                   try {
                     const filePath = imageUrl.split("/").slice(-2).join("/");
-                    await supabase.storage.from("media").remove([filePath]);
+                    await supabase.storage.from("posts").remove([filePath]);
                   } catch (error) {
                     console.error(`Failed to delete image ${imageUrl}:`, error);
                   }

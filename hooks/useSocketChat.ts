@@ -16,6 +16,9 @@ interface Message {
     content: string;
     sender_id: string;
     message_type?: string;
+    sender?: {
+      username: string;
+    };
   };
 }
 
@@ -158,24 +161,25 @@ export const useSocketChat = ({
   }, []);
 
   // Send message function
-  const sendMessage = useCallback((message: Omit<Message, 'id' | 'created_at' | 'status'>) => {
+  const sendMessage = useCallback((message: Omit<Message, 'id' | 'created_at' | 'status'>, optimisticId?: string) => {
     console.log('🔍 useSocketChat sendMessage called with:', {
       sender_id: message.sender_id,
       receiver_id: message.receiver_id,
       content: message.content,
+      optimisticId,
       isConnected,
       connectionStatus
     });
 
     const fullMessage: Message = {
       ...message,
-      id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: optimisticId || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       created_at: new Date().toISOString(),
       status: 'sent',
     };
 
     try {
-      console.log('📤 Sending message via Socket.IO:', fullMessage.id);
+      console.log('📤 Sending message via Socket.IO with ID:', fullMessage.id);
       console.log('📤 Full message object:', fullMessage);
       socketService.sendMessage(fullMessage);
       return fullMessage;

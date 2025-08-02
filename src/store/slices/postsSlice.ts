@@ -57,6 +57,30 @@ const postsSlice = createSlice({
         return post;
       });
     },
+    updatePost: (state, action: PayloadAction<Post>) => {
+      const updatedPost = action.payload;
+
+      // Update the post in the posts array
+      state.posts = state.posts.map(post => {
+        if (post.id === updatedPost.id) {
+          return updatedPost;
+        }
+        return post;
+      });
+
+      // Update the liked/bookmarked status maps
+      if (updatedPost.is_liked) {
+        state.likedPosts[updatedPost.id] = true;
+      } else {
+        delete state.likedPosts[updatedPost.id];
+      }
+
+      if (updatedPost.is_bookmarked) {
+        state.bookmarkedPosts[updatedPost.id] = true;
+      } else {
+        delete state.bookmarkedPosts[updatedPost.id];
+      }
+    },
     toggleBookmark: (state, action: PayloadAction<string>) => {
       const postId = action.payload;
       const isBookmarked = !state.bookmarkedPosts[postId];
@@ -82,5 +106,5 @@ const postsSlice = createSlice({
   },
 });
 
-export const { setPosts, toggleLike, toggleBookmark, clearPosts } = postsSlice.actions;
+export const { setPosts, toggleLike, toggleBookmark, updatePost, clearPosts } = postsSlice.actions;
 export default postsSlice.reducer;
