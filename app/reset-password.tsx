@@ -149,11 +149,12 @@ const ResetPassword = () => {
         throw new Error("Supabase client not available");
       }
 
-      console.log('🔄 Setting session with tokens...');
+      console.log('🔄 Verifying reset token (not establishing persistent session)...');
       console.log('🔑 Token length:', token?.length);
       console.log('🔄 Refresh token length:', refresh_token?.length);
       console.log('🔑 Token preview:', token?.substring(0, 50) + '...');
 
+      // Temporarily set session to verify token validity
       const { data, error } = await supabase.auth.setSession({
         access_token: token,
         refresh_token: refresh_token || "",
@@ -169,12 +170,20 @@ const ResetPassword = () => {
         throw new Error("Session not established");
       }
 
-      console.log('✅ Session established successfully for password reset');
+      console.log('✅ Reset token verified successfully');
       console.log('👤 User ID:', data.session.user?.id);
 
-      // Session is now ready for password update
+      // Store tokens for password update but immediately sign out to prevent auto-login
+      setAccessToken(token);
+      setRefreshToken(refresh_token || "");
+
+      // Sign out immediately to prevent the user from being logged in
+      console.log('🔄 Signing out to prevent auto-login...');
+      await supabase.auth.signOut();
+      console.log('✅ Signed out - user can now reset password without being logged in');
+
     } catch (error) {
-      console.error("❌ Failed to establish session:", error);
+      console.error("❌ Failed to verify reset token:", error);
       Alert.alert(
         "Invalid Reset Link",
         "This password reset link is invalid or expired. Please request a new password reset from the sign-in screen.",
@@ -209,20 +218,25 @@ const ResetPassword = () => {
         throw new Error("Supabase client not available");
       }
 
-      // Check if we have a valid session before attempting password update
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-      if (sessionError) {
-        console.error('❌ Session check error:', sessionError);
+      // Check if we have stored tokens from the reset link
+      if (!accessToken) {
+        console.error('❌ No access token available for password reset');
         throw new Error("Session expired. Please request a new password reset.");
       }
 
-      if (!session) {
-        console.error('❌ No active session found');
+      // Re-establish session temporarily for password update
+      console.log('🔄 Re-establishing session temporarily for password update...');
+      const { data, error: sessionError } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken || "",
+      });
+
+      if (sessionError || !data.session) {
+        console.error('❌ Failed to re-establish session:', sessionError);
         throw new Error("Session expired. Please request a new password reset.");
       }
 
-      console.log('🔄 Updating password for user:', session.user.id);
+      console.log('🔄 Updating password for user:', data.session.user.id);
       const { error } = await supabase.auth.updateUser({
         password,
       });

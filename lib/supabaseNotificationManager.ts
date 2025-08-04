@@ -3,12 +3,6 @@ import { AppState, AppStateStatus } from 'react-native';
 import { useDispatch } from 'react-redux';
 import { supabase } from './supabase';
 import { notificationsAPI } from './notificationsApi';
-import { 
-  setNotifications, 
-  incrementUnreadCount, 
-  addNotification,
-  updateNotification 
-} from '@/src/store/slices/notificationSlice';
 
 interface NotificationData {
   id: string;
@@ -26,6 +20,9 @@ interface NotificationData {
     avatar_url?: string;
   };
 }
+
+// Singleton to prevent multiple notification managers
+let activeNotificationManagerUserId: string | null = null;
 
 interface SupabaseNotificationManagerConfig {
   userId: string | null;
@@ -47,6 +44,27 @@ export const useSupabaseNotificationManager = (
   config: SupabaseNotificationManagerConfig
 ): SupabaseNotificationManagerReturn => {
   const dispatch = useDispatch();
+
+  // Create action creators to avoid import issues
+  const createSetNotificationsAction = (notifications: any[]) => ({
+    type: 'notifications/setNotifications',
+    payload: notifications
+  });
+
+  const createSetUnreadCountAction = (count: number) => ({
+    type: 'notifications/setUnreadCount',
+    payload: count
+  });
+
+  const createAddNotificationAction = (notification: any) => ({
+    type: 'notifications/addNotification',
+    payload: notification
+  });
+
+  const createUpdateNotificationAction = (notification: any) => ({
+    type: 'notifications/updateNotification',
+    payload: notification
+  });
   const [isConnected, setIsConnected] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<'idle' | 'subscribing' | 'subscribed' | 'error'>('idle');
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
@@ -57,23 +75,56 @@ export const useSupabaseNotificationManager = (
   const retryCountRef = useRef(0);
   const appState = useRef(AppState.currentState);
 
-  // Sync notifications from Supabase
+  // Sync notifications from Supabase with rate limiting
   const syncNotifications = useCallback(async () => {
     if (!config.userId) return;
+
+    // Rate limiting: prevent sync if called within last 5 seconds
+    const now = Date.now();
+    const timeSinceLastSync = lastSyncTime ? now - lastSyncTime.getTime() : Infinity;
+    if (timeSinceLastSync < 5000) {
+      console.log('⏱️ Rate limited: Skipping sync (last sync was', timeSinceLastSync, 'ms ago)');
+      return;
+    }
 
     try {
       console.log('🔄 Syncing notifications from Supabase...');
       const notifications = await notificationsAPI.getNotifications(config.userId);
 
       if (notifications) {
-        dispatch(setNotifications(notifications));
+        console.log('🔍 Debug: dispatch =', typeof dispatch);
+        console.log('🔍 Debug: setNotifications =', typeof setNotifications);
+        console.log('🔍 Debug: setUnreadCount =', typeof setUnreadCount);
+
+        // Safely dispatch Redux actions with error handling
+        try {
+          if (typeof dispatch === 'function') {
+            dispatch(createSetNotificationsAction(notifications));
+          } else {
+            console.error('❌ Redux dispatch is not available');
+          }
+        } catch (dispatchError) {
+          console.error('❌ Error dispatching setNotifications:', dispatchError);
+        }
+
         setLastSyncTime(new Date());
         retryCountRef.current = 0;
-        
+
         // Count unread notifications
         const unread = notifications.filter(n => !n.is_read).length;
         setUnreadCount(unread);
-        
+
+        // Also update Redux store to keep it in sync
+        try {
+          if (typeof dispatch === 'function') {
+            dispatch(createSetUnreadCountAction(unread));
+          } else {
+            console.error('❌ Redux dispatch is not available');
+          }
+        } catch (dispatchError) {
+          console.error('❌ Error dispatching setUnreadCount:', dispatchError);
+        }
+
         console.log(`✅ Synced ${notifications.length} notifications (${unread} unread)`);
       }
     } catch (error) {
@@ -87,7 +138,7 @@ export const useSupabaseNotificationManager = (
         setTimeout(syncNotifications, delay);
       }
     }
-  }, [config.userId, config.maxRetries, dispatch]);
+  }, [config.userId, config.maxRetries, dispatch, lastSyncTime]);
 
   // Setup real-time subscription
   const setupRealtimeSubscription = useCallback(() => {
@@ -148,10 +199,15 @@ export const useSupabaseNotificationManager = (
 
             if (fullNotification) {
               // Add to Redux store
-              dispatch(addNotification(fullNotification));
-              dispatch(incrementUnreadCount());
-              setUnreadCount(prev => prev + 1);
-              
+              dispatch(createAddNotificationAction(fullNotification));
+              setUnreadCount(prev => {
+                const newCount = prev + 1;
+                console.log(`🔔 Real-time: Incrementing unread count from ${prev} to ${newCount}`);
+                // Keep Redux store in sync
+                dispatch(createSetUnreadCountAction(newCount));
+                return newCount;
+              });
+
               console.log('✅ Notification added to store');
             }
           } catch (error) {
@@ -171,11 +227,16 @@ export const useSupabaseNotificationManager = (
           console.log('🔔 Notification updated:', payload.new);
           
           // Update notification in Redux store
-          dispatch(updateNotification(payload.new));
-          
+          dispatch(createUpdateNotificationAction(payload.new));
+
           // If notification was marked as read, decrease unread count
           if (payload.new.is_read && !payload.old?.is_read) {
-            setUnreadCount(prev => Math.max(0, prev - 1));
+            setUnreadCount(prev => {
+              const newCount = Math.max(0, prev - 1);
+              // Keep Redux store in sync
+              dispatch(createSetUnreadCountAction(newCount));
+              return newCount;
+            });
           }
         }
       )
@@ -261,6 +322,16 @@ export const useSupabaseNotificationManager = (
     });
 
     if (config.userId) {
+      // Check for singleton - prevent multiple managers for the same user
+      if (activeNotificationManagerUserId === config.userId) {
+        console.log('⚠️ Notification manager already active for this user, skipping initialization');
+        return;
+      }
+
+      // Set this as the active manager
+      activeNotificationManagerUserId = config.userId;
+      console.log('✅ Set as active notification manager for user:', config.userId);
+
       // Initial sync
       console.log('📥 Starting initial notification sync...');
       syncNotifications();
@@ -279,11 +350,19 @@ export const useSupabaseNotificationManager = (
 
     return () => {
       // Cleanup
+      console.log('🧹 Cleaning up notification manager for user:', config.userId);
+
       if (subscriptionRef.current) {
         subscriptionRef.current.unsubscribe();
       }
       if (fallbackIntervalRef.current) {
         clearInterval(fallbackIntervalRef.current);
+      }
+
+      // Reset singleton if this was the active manager
+      if (activeNotificationManagerUserId === config.userId) {
+        activeNotificationManagerUserId = null;
+        console.log('✅ Reset active notification manager');
       }
     };
   }, [config.userId, config.enableRealtime, syncNotifications, setupRealtimeSubscription, setupFallbackPolling]);
@@ -318,6 +397,10 @@ export class SupabaseNotificationBroadcaster {
         sender: senderId
       });
 
+      // Determine if this is a post comment or reel comment
+      const isPostComment = postId && commentId;
+      const isReelComment = reelId && commentId;
+
       // Create notification in Supabase - this will trigger real-time updates automatically
       const notification = await notificationsAPI.createNotification(
         recipientId,
@@ -325,7 +408,8 @@ export class SupabaseNotificationBroadcaster {
         senderId,
         postId,
         reelId,
-        commentId
+        isPostComment ? commentId : undefined,
+        isReelComment ? commentId : undefined
       );
 
       if (notification) {
@@ -362,10 +446,10 @@ export class SupabaseNotificationBroadcaster {
    * Broadcast a comment notification
    */
   static async broadcastComment(
-    recipientId: string, 
-    senderId: string, 
+    recipientId: string,
+    senderId: string,
     commentId: string,
-    postId?: string, 
+    postId?: string,
     reelId?: string
   ): Promise<boolean> {
     return this.createAndBroadcastNotification(

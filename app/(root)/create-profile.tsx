@@ -166,9 +166,22 @@ const CreateProfile = () => {
 
       if (!result.canceled && result.assets[0]) {
         const imageUri = result.assets[0].uri;
-        const uploadedUrl = await uploadAvatar(imageUri);
-        if (uploadedUrl) {
-          setAvatarUrl(uploadedUrl);
+        console.log("📸 Selected image URI:", imageUri);
+
+        try {
+          const uploadedUrl = await uploadAvatar(imageUri);
+          console.log("✅ Upload successful, URL:", uploadedUrl);
+
+          if (uploadedUrl) {
+            setAvatarUrl(uploadedUrl);
+            console.log("✅ Avatar URL set in state:", uploadedUrl);
+          } else {
+            console.error("❌ Upload returned null/undefined URL");
+            Alert.alert("Error", "Failed to get avatar URL after upload");
+          }
+        } catch (uploadError) {
+          console.error("❌ Avatar upload error:", uploadError);
+          Alert.alert("Upload Error", `Failed to upload avatar: ${uploadError.message}`);
         }
       }
     } catch (error) {
@@ -180,13 +193,18 @@ const CreateProfile = () => {
   };
 
   const uploadAvatar = async (uri: string) => {
+    console.log("🔄 Starting avatar upload for URI:", uri);
+
     if (!supabase) throw new Error("Database connection not available");
 
     // Get the current user ID for the folder path (required by RLS policy)
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
+      console.error("❌ Auth error during upload:", authError);
       throw new Error("User not authenticated");
     }
+
+    console.log("✅ User authenticated for upload:", user.id);
 
     let normalizedUri =
       Platform.OS === "android" && !uri.startsWith("file://")
@@ -211,8 +229,27 @@ const CreateProfile = () => {
         upsert: true,
       });
 
-    if (error) throw new Error(`Upload failed: ${error.message}`);
-    return filePath;
+    if (error) {
+      console.error("❌ Storage upload error:", error);
+      throw new Error(`Upload failed: ${error.message}`);
+    }
+
+    console.log("✅ File uploaded successfully to:", filePath);
+
+    // Get the public URL of the uploaded image
+    const { data: publicUrlData } = supabase.storage
+      .from("avatars")
+      .getPublicUrl(filePath);
+
+    console.log("🔗 Public URL data:", publicUrlData);
+
+    if (!publicUrlData?.publicUrl) {
+      console.error("❌ Failed to get public URL");
+      throw new Error("Failed to get public URL for the uploaded image");
+    }
+
+    console.log("✅ Public URL generated:", publicUrlData.publicUrl);
+    return publicUrlData.publicUrl;
   };
 
   const getDefaultAvatarUrl = (selectedGender: Gender) => {
@@ -265,6 +302,15 @@ const CreateProfile = () => {
 
       // Generate an anonymous room name
       const anonymousRoomName = generateAnonymousRoomName();
+
+      console.log("💾 Saving profile with avatar URL:", avatarUrl);
+      console.log("💾 Profile data:", {
+        fullName: fullName.trim(),
+        username: username.trim(),
+        gender,
+        avatarUrl,
+        accountType
+      });
 
       const { error } = await supabase.from("profiles").upsert(
         {
@@ -520,10 +566,10 @@ const CreateProfile = () => {
                   {
                     backgroundColor:
                       gender === "male"
-                        ? colors.primary
+                        ? colors.textSecondary
                         : colors.cardBackground,
                     borderColor:
-                      gender === "male" ? colors.primary : colors.cardBorder,
+                      gender === "male" ? colors.textSecondary : colors.cardBorder,
                   },
                 ]}
                 onPress={() => setGender("male")}
@@ -531,13 +577,13 @@ const CreateProfile = () => {
                 <MaterialCommunityIcons
                   name="gender-male"
                   size={24}
-                  color={gender === "male" ? "white" : colors.textSecondary}
+                  color={gender === "male" ? "black" : colors.textSecondary}
                 />
                 <Text
                   className="font-rubik-semibold"
                   style={[
                     styles.genderText,
-                    { color: gender === "male" ? "white" : colors.text },
+                    { color: gender === "male" ? "black" : colors.text },
                   ]}
                 >
                   Male
@@ -550,10 +596,10 @@ const CreateProfile = () => {
                   {
                     backgroundColor:
                       gender === "female"
-                        ? colors.primary
+                        ? colors.textSecondary
                         : colors.cardBackground,
                     borderColor:
-                      gender === "female" ? colors.primary : colors.cardBorder,
+                      gender === "female" ? colors.textSecondary : colors.cardBorder,
                   },
                 ]}
                 onPress={() => setGender("female")}
@@ -561,13 +607,13 @@ const CreateProfile = () => {
                 <MaterialCommunityIcons
                   name="gender-female"
                   size={24}
-                  color={gender === "female" ? "white" : colors.textSecondary}
+                  color={gender === "female" ? "black" : colors.textSecondary}
                 />
                 <Text
                   className="font-rubik-semibold"
                   style={[
                     styles.genderText,
-                    { color: gender === "female" ? "white" : colors.text },
+                    { color: gender === "female" ? "black" : colors.text },
                   ]}
                 >
                   Female
@@ -590,11 +636,11 @@ const CreateProfile = () => {
                   {
                     backgroundColor:
                       accountType === "personal"
-                        ? colors.primary
+                        ? colors.textSecondary
                         : colors.cardBackground,
                     borderColor:
                       accountType === "personal"
-                        ? colors.primary
+                        ? colors.textSecondary
                         : colors.cardBorder,
                   },
                 ]}
@@ -604,7 +650,7 @@ const CreateProfile = () => {
                   name="user"
                   size={20}
                   color={
-                    accountType === "personal" ? "white" : colors.textSecondary
+                    accountType === "personal" ? "black" : colors.textSecondary
                   }
                 />
                 <Text
@@ -612,7 +658,7 @@ const CreateProfile = () => {
                   style={[
                     styles.accountTypeText,
                     {
-                      color: accountType === "personal" ? "white" : colors.text,
+                      color: accountType === "personal" ? "black" : colors.text,
                     },
                   ]}
                 >
@@ -626,11 +672,11 @@ const CreateProfile = () => {
                   {
                     backgroundColor:
                       accountType === "business"
-                        ? colors.primary
+                        ? colors.textSecondary
                         : colors.cardBackground,
                     borderColor:
                       accountType === "business"
-                        ? colors.primary
+                        ? colors.textSecondary
                         : colors.cardBorder,
                   },
                 ]}
@@ -640,7 +686,7 @@ const CreateProfile = () => {
                   name="briefcase"
                   size={20}
                   color={
-                    accountType === "business" ? "white" : colors.textSecondary
+                    accountType === "business" ? "black" : colors.textSecondary
                   }
                 />
                 <Text
@@ -648,7 +694,7 @@ const CreateProfile = () => {
                   style={[
                     styles.accountTypeText,
                     {
-                      color: accountType === "business" ? "white" : colors.text,
+                      color: accountType === "business" ? "black" : colors.text,
                     },
                   ]}
                 >

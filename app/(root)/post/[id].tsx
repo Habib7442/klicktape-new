@@ -258,20 +258,8 @@ const PostDetailScreen = () => {
         setPost(processedPost);
       }
 
-      // Broadcast real-time notification if this was a like (not unlike)
-      if (isLiked && post.user_id !== userId) {
-        try {
-          await SupabaseNotificationBroadcaster.broadcastLike(
-            post.user_id,
-            userId,
-            post.id,
-            undefined // reelId
-          );
-        } catch (broadcastError) {
-          console.error('Error broadcasting like notification:', broadcastError);
-          // Don't fail the like operation if broadcasting fails
-        }
-      }
+      // Note: Notification creation is now handled centrally in postsAPI.toggleLike
+      // to prevent duplicate notifications from multiple UI components
 
       console.log(`✅ Like toggled successfully: ${isLiked ? "liked" : "unliked"}`);
     } catch (error) {

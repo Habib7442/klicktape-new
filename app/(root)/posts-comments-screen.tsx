@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "@/src/context/ThemeContext";
 
 const PostsCommentScreen = () => {
-  const { postId, postOwnerUsername } = useLocalSearchParams();
+  const { postId, postOwnerUsername, postOwnerId } = useLocalSearchParams();
   const router = useRouter();
   const { colors } = useTheme();
 
@@ -20,6 +20,7 @@ const PostsCommentScreen = () => {
       entityId={postId}
       onClose={() => router.push("/(root)/(tabs)/home")}
       entityOwnerUsername={postOwnerUsername as string}
+      entityOwnerId={postOwnerId as string}
       visible={true}
     />
   );

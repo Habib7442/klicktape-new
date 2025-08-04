@@ -25,7 +25,6 @@ import { productionRealtimeOptimizer } from "@/lib/utils/productionRealtimeOptim
 import {
   incrementUnreadCount,
   resetUnreadCount,
-  setUnreadCount,
 } from "@/src/store/slices/notificationSlice";
 import Posts from "@/components/Posts";
 import { openSidebar } from "@/src/store/slices/sidebarSlice";
@@ -46,12 +45,26 @@ const Home = () => {
     avatar_url: string | null;
   } | null>(null);
 
-  const unreadCount = useSelector(
+  const reduxUnreadCount = useSelector(
     (state: RootState) => state.notifications.unreadCount
   );
   const unreadMessageCount = useSelector(
     (state: RootState) => state.messages.unreadCount
   );
+
+  // Use real-time unread count if available, otherwise fall back to Redux
+  const unreadCount = realtimeUnreadCount > 0 ? realtimeUnreadCount : reduxUnreadCount;
+
+  // Sync real-time count with Redux store
+  useEffect(() => {
+    if (realtimeUnreadCount !== reduxUnreadCount) {
+      console.log(`🔄 Syncing notification count: realtime=${realtimeUnreadCount}, redux=${reduxUnreadCount}`);
+      dispatch({
+        type: 'notifications/setUnreadCount',
+        payload: realtimeUnreadCount
+      });
+    }
+  }, [realtimeUnreadCount, reduxUnreadCount, dispatch]);
 
   // Initialize Supabase real-time notification management
   const {
@@ -174,7 +187,10 @@ const Home = () => {
   useEffect(() => {
     if (homeData.userId) {
       setUserId(homeData.userId);
-      dispatch(setUnreadCount(homeData.unreadNotifications));
+      dispatch({
+        type: 'notifications/setUnreadCount',
+        payload: homeData.unreadNotifications
+      });
       dispatch(setUnreadMessageCount(homeData.unreadMessages));
 
       // Fetch user profile when userId is available
@@ -377,7 +393,8 @@ const Home = () => {
                 onPress={() => {
                   // Add haptic feedback for better UX
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  dispatch(resetUnreadCount());
+                  // Note: Don't reset count here - let the notifications screen handle it
+                  // when notifications are actually viewed/marked as read
                 }}
                 style={[styles.iconButton, {
                   backgroundColor: isDarkMode ? 'rgba(128, 128, 128, 0.1)' : 'rgba(128, 128, 128, 0.1)',

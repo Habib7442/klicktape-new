@@ -64,6 +64,7 @@ const Posts = () => {
   const [selectedPostForComments, setSelectedPostForComments] = useState<{
     id: string;
     ownerUsername: string;
+    ownerId: string;
   } | null>(null);
 
   // State for share to chat modal
@@ -104,9 +105,9 @@ const Posts = () => {
   };
 
   // Helper functions for comments modal
-  const openCommentsModal = (postId: string, ownerUsername: string) => {
+  const openCommentsModal = (postId: string, ownerUsername: string, ownerId: string) => {
     console.log("Opening comments modal for post:", postId);
-    setSelectedPostForComments({ id: postId, ownerUsername });
+    setSelectedPostForComments({ id: postId, ownerUsername, ownerId });
     setCommentsModalVisible(true);
   };
 
@@ -422,25 +423,8 @@ const Posts = () => {
         dispatch(updatePost(processedPost));
       }
 
-      // Broadcast real-time notification if this was a like (not unlike)
-      if (isLiked) {
-        try {
-          // Get post owner information for broadcasting
-          const post = posts.find(p => p.id === postId);
-          if (post && post.user_id !== user.id) {
-            // Broadcast the like notification via Supabase real-time
-            await SupabaseNotificationBroadcaster.broadcastLike(
-              post.user_id,
-              user.id,
-              postId,
-              undefined // reelId
-            );
-          }
-        } catch (broadcastError) {
-          console.error('Error broadcasting like notification:', broadcastError);
-          // Don't fail the like operation if broadcasting fails
-        }
-      }
+      // Note: Notification creation is now handled centrally in postsAPI.toggleLike
+      // to prevent duplicate notifications from multiple UI components
 
       console.log(
         `✅ Like toggled successfully: ${isLiked ? "liked" : "unliked"}`
@@ -745,7 +729,7 @@ const Posts = () => {
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => openCommentsModal(post.id, post.user.username)}
+              onPress={() => openCommentsModal(post.id, post.user.username, post.user_id)}
             >
               {post.comments_count > 0 ? (
                 <Text style={[styles.statText, { color: colors.text }]}>
@@ -778,7 +762,7 @@ const Posts = () => {
                 />
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => openCommentsModal(post.id, post.user.username)}
+                onPress={() => openCommentsModal(post.id, post.user.username, post.user_id)}
                 style={styles.actionButton}
               >
                 <Ionicons
@@ -863,6 +847,7 @@ const Posts = () => {
           entityId={selectedPostForComments.id}
           onClose={closeCommentsModal}
           entityOwnerUsername={selectedPostForComments.ownerUsername}
+          entityOwnerId={selectedPostForComments.ownerId}
           visible={commentsModalVisible}
         />
       )}

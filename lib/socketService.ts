@@ -81,6 +81,7 @@ class SocketService {
           urls.push('http://10.0.2.2:3000');
           urls.push('http://192.168.31.241:3000'); // Current network IP
           urls.push('http://192.168.31.241:3001'); // Current network IP
+          urls.push('http://192.168.143.201:3001'); // Current network IP
           urls.push('http://192.168.38.201:3000'); // Previous IP
           urls.push('http://192.168.52.201:3000'); // Older IP
           urls.push('http://localhost:3000');
@@ -188,15 +189,10 @@ class SocketService {
       this.notifyTypingListeners(data);
     });
 
-    // Listen for reaction updates
-    this.socket.on('reaction_added', (data: ReactionData) => {
-      console.log('😀 Reaction added:', data);
+    // Listen for reaction updates (unified event)
+    this.socket.on('reaction_update', (data: any) => {
+      console.log('😀 Reaction update received:', data);
       this.notifyReactionListeners(data);
-    });
-
-    this.socket.on('reaction_removed', (data: ReactionRemovedData) => {
-      console.log('😐 Reaction removed:', data);
-      this.notifyReactionRemovedListeners(data);
     });
   }
 

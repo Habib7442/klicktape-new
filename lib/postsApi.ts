@@ -230,8 +230,22 @@ export const postsAPI = {
           created_at: new Date().toISOString(),
         });
 
-        // Note: Notification creation is now handled by the component using SupabaseNotificationBroadcaster
-        // This prevents duplicate notifications
+        // Create notification if liking someone else's post
+        if (post.user_id !== user.id) {
+          try {
+            // Import SupabaseNotificationBroadcaster dynamically to avoid circular imports
+            const { SupabaseNotificationBroadcaster } = await import('./supabaseNotificationManager');
+            await SupabaseNotificationBroadcaster.broadcastLike(
+              post.user_id,
+              user.id,
+              postId,
+              undefined // reelId
+            );
+          } catch (notificationError) {
+            console.error('Error creating like notification:', notificationError);
+            // Don't fail the like operation if notification creation fails
+          }
+        }
 
         return true;
       }

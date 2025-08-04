@@ -121,7 +121,7 @@ export const useSocketChat = ({
     if (!onNewReaction) return;
 
     const unsubscribe = socketService.onReaction((data) => {
-      console.log('😀 Reaction received:', data);
+      console.log('😀 Reaction update received:', data);
       onNewReaction(data);
     });
 
@@ -160,9 +160,10 @@ export const useSocketChat = ({
     return unsubscribe;
   }, []);
 
-  // Send message function
-  const sendMessage = useCallback((message: Omit<Message, 'id' | 'created_at' | 'status'>, optimisticId?: string) => {
+  // Send message function - can accept message with or without ID
+  const sendMessage = useCallback((message: Partial<Message> & { sender_id: string; receiver_id: string; content: string }, optimisticId?: string) => {
     console.log('🔍 useSocketChat sendMessage called with:', {
+      id: message.id,
       sender_id: message.sender_id,
       receiver_id: message.receiver_id,
       content: message.content,
@@ -172,10 +173,14 @@ export const useSocketChat = ({
     });
 
     const fullMessage: Message = {
-      ...message,
-      id: optimisticId || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      created_at: new Date().toISOString(),
-      status: 'sent',
+      id: message.id || optimisticId || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      created_at: message.created_at || new Date().toISOString(),
+      status: message.status || 'sent',
+      sender_id: message.sender_id,
+      receiver_id: message.receiver_id,
+      content: message.content,
+      is_read: message.is_read || false,
+      message_type: message.message_type || 'text',
     };
 
     try {
@@ -228,6 +233,20 @@ export const useSocketChat = ({
     }
   }, []);
 
+  // Send emoji reaction
+  const sendReaction = useCallback((messageId: string, emoji: string) => {
+    try {
+      console.log('😀 Sending reaction via Socket.IO:', { messageId, emoji, userId });
+      socketService.sendReaction({
+        messageId,
+        userId,
+        emoji,
+      });
+    } catch (error) {
+      console.error('❌ Failed to send reaction:', error);
+    }
+  }, [userId]);
+
   return {
     isConnected,
     connectionStatus,
@@ -235,6 +254,7 @@ export const useSocketChat = ({
     sendTypingStatus,
     markAsDelivered,
     markAsRead,
+    sendReaction,
     socketId: socketService.getSocketId(),
   };
 };

@@ -194,7 +194,7 @@ const SignIn = () => {
 
       console.log('🔄 Sending password reset email to:', sanitizedEmail);
       console.log('🔗 Using redirect URL:', redirectUrl);
-      console.log('🏗️ Development mode:', isDevelopment);
+      console.log('🏗️ Development mode:', __DEV__);
 
       const { error } = await supabase.auth.resetPasswordForEmail(sanitizedEmail, {
         redirectTo: redirectUrl,

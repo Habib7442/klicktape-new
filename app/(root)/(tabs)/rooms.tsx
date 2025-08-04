@@ -272,7 +272,12 @@ export default function RoomsScreen() {
       onPress={() => setActiveTab(tab)}
     >
       <Feather name={icon as any} size={16} color={colors.text} />
-      <Text style={[styles.tabButtonText, { color: colors.text }]}>
+      <Text
+        style={[styles.tabButtonText, { color: colors.text }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit={true}
+        minimumFontScale={0.8}
+      >
         {title}
       </Text>
     </TouchableOpacity>
@@ -419,16 +424,19 @@ export default function RoomsScreen() {
       </View>
 
       {/* Tabs */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.tabsContainer}
-        contentContainerStyle={styles.tabsContent}
-      >
-        {renderTabButton("discover", "Discover", "compass")}
-        {renderTabButton("my_communities", "My Rooms", "users")}
-        {renderTabButton("categories", "Categories", "grid")}
-      </ScrollView>
+      <View style={styles.tabsWrapper}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.tabsContainer}
+          contentContainerStyle={styles.tabsContent}
+          bounces={false}
+        >
+          {renderTabButton("discover", "Discover", "compass")}
+          {renderTabButton("my_communities", "My Rooms", "users")}
+          {renderTabButton("categories", "Categories", "grid")}
+        </ScrollView>
+      </View>
 
       {/* Sort Options (only for discover tab) */}
       {activeTab === "discover" && (
@@ -758,27 +766,41 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: "Rubik-Medium",
   },
+  tabsWrapper: {
+    backgroundColor: 'transparent',
+    paddingBottom: 8,
+  },
   tabsContainer: {
-    maxHeight: 50,
+    maxHeight: 60,
+    flexGrow: 0,
   },
   tabsContent: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    minWidth: '100%',
   },
   tabButton: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderRadius: 20,
-    marginRight: 12,
+    marginRight: 10,
     borderWidth: 1,
+    minWidth: 90,
+    maxWidth: 120,
+    justifyContent: "center",
+    height: 40,
   },
   tabButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "500",
-    marginLeft: 6,
+    marginLeft: 4,
     fontFamily: "Rubik-Medium",
+    textAlign: "center",
+    flexShrink: 0,
+    numberOfLines: 1,
   },
   sortContainer: {
     maxHeight: 50,

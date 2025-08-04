@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "@/src/context/ThemeContext";
 
 const ReelsCommentScreen = () => {
-  const { reelId, reelOwnerUsername } = useLocalSearchParams();
+  const { reelId, reelOwnerUsername, reelOwnerId } = useLocalSearchParams();
   const router = useRouter();
   const { colors } = useTheme();
 
@@ -20,6 +20,7 @@ const ReelsCommentScreen = () => {
       entityId={reelId}
       onClose={() => router.push("/(root)/(tabs)/reels")}
       entityOwnerUsername={reelOwnerUsername as string}
+      entityOwnerId={reelOwnerId as string}
       visible={true}
     />
   );

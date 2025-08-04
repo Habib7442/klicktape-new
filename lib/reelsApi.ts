@@ -185,23 +185,8 @@ export const reelsAPI = {
 
       if (entityError || !entity) throw new Error(`${entityType} not found`);
 
-      // Create notification if not commenting on own post/reel
-      if (entity.user_id !== userId) {
-        try {
-          await supabase.from("notifications").insert({
-            recipient_id: entity.user_id,
-            sender_id: userId,
-            type: "comment",
-            [`${entityType}_id`]: entityId,
-            comment_id: newCommentData.id,
-            created_at: new Date().toISOString(),
-            is_read: false,
-          });
-        } catch (notificationError) {
-          console.error("Error creating comment notification:", notificationError);
-          // Don't throw - comment was created successfully
-        }
-      }
+      // Note: Notification creation is handled by the Comments component
+      // to avoid duplicate notifications
 
       await supabase
         .from(entityTable)

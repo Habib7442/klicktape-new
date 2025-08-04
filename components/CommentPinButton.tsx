@@ -31,8 +31,19 @@ const CommentPinButton: React.FC<CommentPinButtonProps> = ({
   // Check if current user can pin comments (must be entity owner)
   const canPin = currentUserId === entityOwnerId;
 
-  // Don't render if user can't pin
-  if (!canPin) {
+  // Debug logging
+  console.log('🔍 CommentPinButton Debug:', {
+    currentUserId,
+    entityOwnerId,
+    canPin,
+    commentId,
+    entityId,
+    entityType
+  });
+
+  // Don't render if user can't pin or if we don't have the required IDs
+  if (!canPin || !currentUserId || !entityOwnerId) {
+    console.log('❌ Pin button hidden:', { canPin, currentUserId, entityOwnerId });
     return null;
   }
 

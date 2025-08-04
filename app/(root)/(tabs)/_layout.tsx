@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from "react-native";
 import React from "react";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
+import { useProfileProtection } from "@/hooks/useProfileProtection";
 
 const TabIcon = ({
   iconName,
@@ -40,6 +41,9 @@ const TabIcon = ({
 };
 
 export default function Layout() {
+  // Protect all tab routes - redirect to create-profile if profile incomplete
+  useProfileProtection();
+
   const { colors, isDarkMode } = useTheme();
 
   return (

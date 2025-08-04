@@ -256,11 +256,18 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
     useEffect(() => {
       const fetchEntityOwnerId = async () => {
         if (entityOwnerId) {
+          console.log(`🔑 Using provided entity owner ID: ${entityOwnerId}`);
           setResolvedEntityOwnerId(entityOwnerId);
           return;
         }
 
+        if (!entityId || !entityType) {
+          console.warn('❌ Missing entityId or entityType for owner ID fetch');
+          return;
+        }
+
         try {
+          console.log(`🔍 Fetching entity owner ID for ${entityType} ${entityId}`);
           const tableName = entityType === "post" ? "posts" : "reels";
           const { data, error } = await supabase
             .from(tableName as any)
@@ -268,21 +275,26 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
             .eq("id", entityId)
             .single();
 
-          if (error) throw error;
+          if (error) {
+            console.error(`❌ Error fetching entity owner ID:`, error);
+            throw error;
+          }
+
           const entityData = data as any;
-          setResolvedEntityOwnerId(entityData?.user_id || "");
-          console.log(`🔑 Fetched entity owner ID: ${entityData?.user_id} for ${entityType} ${entityId}`);
-          console.log(`👤 Current user ID: ${user?.id}, Entity owner ID: ${entityData?.user_id}`);
+          const ownerId = entityData?.user_id || "";
+          setResolvedEntityOwnerId(ownerId);
+          console.log(`✅ Fetched entity owner ID: ${ownerId} for ${entityType} ${entityId}`);
+          console.log(`👤 Current user ID: ${user?.id}, Entity owner ID: ${ownerId}, Can pin: ${user?.id === ownerId}`);
         } catch (error) {
-          console.error("Error fetching entity owner ID:", error);
+          console.error("❌ Error fetching entity owner ID:", error);
           setResolvedEntityOwnerId("");
         }
       };
 
-      if (visible) {
+      if (visible && entityId && entityType) {
         fetchEntityOwnerId();
       }
-    }, [visible, entityId, entityType, entityOwnerId]);
+    }, [visible, entityId, entityType, entityOwnerId, user?.id]);
 
     // Add function to fetch like status for comments
     const fetchLikeStatus = async (commentsToCheck: Comment[]) => {
@@ -659,19 +671,7 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
             .eq("id", entityId)
             .single();
 
-          if (!entityError && entity && entity.user_id !== user.id) {
-            await supabase.from("notifications").insert({
-              recipient_id: entity.user_id,
-              sender_id: user.id,
-              type: "comment",
-              [`${entityType}_id`]: entityId,
-              comment_id: newCommentData.id,
-              created_at: new Date().toISOString(),
-              is_read: false,
-            });
-          }
-
-          // Broadcast real-time notification via Supabase
+          // Only use the broadcaster to create notifications (no direct database insert)
           if (!entityError && entity && entity.user_id !== user.id) {
             try {
               await SupabaseNotificationBroadcaster.broadcastComment(
@@ -712,15 +712,13 @@ const CommentsModal: React.FC<CommentsModalProps> = React.memo(
           // Create notification for the parent comment owner
           if (parentComment.user_id !== user.id) {
             try {
-              await supabase.from("notifications").insert({
-                recipient_id: parentComment.user_id,
-                sender_id: user.id,
-                type: "comment",
-                [`${entityType}_id`]: entityId,
-                comment_id: newCommentData.id,
-                created_at: new Date().toISOString(),
-                is_read: false,
-              });
+              await SupabaseNotificationBroadcaster.broadcastComment(
+                parentComment.user_id,
+                user.id,
+                newCommentData.id,
+                entityType === 'post' ? entityId : undefined,
+                entityType === 'reel' ? entityId : undefined
+              );
             } catch (notificationError) {
               console.error("Error creating reply notification:", notificationError);
               // Don't throw - comment was created successfully

@@ -409,6 +409,7 @@ const ReelItem: React.FC<{
       params: {
         reelId: reel.id,
         reelOwnerUsername: reel.user.username,
+        reelOwnerId: reel.user_id,
       },
     });
   };

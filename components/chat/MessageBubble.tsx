@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal } from 'react-native';
 import { useTheme } from '@/src/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -92,11 +92,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   // Check if this is a temporary message (not yet saved to database)
   const isTemporaryMessage = messageId?.startsWith('temp_') || false;
 
-  // Handle quick reaction
-  const handleQuickReaction = (emoji: string) => {
+  // Handle quick reaction with instant feedback
+  const handleQuickReaction = useCallback((emoji: string) => {
+    console.log('😀 Quick reaction triggered:', { emoji, messageId });
     onReaction?.(emoji);
     setShowReactionPicker(false);
-  };
+  }, [onReaction, messageId]);
 
   // Handle long press to show emoji picker directly
   const handleLongPress = () => {
@@ -231,30 +232,82 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
             {formatTime(timestamp)}
           </Text>
 
-          {/* Simple status indicator */}
+          {/* WhatsApp-style status indicator */}
           {isOwnMessage && showStatus && (
-            <Ionicons
-              name={status === 'read' ? 'checkmark-done' : status === 'delivered' ? 'checkmark' : 'time'}
-              size={12}
-              color={status === 'read' ? '#87CEEB' : colors.textSecondary}
-              style={{ marginLeft: 4 }}
-            />
+            <View style={styles.statusContainer}>
+              {status === 'read' ? (
+                // Blue double tick for read messages
+                <View style={styles.doubleCheckContainer}>
+                  <Ionicons
+                    name="checkmark"
+                    size={12}
+                    color="#4FC3F7"
+                    style={[styles.checkmark, styles.checkmarkFirst]}
+                  />
+                  <Ionicons
+                    name="checkmark"
+                    size={12}
+                    color="#4FC3F7"
+                    style={[styles.checkmark, styles.checkmarkSecond]}
+                  />
+                </View>
+              ) : status === 'delivered' ? (
+                // Gray double tick for delivered messages
+                <View style={styles.doubleCheckContainer}>
+                  <Ionicons
+                    name="checkmark"
+                    size={12}
+                    color={colors.textSecondary}
+                    style={[styles.checkmark, styles.checkmarkFirst]}
+                  />
+                  <Ionicons
+                    name="checkmark"
+                    size={12}
+                    color={colors.textSecondary}
+                    style={[styles.checkmark, styles.checkmarkSecond]}
+                  />
+                </View>
+              ) : (
+                // Clock icon for sent/pending messages
+                <Ionicons
+                  name="time-outline"
+                  size={12}
+                  color={colors.textSecondary}
+                />
+              )}
+            </View>
           )}
         </View>
       </View>
 
-      {/* Simple reactions display */}
+      {/* Real-time reactions display */}
       {reactions.length > 0 && (
         <View style={[styles.reactionsContainer, isOwnMessage ? styles.reactionsRight : styles.reactionsLeft]}>
           {reactions.map((reaction, index) => (
             <TouchableOpacity
               key={`${reaction.emoji}-${index}`}
-              style={[styles.reactionBadge, { backgroundColor: reaction.userReacted ? '#87CEEB20' : colors.backgroundSecondary }]}
+              style={[
+                styles.reactionBadge,
+                {
+                  backgroundColor: reaction.userReacted ? '#4FC3F720' : colors.backgroundSecondary,
+                  borderColor: reaction.userReacted ? '#4FC3F7' : 'transparent',
+                  borderWidth: reaction.userReacted ? 1 : 0,
+                }
+              ]}
               onPress={() => handleQuickReaction(reaction.emoji)}
+              activeOpacity={0.7}
             >
-              <Text style={styles.reactionEmoji}>{reaction.emoji}</Text>
+              <Text style={[styles.reactionEmoji, { fontSize: 14 }]}>{reaction.emoji}</Text>
               {reaction.count > 1 && (
-                <Text style={[styles.reactionCount, { color: colors.text }]}>{reaction.count}</Text>
+                <Text style={[
+                  styles.reactionCount,
+                  {
+                    color: reaction.userReacted ? '#4FC3F7' : colors.text,
+                    fontWeight: reaction.userReacted ? '600' : '400'
+                  }
+                ]}>
+                  {reaction.count}
+                </Text>
               )}
             </TouchableOpacity>
           ))}
@@ -359,36 +412,66 @@ const styles = StyleSheet.create({
   timestamp: {
     fontSize: 11,
   },
+  statusContainer: {
+    marginLeft: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  doubleCheckContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'relative',
+    width: 16,
+    height: 12,
+  },
+  checkmark: {
+    position: 'absolute',
+  },
+  checkmarkFirst: {
+    left: 0,
+    zIndex: 1,
+  },
+  checkmarkSecond: {
+    left: 4,
+    zIndex: 2,
+  },
   reactionsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginTop: 4,
+    marginTop: 6,
     marginHorizontal: 8,
   },
   reactionsRight: {
-    justifyContent: 'flex-end',
-    
+    alignSelf: 'flex-end',
   },
   reactionsLeft: {
-    justifyContent: 'flex-start',
+    alignSelf: 'flex-start',
   },
   reactionBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginRight: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 6,
     marginBottom: 4,
-    
+    minHeight: 28,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   reactionEmoji: {
     fontSize: 14,
   },
   reactionCount: {
-    fontSize: 12,
+    fontSize: 11,
     marginLeft: 4,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   replyPreview: {
     borderLeftWidth: 3,

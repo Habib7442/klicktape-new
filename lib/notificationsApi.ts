@@ -22,28 +22,46 @@ export const notificationsAPI = {
     sender_id: string,
     post_id?: string,
     reel_id?: string,
-    comment_id?: string
+    comment_id?: string,
+    reel_comment_id?: string
   ) => {
     try {
+      const notificationData: any = {
+        recipient_id,
+        type,
+        sender_id,
+        post_id,
+        reel_id,
+        is_read: false,
+        created_at: new Date().toISOString(),
+      };
+
+      // Set the appropriate comment ID field
+      if (comment_id) {
+        notificationData.comment_id = comment_id;
+      }
+      if (reel_comment_id) {
+        notificationData.reel_comment_id = reel_comment_id;
+      }
+
       const { data, error } = await supabase
         .from("notifications")
-        .insert({
-          recipient_id,
-          type,
-          sender_id,
-          post_id,
-          reel_id,
-          comment_id,
-          is_read: false,
-          created_at: new Date().toISOString(),
-        })
+        .insert(notificationData)
         .select()
         .single();
   
       if (error) {
+        // Check if this is a duplicate notification error (unique constraint violation)
+        if (error.code === '23505' && error.message.includes('idx_notifications_unique_like')) {
+          console.log("Duplicate notification prevented by database constraint");
+          return null; // Return null instead of throwing error for duplicates
+        }
+
         console.error("Supabase error creating notification:", error);
         throw new Error(`Failed to create notification: ${error.message}`);
       }
+
+      console.log("Notification created successfully:", data);
       return data;
     } catch (error) {
       console.error("Error creating notification:", error);

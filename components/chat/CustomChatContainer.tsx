@@ -18,6 +18,7 @@ import {
   addOptimisticReaction,
   removeOptimisticReaction
 } from '@/src/store/slices/chatUISlice';
+import { supabase } from '@/lib/supabase';
 
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
@@ -118,6 +119,7 @@ const CustomChatContainer: React.FC<CustomChatContainerProps> = ({
     );
 
     console.log(`📱 Total messages loaded: ${sortedMessages.length} across ${messagesData.pages.length} pages`);
+    console.log('📱 Sample message IDs:', sortedMessages.slice(0, 5).map(m => ({ id: m.id, content: m.content })));
 
     return sortedMessages;
   }, [messagesData]);
@@ -148,17 +150,25 @@ const CustomChatContainer: React.FC<CustomChatContainerProps> = ({
 
   // Fetch reactions only when message IDs change (not on every message update)
   const messageIds = useMemo(() => {
-    return messages.map(m => m.id).filter(id => !id.startsWith('temp_') && id.length === 36 && id.includes('-'));
+    const validIds = messages.map(m => m.id).filter(id => !id.startsWith('temp_') && id.length === 36 && id.includes('-'));
+    console.log('🔍 Message IDs for reactions:', validIds.length, 'valid IDs from', messages.length, 'total messages');
+    console.log('🔍 Valid message IDs:', validIds);
+    return validIds;
   }, [messages]);
 
   const fetchReactions = useCallback(async () => {
     if (messageIds.length === 0) {
+      console.log('🔍 No message IDs to fetch reactions for');
       setReactions({});
       return;
     }
 
     try {
+      console.log('🔍 Fetching reactions for messages:', messageIds.length);
+      console.log('🔍 Message IDs being sent to API:', messageIds);
       const serverReactions = await messagesAPI.getMessagesReactions(messageIds);
+      console.log('🔍 Server reactions received:', Object.keys(serverReactions).length, 'messages');
+      console.log('🔍 Raw server reactions:', serverReactions);
 
       // Process server reactions
       const combinedReactions: Record<string, Array<{ emoji: string; count: number; userReacted: boolean }>> = {};
@@ -177,17 +187,27 @@ const CustomChatContainer: React.FC<CustomChatContainerProps> = ({
           count: emojiReactions.length,
           userReacted: emojiReactions.some(r => r.user_id === userId)
         }));
+
+        if (combinedReactions[messageId].length > 0) {
+          console.log(`🔍 Message ${messageId} has ${combinedReactions[messageId].length} reaction types`);
+        }
       });
 
+      console.log('🔍 Setting reactions state with', Object.keys(combinedReactions).length, 'messages');
       setReactions(combinedReactions);
     } catch (error) {
-      console.error('Failed to fetch reactions:', error);
+      console.error('❌ Failed to fetch reactions:', error);
     }
   }, [messageIds, userId]);
 
   // Only fetch reactions when messageIds change (not continuously)
   useEffect(() => {
-    fetchReactions();
+    if (messageIds.length > 0) {
+      console.log('🔄 Message IDs changed, fetching reactions...');
+      fetchReactions();
+    } else {
+      console.log('⚠️ No message IDs available, skipping reaction fetch');
+    }
   }, [messageIds.join(','), userId]);
 
   // Socket.IO real-time chat
@@ -197,6 +217,7 @@ const CustomChatContainer: React.FC<CustomChatContainerProps> = ({
     sendTypingStatus,
     markAsDelivered,
     markAsRead,
+    sendReaction: sendSocketReaction,
   } = useSocketChat({
     userId,
     chatId,
@@ -283,11 +304,16 @@ const CustomChatContainer: React.FC<CustomChatContainerProps> = ({
         }
       );
 
-      // Mark as delivered if it's not our message
+      // Only mark as read if it's not our message and user is actively viewing chat
       if (message.sender_id !== userId) {
-        markAsDelivered(message.id);
-        // Auto-mark as read after a short delay
-        setTimeout(() => markAsRead(message.id), 1000);
+        console.log('📨 Message received from other user:', message.id);
+
+        // Mark as read after a short delay (simulating user seeing the message)
+        // Only if the chat is currently active/visible
+        setTimeout(() => {
+          console.log('👀 Marking message as read (user is viewing chat):', message.id);
+          markAsRead(message.id);
+        }, 2000);
       }
     },
     onTypingUpdate: (data: { userId: string; isTyping: boolean }) => {
@@ -296,9 +322,257 @@ const CustomChatContainer: React.FC<CustomChatContainerProps> = ({
         setTypingUsername(data.isTyping ? userProfiles[data.userId]?.username : undefined);
       }
     },
+    onMessageStatusUpdate: (data: { messageId: string; status: string; isRead: boolean }) => {
+      console.log('📊 Socket.IO: Message status update received:', data);
+
+      // Update the message status in cache immediately
+      queryClient.setQueryData(
+        queryKeys.messages.messages(recipientId),
+        (oldData: any) => {
+          if (!oldData) return oldData;
+
+          console.log('🔍 Looking for message ID:', data.messageId);
+          console.log('🔍 Available message IDs:', oldData.pages.flatMap((p: any) => p.messages.map((m: any) => m.id)));
+
+          let messageFound = false;
+          let statusChanged = false;
+          const newPages = oldData.pages.map((page: any) => ({
+            ...page,
+            messages: page.messages.map((msg: any) => {
+              if (msg.id === data.messageId) {
+                messageFound = true;
+
+                // Check if status actually needs to change
+                if (msg.status === data.status && msg.is_read === data.isRead) {
+                  console.log('⚠️ Message already has target status:', msg.id, 'status:', msg.status, 'isRead:', msg.is_read);
+                  return msg; // No change needed
+                }
+
+                statusChanged = true;
+                console.log('✅ Found message to update:', msg.id, 'from', msg.status, 'to', data.status);
+                return {
+                  ...msg,
+                  status: data.status,
+                  is_read: data.isRead,
+                  delivered_at: data.status === 'delivered' ? new Date().toISOString() : msg.delivered_at,
+                  read_at: data.status === 'read' ? new Date().toISOString() : msg.read_at
+                };
+              }
+              return msg;
+            })
+          }));
+
+          if (!messageFound) {
+            console.log('❌ Message not found in cache for status update:', data.messageId);
+            return oldData; // No change
+          }
+
+          if (!statusChanged) {
+            console.log('⚠️ No status change needed, skipping update');
+            return oldData; // No change
+          }
+
+          console.log('🔄 Status update applied successfully');
+          return { ...oldData, pages: newPages };
+        }
+      );
+    },
+    onNewReaction: async (data: { messageId: string; userId: string; emoji: string; action: string; oldEmoji?: string }) => {
+      console.log('😀 Socket.IO: Reaction update received:', data);
+
+      // Fetch reactions for ONLY this specific message to avoid overwriting others
+      try {
+        const serverReactions = await messagesAPI.getMessagesReactions([data.messageId]);
+        const messageReactions = serverReactions[data.messageId] || [];
+
+        // Process reactions for this specific message
+        const groupedByEmoji = messageReactions.reduce((acc, reaction) => {
+          if (!acc[reaction.emoji]) {
+            acc[reaction.emoji] = [];
+          }
+          acc[reaction.emoji].push(reaction);
+          return acc;
+        }, {} as Record<string, any[]>);
+
+        const processedReactions = Object.entries(groupedByEmoji).map(([emoji, emojiReactions]) => ({
+          emoji,
+          count: emojiReactions.length,
+          userReacted: emojiReactions.some(r => r.user_id === userId)
+        }));
+
+        // Update ONLY this message's reactions, preserve others
+        setReactions(prevReactions => ({
+          ...prevReactions,
+          [data.messageId]: processedReactions
+        }));
+
+        console.log(`✅ Updated reactions for message ${data.messageId}:`, processedReactions.length, 'reaction types');
+      } catch (error) {
+        console.error('❌ Failed to fetch specific message reactions:', error);
+        // Fallback to optimistic update
+        setReactions(prevReactions => {
+          const messageReactions = prevReactions[data.messageId] || [];
+
+          if (data.action === 'removed') {
+            const updatedReactions = messageReactions.filter(r => r.emoji !== data.emoji);
+            return {
+              ...prevReactions,
+              [data.messageId]: updatedReactions
+            };
+          } else {
+            const existingIndex = messageReactions.findIndex(r => r.emoji === data.emoji);
+            let updatedReactions;
+
+            if (existingIndex >= 0) {
+              updatedReactions = messageReactions.map((reaction, index) =>
+                index === existingIndex
+                  ? { ...reaction, count: reaction.count + (data.userId === userId ? 0 : 1) }
+                  : reaction
+              );
+            } else {
+              updatedReactions = [...messageReactions, {
+                emoji: data.emoji,
+                count: 1,
+                userReacted: data.userId === userId
+              }];
+            }
+
+            return {
+              ...prevReactions,
+              [data.messageId]: updatedReactions
+            };
+          }
+        });
+      }
+    },
   });
 
+  // Supabase real-time subscriptions for message status updates and reactions
+  useEffect(() => {
+    if (!userId || !recipientId) return;
 
+    console.log('🔔 Setting up Supabase real-time subscriptions for chat:', { userId, recipientId });
+
+    // Subscribe to message status updates
+    const messageStatusChannel = supabase
+      .channel(`message_status_${chatId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `sender_id=eq.${userId},receiver_id=eq.${recipientId}`,
+        },
+        (payload) => {
+          console.log('📨 Message status updated:', payload.new);
+
+          // Update the message in cache with new status
+          queryClient.setQueryData(
+            queryKeys.messages.messages(recipientId),
+            (oldData: any) => {
+              if (!oldData) return oldData;
+
+              const newPages = oldData.pages.map((page: any) => ({
+                ...page,
+                messages: page.messages.map((msg: any) =>
+                  msg.id === payload.new.id
+                    ? { ...msg, status: payload.new.status, delivered_at: payload.new.delivered_at, read_at: payload.new.read_at }
+                    : msg
+                )
+              }));
+
+              return { ...oldData, pages: newPages };
+            }
+          );
+        }
+      )
+      .subscribe();
+
+    // Subscribe to message reactions
+    const reactionsChannel = supabase
+      .channel(`message_reactions_${chatId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'message_reactions',
+        },
+        (payload) => {
+          console.log('😀 Message reaction updated:', payload);
+
+          // Refresh reactions for affected message (specific message only)
+          if (payload.new?.message_id || payload.old?.message_id) {
+            const messageId = payload.new?.message_id || payload.old?.message_id;
+            console.log('🔄 Supabase: Reaction change detected for message:', messageId);
+
+            // Fetch reactions for only this specific message
+            messagesAPI.getMessagesReactions([messageId]).then(serverReactions => {
+              const messageReactions = serverReactions[messageId] || [];
+
+              const groupedByEmoji = messageReactions.reduce((acc, reaction) => {
+                if (!acc[reaction.emoji]) {
+                  acc[reaction.emoji] = [];
+                }
+                acc[reaction.emoji].push(reaction);
+                return acc;
+              }, {} as Record<string, any[]>);
+
+              const processedReactions = Object.entries(groupedByEmoji).map(([emoji, emojiReactions]) => ({
+                emoji,
+                count: emojiReactions.length,
+                userReacted: emojiReactions.some(r => r.user_id === userId)
+              }));
+
+              // Update ONLY this message's reactions
+              setReactions(prevReactions => ({
+                ...prevReactions,
+                [messageId]: processedReactions
+              }));
+            }).catch(error => {
+              console.error('❌ Failed to fetch specific message reactions:', error);
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    // Cleanup subscriptions
+    return () => {
+      console.log('🧹 Cleaning up Supabase real-time subscriptions');
+      messageStatusChannel.unsubscribe();
+      reactionsChannel.unsubscribe();
+    };
+  }, [userId, recipientId, chatId, queryClient, fetchReactions]);
+
+  // Mark unread messages as read when chat is opened (only once)
+  const markedAsReadRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!userId || !recipientId || !messages.length) return;
+
+    // Find unread messages from the other user that haven't been marked yet
+    const unreadMessages = messages.filter(msg =>
+      msg.sender_id === recipientId &&
+      msg.status !== 'read' &&
+      !msg.is_read &&
+      !msg.id.startsWith('temp_') &&
+      !markedAsReadRef.current.has(msg.id)
+    );
+
+    if (unreadMessages.length > 0) {
+      console.log(`👀 Marking ${unreadMessages.length} new messages as read`);
+
+      // Mark each unread message as read (only once)
+      unreadMessages.forEach(msg => {
+        markedAsReadRef.current.add(msg.id); // Track that we've marked this message
+        setTimeout(() => {
+          markAsRead(msg.id);
+        }, 500); // Small delay to simulate reading
+      });
+    }
+  }, [messages, userId, recipientId, markAsRead]);
 
   // Handle sending messages
   const handleSendMessage = useCallback(async (content: string, replyToMessageId?: string) => {
@@ -360,27 +634,57 @@ const CustomChatContainer: React.FC<CustomChatContainerProps> = ({
         }
       );
 
-      // Send via Socket.IO for real-time delivery with optimistic message ID
-      const socketMessage = sendSocketMessage({
-        sender_id: userId,
-        receiver_id: recipientId,
-        content,
-        is_read: false,
-      }, optimisticMessage.id); // Pass optimistic ID to maintain consistency
-
-      // Send reply or regular message via API
+      // Send reply or regular message via API first to get real message ID
+      let realMessage;
       if (replyToMessageId) {
-        await sendReplyMutation.mutateAsync({
+        realMessage = await sendReplyMutation.mutateAsync({
           senderId: userId,
           receiverId: recipientId,
           content,
           replyToMessageId,
         });
       } else {
-        await sendMessageMutation.mutateAsync({
+        realMessage = await sendMessageMutation.mutateAsync({
           senderId: userId,
           receiverId: recipientId,
           content,
+        });
+      }
+
+      // Replace optimistic message with real message in cache
+      if (realMessage && realMessage.id) {
+        console.log('🔄 Replacing optimistic message with real message:', {
+          optimisticId: optimisticMessage.id,
+          realId: realMessage.id
+        });
+
+        queryClient.setQueryData(
+          queryKeys.messages.messages(recipientId),
+          (oldData: any) => {
+            if (!oldData) return oldData;
+
+            const newPages = oldData.pages.map((page: any) => ({
+              ...page,
+              messages: page.messages.map((msg: any) =>
+                msg.id === optimisticMessage.id
+                  ? { ...realMessage, status: 'sent' } // Replace with real message but keep 'sent' status
+                  : msg
+              )
+            }));
+
+            return { ...oldData, pages: newPages };
+          }
+        );
+
+        // Send via Socket.IO for real-time delivery with REAL message ID
+        console.log('📤 Sending Socket.IO message with real ID:', realMessage.id);
+        const socketMessage = sendSocketMessage({
+          id: realMessage.id, // Use real database ID
+          sender_id: userId,
+          receiver_id: recipientId,
+          content,
+          is_read: false,
+          created_at: realMessage.created_at,
         });
       }
 
@@ -432,30 +736,130 @@ const CustomChatContainer: React.FC<CustomChatContainerProps> = ({
     setReplyToMessage(undefined);
   }, []);
 
-  // Handle emoji reactions
+  // Handle emoji reactions with Socket.IO for instant real-time updates
   const handleReaction = useCallback(async (messageId: string, emoji: string) => {
     try {
-      // Add optimistic reaction immediately
-      dispatch(addOptimisticReaction({ messageId, emoji }));
+      console.log('😀 Adding reaction via Socket.IO:', { messageId, emoji, userId });
 
-      // Only send to API if it's not a temporary message
+      // Optimistic update: immediately update local reactions state
+      setReactions(prevReactions => {
+        const messageReactions = prevReactions[messageId] || [];
+        const existingReactionIndex = messageReactions.findIndex(r => r.emoji === emoji);
+
+        let updatedReactions;
+        if (existingReactionIndex >= 0) {
+          const existingReaction = messageReactions[existingReactionIndex];
+          if (existingReaction.userReacted) {
+            // User is removing their reaction
+            if (existingReaction.count === 1) {
+              // Remove the reaction entirely
+              updatedReactions = messageReactions.filter((_, index) => index !== existingReactionIndex);
+            } else {
+              // Decrease count and mark as not reacted
+              updatedReactions = messageReactions.map((reaction, index) =>
+                index === existingReactionIndex
+                  ? { ...reaction, count: reaction.count - 1, userReacted: false }
+                  : reaction
+              );
+            }
+          } else {
+            // User is adding their reaction to existing emoji
+            updatedReactions = messageReactions.map((reaction, index) =>
+              index === existingReactionIndex
+                ? { ...reaction, count: reaction.count + 1, userReacted: true }
+                : reaction
+            );
+          }
+        } else {
+          // New emoji reaction
+          updatedReactions = [...messageReactions, { emoji, count: 1, userReacted: true }];
+        }
+
+        return {
+          ...prevReactions,
+          [messageId]: updatedReactions
+        };
+      });
+
+      // Send reaction via Socket.IO for instant real-time updates
       if (!messageId.startsWith('temp_')) {
-        await reactionMutation.mutateAsync({
+        console.log('📤 Sending reaction via Socket.IO:', { messageId, emoji });
+        sendSocketReaction(messageId, emoji);
+
+        // Also send to API as backup (but don't wait for it)
+        reactionMutation.mutateAsync({
           messageId,
           emoji,
           userId,
+        }).catch(error => {
+          console.error('❌ API reaction failed (Socket.IO already sent):', error);
+          // Refresh reactions for this specific message if API fails
+          setTimeout(async () => {
+            try {
+              const serverReactions = await messagesAPI.getMessagesReactions([messageId]);
+              const messageReactions = serverReactions[messageId] || [];
+
+              const groupedByEmoji = messageReactions.reduce((acc, reaction) => {
+                if (!acc[reaction.emoji]) {
+                  acc[reaction.emoji] = [];
+                }
+                acc[reaction.emoji].push(reaction);
+                return acc;
+              }, {} as Record<string, any[]>);
+
+              const processedReactions = Object.entries(groupedByEmoji).map(([emoji, emojiReactions]) => ({
+                emoji,
+                count: emojiReactions.length,
+                userReacted: emojiReactions.some(r => r.user_id === userId)
+              }));
+
+              setReactions(prevReactions => ({
+                ...prevReactions,
+                [messageId]: processedReactions
+              }));
+            } catch (fetchError) {
+              console.error('❌ Failed to refresh specific message reactions:', fetchError);
+            }
+          }, 1000);
         });
-        console.log('✅ Reaction sent to server successfully');
       } else {
-        console.log('⚠️ Skipping API call for temporary message:', messageId);
+        console.log('⚠️ Skipping reaction for temporary message:', messageId);
+        // Add Redux optimistic reaction for temporary messages
+        dispatch(addOptimisticReaction({ messageId, emoji }));
       }
     } catch (error) {
       console.error('❌ Failed to send reaction:', error);
 
-      // Remove optimistic reaction on error
+      // Revert optimistic update on error - fetch only this message's reactions
+      try {
+        const serverReactions = await messagesAPI.getMessagesReactions([messageId]);
+        const messageReactions = serverReactions[messageId] || [];
+
+        const groupedByEmoji = messageReactions.reduce((acc, reaction) => {
+          if (!acc[reaction.emoji]) {
+            acc[reaction.emoji] = [];
+          }
+          acc[reaction.emoji].push(reaction);
+          return acc;
+        }, {} as Record<string, any[]>);
+
+        const processedReactions = Object.entries(groupedByEmoji).map(([emoji, emojiReactions]) => ({
+          emoji,
+          count: emojiReactions.length,
+          userReacted: emojiReactions.some(r => r.user_id === userId)
+        }));
+
+        setReactions(prevReactions => ({
+          ...prevReactions,
+          [messageId]: processedReactions
+        }));
+      } catch (fetchError) {
+        console.error('❌ Failed to revert reaction state:', fetchError);
+      }
+
       dispatch(removeOptimisticReaction(messageId));
     }
-  }, [dispatch, reactionMutation, userId]);
+  }, [dispatch, reactionMutation, userId, fetchReactions, sendSocketReaction]);
 
   // Handle message deletion - simplified
   const handleDelete = useCallback(async (messageId: string) => {

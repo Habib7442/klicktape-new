@@ -180,8 +180,8 @@ export default {
       router: {
         origin: false,
       },
-      eas: {
-        projectId: '5e659cc8-04f7-411a-b259-27add65af103',
+     "eas": {
+        "projectId": "af9ec5ff-79c9-46e7-95d9-341da4351f22"
       },
       // Environment information (safe to expose)
       environment: {
